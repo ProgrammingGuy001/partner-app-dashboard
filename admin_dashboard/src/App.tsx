@@ -13,7 +13,17 @@ import { jobAPI, adminAPI, type Job } from './api/services';
 import { Briefcase, TrendingUp, Shield, ArrowRight, Activity, Users, DollarSign } from 'lucide-react';
 import './index.css';
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // 5 minutes
+      gcTime: 10 * 60 * 1000, // 10 minutes (formerly cacheTime)
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: true,
+      retry: 1,
+    },
+  },
+});
 
 const Dashboard: React.FC = () => {
   const [stats, setStats] = useState({

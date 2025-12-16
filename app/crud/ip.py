@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from app.model.ip import ip
 from fastapi import HTTPException
+from app.core.cache import cached, invalidate_cache
 
 def get_ip_by_id(db:Session,id:int):
     return db.query(ip).filter(ip.id==id).first()
@@ -8,9 +9,11 @@ def get_ip_by_id(db:Session,id:int):
 def get_ip_by_phone(db: Session, phone_number: str):
     return db.query(ip).filter(ip.phone_number == phone_number).first()
 
+@cached(prefix="ips:all", ttl=300)
 def get_all_ips(db: Session):
     return db.query(ip).all()
 
+@cached(prefix="ips:approved", ttl=300)
 def get_approved_ips(db: Session):
     """Get only approved/verified IPs for dropdown"""
     return db.query(ip).filter(ip.is_id_verified == True).all()
@@ -24,6 +27,9 @@ def verify_ip_user(db: Session, phone_number: str):
         db_ip.is_bank_details_verified = True
         db.commit()
         db.refresh(db_ip)
+        
+        # Invalidate IP caches
+        invalidate_cache("ips:*")
     return db_ip
 
 def assign_ip(db: Session, ip_id: int, commit: bool = True):
