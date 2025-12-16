@@ -18,9 +18,9 @@ def create_new_job(job: JobCreate, db: Session = Depends(get_db), current_user: 
     return create_job(db, job)
 
 @router.get("/", response_model=List[JobResponse])
-def read_jobs(skip: int = 0, limit: int = 100, status: str = None, db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
-    """Get all jobs with pagination. Optional filter by status."""
-    return get_all_jobs(db, skip=skip, limit=limit, status=status)
+def read_jobs(skip: int = 0, limit: int = 100, status: str = None, type: str = None, search: str = None, db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
+    """Get all jobs with pagination. Optional filters by status, type, and search."""
+    return get_all_jobs(db, skip=skip, limit=limit, status=status, type=type, search=search)
 
 @router.get("/{job_id}", response_model=JobResponse)
 def read_job(job_id: int, db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):

@@ -20,10 +20,7 @@ def startup():
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://partner-app-dashboard-navy.vercel.app"
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )

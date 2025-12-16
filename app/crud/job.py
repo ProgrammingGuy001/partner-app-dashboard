@@ -20,12 +20,20 @@ def get_job_by_id(db: Session, job_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-def get_all_jobs(db: Session, skip: int = 0, limit: int = 100, status: str = None):
-    """Get all jobs with optional status filter and error handling"""
+def get_all_jobs(db: Session, skip: int = 0, limit: int = 100, status: str = None, type: str = None, search: str = None):
+    """Get all jobs with optional status, type, and search filters and error handling"""
     try:
         query = db.query(Job)
         if status:
             query = query.filter(Job.status == status)
+        if type:
+            query = query.filter(Job.type == type)
+        if search:
+            query = query.filter(
+                (Job.name.ilike(f"%{search}%")) |
+                (Job.customer_name.ilike(f"%{search}%")) |
+                (Job.city.ilike(f"%{search}%"))
+            )
         return query.offset(skip).limit(limit).all()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")

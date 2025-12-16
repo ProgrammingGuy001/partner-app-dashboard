@@ -197,7 +197,7 @@ const Dashboard: React.FC = () => {
             </div>
           </Link>
 
-          <Link to="/dashboard/admin" className="group">
+          <Link to="/dashboard/workers" className="group">
             <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm hover:shadow-md hover:border-purple-300 transition">
               <div className="flex items-center gap-4">
                 <div className="bg-purple-50 p-3 rounded-lg group-hover:bg-purple-100 transition">
@@ -304,6 +304,7 @@ function App() {
             <Route path="advanced-analytics" element={<ProjectAnalytics />} />
             <Route path="workers" element={<Workers />} />
             <Route path="jobs/:jobId/history" element={<JobHistory />} />
+            <Route path="admin" element={<Admin />} />
           </Route>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Routes>
