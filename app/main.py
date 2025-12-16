@@ -3,15 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .database import engine, Base
 from .api.v1 import auth, verification, jobs
-
 from .routes.auth import router as auth_router
 from .routes.approval import router as approval_router
 from .routes.job import router as job_router
 from .routes.analytics import router as analytics_router
-
-
-# Create database tables
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="Partner App API",
@@ -19,16 +14,18 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS Middleware
+@app.on_event("startup")
+def startup():
+    Base.metadata.create_all(bind=engine)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Update this in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include routers
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(verification.router, prefix="/api/v1")
 app.include_router(jobs.router, prefix="/api/v1")
@@ -38,19 +35,6 @@ app.include_router(approval_router)
 app.include_router(job_router)
 app.include_router(analytics_router)
 
-
-@app.get("/")
-def root():
-    return {
-        "message": "Partner App API",
-        "version": "1.0.0",
-        "docs": "/docs"
-    }
-
-
 @app.get("/health")
-def health_check():
-    return {
-        "status": "healthy",
-        "message": "API is running"
-    }
+def health():
+    return {"status": "ok"}
