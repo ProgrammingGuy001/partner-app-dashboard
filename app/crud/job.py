@@ -7,7 +7,6 @@ from app.schemas.job_status_log import JobStatusLogCreate
 from fastapi import HTTPException
 from datetime import date, datetime
 from app.crud.ip import assign_ip, unassign_ip, check_ip_available
-from app.core.cache import invalidate_cache
 
 def get_job_by_id(db: Session, job_id: int):
     """Get a job by ID with error handling"""
@@ -68,10 +67,6 @@ def create_job(db: Session, job: JobCreate):
         db.commit()
         db.refresh(db_job)
         
-        # Invalidate job caches
-        invalidate_cache("jobs:*")
-        invalidate_cache("analytics:*")
-        
         return db_job
     except HTTPException:
         db.rollback()
@@ -111,10 +106,6 @@ def update_job(db: Session, job_id: int, job_update: JobUpdate):
         db.refresh(db_job)
         print(f"DEBUG: Job updated successfully. additional_expense = {db_job.additional_expense}")
         
-        # Invalidate job caches
-        invalidate_cache("jobs:*")
-        invalidate_cache("analytics:*")
-        
         return db_job
     except HTTPException:
         db.rollback()
@@ -140,10 +131,6 @@ def delete_job(db: Session, job_id: int):
         
         db.delete(db_job)
         db.commit()
-        
-        # Invalidate job caches
-        invalidate_cache("jobs:*")
-        invalidate_cache("analytics:*")
         
         return {"message": "Job deleted successfully"}
     except HTTPException:
@@ -183,10 +170,6 @@ def start_job(db: Session, job_id: int, notes: str = None):
         db.commit()
         db.refresh(db_job)
         
-        # Invalidate job caches
-        invalidate_cache("jobs:*")
-        invalidate_cache("analytics:*")
-        
         return db_job
     except HTTPException:
         db.rollback()
@@ -221,10 +204,6 @@ def pause_job(db: Session, job_id: int, notes: str = None):
         
         db.commit()
         db.refresh(db_job)
-        
-        # Invalidate job caches
-        invalidate_cache("jobs:*")
-        invalidate_cache("analytics:*")
         
         return db_job
     except HTTPException:
@@ -261,10 +240,6 @@ def finish_job(db: Session, job_id: int, notes: str = None):
         
         db.commit()
         db.refresh(db_job)
-        
-        # Invalidate job caches
-        invalidate_cache("jobs:*")
-        invalidate_cache("analytics:*")
         
         return db_job
     except HTTPException:
