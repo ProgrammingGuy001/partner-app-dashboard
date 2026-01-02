@@ -1,30 +1,56 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useEffect, useCallback } from 'react';
 import { adminAPI } from '../api/services';
 
 export const useWorkers = () => {
-  return useQuery({
-    queryKey: ['workers'],
-    queryFn: () => adminAPI.getIPUsers(),
-    staleTime: 5 * 60 * 1000, // 5 minutes
-  });
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const result = await adminAPI.getIPUsers();
+      setData(result);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  return { data, error, isLoading, refetch: fetchData };
 };
 
 export const useApprovedWorkers = () => {
-  return useQuery({
-    queryKey: ['workers', 'approved'],
-    queryFn: () => adminAPI.getApprovedIPUsers(),
-    staleTime: 5 * 60 * 1000, // 5 minutes
-  });
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const result = await adminAPI.getApprovedIPUsers();
+        setData(result);
+      } catch (e) {
+        setError(e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  return { data, error, isLoading };
 };
 
 export const useVerifyWorker = () => {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: adminAPI.verifyIPUser,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['workers'] });
-      queryClient.invalidateQueries({ queryKey: ['jobs'] });
-    },
-  });
+  return {
+    verifyWorker: adminAPI.verifyIPUser,
+  };
 };

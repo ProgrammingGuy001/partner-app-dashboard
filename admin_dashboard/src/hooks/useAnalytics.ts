@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
 import { analyticsAPI } from '../api/services';
 
 interface PayoutParams {
@@ -10,25 +10,73 @@ interface PayoutParams {
 }
 
 export const usePayoutReport = (params: PayoutParams) => {
-  return useQuery({
-    queryKey: ['analytics', 'payout', params],
-    queryFn: () => analyticsAPI.getPayoutReport(params),
-    staleTime: 5 * 60 * 1000, // 5 minutes - analytics can be cached longer
-  });
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const result = await analyticsAPI.getPayoutReport(params);
+        setData(result);
+      } catch (e) {
+        setError(e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [params]);
+
+  return { data, error, isLoading };
 };
 
 export const useJobStages = () => {
-  return useQuery({
-    queryKey: ['analytics', 'job-stages'],
-    queryFn: () => analyticsAPI.getJobStages(),
-    staleTime: 2 * 60 * 1000, // 2 minutes
-  });
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const result = await analyticsAPI.getJobStages();
+        setData(result);
+      } catch (e) {
+        setError(e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  return { data, error, isLoading };
 };
 
 export const useIPPerformance = () => {
-  return useQuery({
-    queryKey: ['analytics', 'ip-performance'],
-    queryFn: () => analyticsAPI.getIPPerformance(),
-    staleTime: 5 * 60 * 1000, // 5 minutes
-  });
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const result = await analyticsAPI.getIPPerformance();
+        setData(result);
+      } catch (e) {
+        setError(e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  return { data, error, isLoading };
 };

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Login from './pages/Login';
 import DashboardLayout from './components/DashboardLayout';
 import Jobs from './pages/Jobs';
@@ -12,18 +11,6 @@ import ProjectAnalytics from './pages/ProjectAnalytics';
 import { jobAPI, adminAPI, type Job } from './api/services';
 import { Briefcase, TrendingUp, Shield, ArrowRight, Activity, Users, DollarSign } from 'lucide-react';
 import './index.css';
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutes
-      gcTime: 10 * 60 * 1000, // 10 minutes (formerly cacheTime)
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: true,
-      retry: 1,
-    },
-  },
-});
 
 const Dashboard: React.FC = () => {
   const [stats, setStats] = useState({
@@ -299,10 +286,8 @@ const Dashboard: React.FC = () => {
     </div>
   );
 };
-
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -319,7 +304,6 @@ function App() {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </BrowserRouter>
-    </QueryClientProvider>
   );
 }
 

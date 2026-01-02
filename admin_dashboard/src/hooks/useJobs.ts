@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useEffect, useCallback } from 'react';
 import { jobAPI } from '../api/services';
 
 interface JobFilters {
@@ -9,64 +9,99 @@ interface JobFilters {
 }
 
 export const useJobs = (filters: JobFilters = {}) => {
-  return useQuery({
-    queryKey: ['jobs', filters],
-    queryFn: () => jobAPI.getAll(filters),
-    staleTime: 2 * 60 * 1000, // 2 minutes
-  });
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const result = await jobAPI.getAll(filters);
+      setData(result);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [filters]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  return { data, error, isLoading, refetch: fetchData };
 };
 
 export const useJob = (id: number) => {
-  return useQuery({
-    queryKey: ['job', id],
-    queryFn: () => jobAPI.getById(id),
-    enabled: !!id,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-  });
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!id) {
+      setIsLoading(false);
+      return;
+    }
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const result = await jobAPI.getById(id);
+        setData(result);
+      } catch (e) {
+        setError(e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [id]);
+
+  return { data, error, isLoading };
 };
 
 export const useCreateJob = () => {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: jobAPI.create,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['jobs'] });
-      queryClient.invalidateQueries({ queryKey: ['analytics'] });
-    },
-  });
+  return {
+    createJob: jobAPI.create,
+  };
 };
 
 export const useUpdateJob = () => {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: any }) => jobAPI.update(id, data),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['jobs'] });
-      queryClient.invalidateQueries({ queryKey: ['job', variables.id] });
-      queryClient.invalidateQueries({ queryKey: ['analytics'] });
-    },
-  });
+  return {
+    updateJob: ({ id, data }: { id: number; data: any }) => jobAPI.update(id, data),
+  };
 };
 
 export const useDeleteJob = () => {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: jobAPI.delete,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['jobs'] });
-      queryClient.invalidateQueries({ queryKey: ['analytics'] });
-    },
-  });
+  return {
+    deleteJob: jobAPI.delete,
+  };
 };
 
 export const useJobHistory = (id: number) => {
-  return useQuery({
-    queryKey: ['job-history', id],
-    queryFn: () => jobAPI.getHistory(id),
-    enabled: !!id,
-    staleTime: 1 * 60 * 1000, // 1 minute
-  });
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!id) {
+      setIsLoading(false);
+      return;
+    }
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const result = await jobAPI.getHistory(id);
+        setData(result);
+      } catch (e) {
+        setError(e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [id]);
+
+  return { data, error, isLoading };
 };
