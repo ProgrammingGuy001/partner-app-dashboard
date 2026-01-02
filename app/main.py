@@ -7,6 +7,8 @@ from .routes.auth import router as auth_router
 from .routes.approval import router as approval_router
 from .routes.job import router as job_router
 from .routes.analytics import router as analytics_router
+from .routes.checklist import router as checklist_router
+
 
 app = FastAPI(
     title="Partner App API",
@@ -34,6 +36,7 @@ app.include_router(auth_router)
 app.include_router(approval_router)
 app.include_router(job_router)
 app.include_router(analytics_router)
+app.include_router(checklist_router)
 
 @app.get("/health")
 def health():

@@ -8,6 +8,8 @@ import Admin from './pages/Admin';
 import JobHistory from './pages/JobHistory';
 import Workers from './pages/Workers';
 import ProjectAnalytics from './pages/ProjectAnalytics';
+import Checklists from './pages/Checklist';
+
 import { jobAPI, adminAPI, type Job } from './api/services';
 import { Briefcase, TrendingUp, Shield, ArrowRight, Activity, Users, DollarSign } from 'lucide-react';
 import './index.css';
@@ -300,6 +302,8 @@ function App() {
             <Route path="workers" element={<Workers />} />
             <Route path="jobs/:jobId/history" element={<JobHistory />} />
             <Route path="admin" element={<Admin />} />
+            <Route path="checklists" element={<Checklists />} />
+
           </Route>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Routes>

@@ -147,3 +147,11 @@ export const analyticsAPI = {
   getJobStages: () => axiosInstance.get<JobStageCount[]>('/analytics/job-stages'),
   getIPPerformance: () => axiosInstance.get<PayoutByIPUser[]>('/analytics/ip-performance'),
 };
+
+// Checklist APIs
+export const checklistAPI = {
+  getAll: () => axiosInstance.get('/checklists'),
+  create: (data: any) => axiosInstance.post('/checklists', data),
+  getById: (id: number) => axiosInstance.get(`/checklists/${id}`),
+  createItem: (checklistId: number, data: any) => axiosInstance.post(`/checklists/${checklistId}/items`, data),
+};
