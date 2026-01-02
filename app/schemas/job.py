@@ -17,6 +17,7 @@ class JobBase(BaseModel):
     assigned_ip_id: Optional[int] = None
     delivery_date: date
     checklist_link: Optional[str] = None
+    checklist_id: Optional[int] = None
     google_map_link: Optional[str] = None
     additional_expense: Optional[Decimal] = Field(default=0, max_digits=10, decimal_places=2)
 
@@ -36,6 +37,7 @@ class JobUpdate(BaseModel):
     status: Optional[str] = None
     delivery_date: Optional[date] = None
     checklist_link: Optional[str] = None
+    checklist_id: Optional[int] = None
     google_map_link: Optional[str] = None
     additional_expense: Optional[condecimal(max_digits=10, decimal_places=2)] = None
     
@@ -63,6 +65,7 @@ class JobResponse(BaseModel):
     assigned_ip_id: Optional[int] = None
     delivery_date: Optional[date] = None
     checklist_link: Optional[str] = None
+    checklist_id: Optional[int] = None
     google_map_link: Optional[str] = None
     status: str = 'created'
     additional_expense: Optional[Decimal] = 0

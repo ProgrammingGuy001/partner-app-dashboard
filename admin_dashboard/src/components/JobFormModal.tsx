@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { type Job, jobAPI, type JobUpdate, adminAPI } from '../api/services';
+import { type Job, jobAPI, type JobUpdate, adminAPI, checklistAPI } from '../api/services';
 import { X } from 'lucide-react';
 
 interface IPUser {
@@ -8,6 +8,12 @@ interface IPUser {
   first_name: string;
   last_name: string;
   is_assigned: boolean;
+}
+
+interface Checklist {
+  id: number;
+  name: string;
+  description?: string;
 }
 
 interface JobFormModalProps {
@@ -32,6 +38,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
     checklist_link: '',
   });
   const [ipUsers, setIpUsers] = useState<IPUser[]>([]);
+  const [checklists, setChecklists] = useState<Checklist[]>([]);
+  const [selectedChecklistId, setSelectedChecklistId] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -51,6 +59,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
         delivery_date: job.delivery_date || '',
         checklist_link: job.checklist_link || '',
       });
+      setSelectedChecklistId(job.checklist_id?.toString() || '');
     }
   }, [job]);
 
@@ -64,6 +73,18 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
       }
     };
     fetchIPUsers();
+  }, []);
+
+  useEffect(() => {
+    const fetchChecklists = async () => {
+      try {
+        const response = await checklistAPI.getAll();
+        setChecklists(response.data);
+      } catch (error) {
+        console.error('Error fetching checklists:', error);
+      }
+    };
+    fetchChecklists();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -87,6 +108,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
       };
 
       if (formData.checklist_link) payload.checklist_link = formData.checklist_link;
+      if (selectedChecklistId) payload.checklist_id = parseInt(selectedChecklistId);
 
       if (job?.id) {
         await jobAPI.update(job.id, payload);
@@ -258,13 +280,30 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
               />
             </div>
 
-            <div className="md:col-span-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Attach Checklist</label>
+              <select
+                value={selectedChecklistId}
+                onChange={(e) => setSelectedChecklistId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              >
+                <option value="">Select a checklist (optional)</option>
+                {checklists.map((checklist) => (
+                  <option key={checklist.id} value={checklist.id}>
+                    {checklist.name} {checklist.description ? `- ${checklist.description}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Checklist Link</label>
               <input
                 type="url"
                 value={formData.checklist_link}
                 onChange={(e) => setFormData({ ...formData, checklist_link: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="Or enter custom checklist URL"
               />
             </div>
           </div>

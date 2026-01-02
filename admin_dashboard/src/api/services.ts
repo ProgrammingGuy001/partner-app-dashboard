@@ -27,6 +27,7 @@ export interface Job {
   is_ip_available?: boolean;
   delivery_date: string;
   checklist_link?: string;
+  checklist_id?: number;
   google_map_link?: string;
   status?: string;
   additional_expense?: number;
@@ -45,6 +46,7 @@ export interface JobUpdate {
   status?: string;
   delivery_date?: string;
   checklist_link?: string;
+  checklist_id?: number;
   google_map_link?: string;
   additional_expense?: number;
 }
