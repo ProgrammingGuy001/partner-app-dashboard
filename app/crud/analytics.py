@@ -89,7 +89,7 @@ def get_date_range(period: str, year: int = None, month: int = None, quarter: in
     return start_date, end_date
 
 
-@cached(prefix="analytics:payout", ttl=300)
+@cached(prefix="analytics:payout", ttl=900)
 def get_payout_analytics(
     db: Session,
     period: str,
@@ -199,7 +199,7 @@ def get_payout_analytics(
         raise HTTPException(status_code=500, detail=f"Error fetching analytics: {str(e)}")
 
 
-@cached(prefix="analytics:job_stages", ttl=300)
+@cached(prefix="analytics:job_stages", ttl=900)
 def get_job_stage_summary(db: Session):
     """Get current count of jobs in each stage (all time) with payout = rate * size and additional expenses"""
     try:
@@ -223,7 +223,7 @@ def get_job_stage_summary(db: Session):
         raise HTTPException(status_code=500, detail=f"Error fetching job stage summary: {str(e)}")
 
 
-@cached(prefix="analytics:ip_performance", ttl=300)
+@cached(prefix="analytics:ip_performance", ttl=900)
 def get_ip_performance(db: Session):
     """Get performance metrics for all IPs (all time) with payout = rate * size and additional expenses (completed jobs only)"""
     try:
