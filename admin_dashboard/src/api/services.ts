@@ -166,3 +166,29 @@ export const analyticsAPI = {
   getIPPerformance: () =>
     axiosInstance.get('/analytics/ip-performance/'),
 };
+
+export const checklistAPI = {
+  getAll: () => axiosInstance.get('/checklists/'),
+
+  create: (data: any) => axiosInstance.post('/checklists/', data),
+
+  getById: (id: number) =>
+    axiosInstance.get(`/checklists/${id}/`),
+
+  createItem: (checklistId: number, data: any) =>
+    axiosInstance.post(`/checklists/${checklistId}/items/`, data),
+
+  getJobChecklistsStatus: (jobId: number) =>
+    axiosInstance.get(`/checklists/jobs/${jobId}/status/`),
+
+  updateJobChecklistItemStatus: (
+    jobId: number,
+    itemId: number,
+    data: { is_approved?: boolean; admin_comment?: string }
+  ) =>
+    axiosInstance.put(
+      `/checklists/jobs/${jobId}/items/${itemId}/status/`,
+      data
+    ),
+};
+
