@@ -27,7 +27,8 @@ export interface Job {
   is_ip_available?: boolean;
   delivery_date: string;
   checklist_link?: string;
-  checklist_id?: number;
+  checklist_ids?: number[];
+  job_checklists?: { checklist_id: number }[];
   google_map_link?: string;
   status?: string;
   additional_expense?: number;
@@ -46,7 +47,7 @@ export interface JobUpdate {
   status?: string;
   delivery_date?: string;
   checklist_link?: string;
-  checklist_id?: number;
+  checklist_ids?: number[];
   google_map_link?: string;
   additional_expense?: number;
 }
@@ -156,4 +157,7 @@ export const checklistAPI = {
   create: (data: any) => axiosInstance.post('/checklists', data),
   getById: (id: number) => axiosInstance.get(`/checklists/${id}`),
   createItem: (checklistId: number, data: any) => axiosInstance.post(`/checklists/${checklistId}/items`, data),
+  getJobChecklistsStatus: (jobId: number) => axiosInstance.get(`/checklists/jobs/${jobId}/status`),
+  updateJobChecklistItemStatus: (jobId: number, itemId: number, data: { is_approved?: boolean; admin_comment?: string }) => 
+    axiosInstance.put(`/checklists/jobs/${jobId}/items/${itemId}/status`, data),
 };

@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from app.model.job import Job
+from app.model.job import Job, JobChecklist
 from app.model.ip import ip
 from app.model.job_status_log import JobStatusLog
 from app.schemas.job import JobCreate, JobUpdate
@@ -50,10 +50,19 @@ def create_job(db: Session, job: JobCreate):
                 raise HTTPException(status_code=400, detail=f"IP {ip_user.id} is already assigned to another job")
         
         job_data = job.model_dump()
+        # Ensure checklist_ids and checklist_id are handled
+        checklist_ids = job_data.pop('checklist_ids', [])
+        job_data.pop('checklist_id', None) # Remove legacy field if present
         
         db_job = Job(**job_data)
         db.add(db_job)
         db.flush()  # Flush to get the job ID
+
+        # Create JobChecklist entries
+        if checklist_ids:
+            for c_id in checklist_ids:
+                job_checklist = JobChecklist(job_id=db_job.id, checklist_id=c_id)
+                db.add(job_checklist)
         
         # Log the job creation
         status_log = JobStatusLog(
@@ -73,6 +82,7 @@ def create_job(db: Session, job: JobCreate):
         raise
     except Exception as e:
         db.rollback()
+        print(f"ERROR: create_job failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error creating job: {str(e)}")
 
 def update_job(db: Session, job_id: int, job_update: JobUpdate):
@@ -86,7 +96,7 @@ def update_job(db: Session, job_id: int, job_update: JobUpdate):
         print(f"DEBUG: Updating job {job_id} with data: {update_data}")
         
         # Handle IP assignment changes
-        if 'assigned_ip_id' in update_data and update_data['assigned_ip_id']:
+        if 'assigned_ip_id' in update_data:
             new_ip_id = update_data['assigned_ip_id']
             old_ip_id = db_job.assigned_ip_id
             
@@ -97,10 +107,27 @@ def update_job(db: Session, job_id: int, job_update: JobUpdate):
                     unassign_ip(db, old_ip_id, commit=False)
                 
                 # Assign new IP
-                assign_ip(db, new_ip_id, commit=False)
+                if new_ip_id:
+                    assign_ip(db, new_ip_id, commit=False)
+
+        # Handle Checklist changes
+        if 'checklist_ids' in update_data:
+            checklist_ids = update_data.pop('checklist_ids')
+            # Remove existing checklists
+            db.query(JobChecklist).filter(JobChecklist.job_id == job_id).delete()
+            # Add new checklists
+            if checklist_ids:
+                for c_id in checklist_ids:
+                    job_checklist = JobChecklist(job_id=job_id, checklist_id=c_id)
+                    db.add(job_checklist)
         
-        # Update job fields
-        db.query(Job).filter(Job.id == job_id).update(update_data)
+        # Remove legacy field if present in update_data
+        update_data.pop('checklist_id', None)
+        
+        # Update job fields individually to avoid issues with bulk update
+        for key, value in update_data.items():
+            if hasattr(db_job, key):
+                setattr(db_job, key, value)
         
         db.commit()
         db.refresh(db_job)
@@ -112,7 +139,7 @@ def update_job(db: Session, job_id: int, job_update: JobUpdate):
         raise
     except Exception as e:
         db.rollback()
-        print(f"DEBUG: Error updating job: {str(e)}")
+        print(f"ERROR: update_job failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error updating job: {str(e)}")
 
 def delete_job(db: Session, job_id: int):
@@ -125,6 +152,9 @@ def delete_job(db: Session, job_id: int):
         # Unassign IP if exists
         if db_job.assigned_ip_id:
             unassign_ip(db, db_job.assigned_ip_id, commit=False)
+        
+        # Delete all job checklists for this job
+        db.query(JobChecklist).filter(JobChecklist.job_id == job_id).delete(synchronize_session=False)
         
         # Delete all status logs for this job
         db.query(JobStatusLog).filter(JobStatusLog.job_id == job_id).delete(synchronize_session=False)

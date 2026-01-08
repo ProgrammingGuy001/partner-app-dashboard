@@ -1,0 +1,18 @@
+INFO:     Will watch for changes in these directories: ['/Users/ayena/Documents/partner-app-dashboard']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [14733] using WatchFiles
+INFO:     Started server process [14735]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:53043 - "OPTIONS /admin/ips/approved HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53045 - "OPTIONS /checklists HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53047 - "OPTIONS /admin/ips/approved HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53048 - "OPTIONS /checklists HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53045 - "GET /checklists HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:53045 - "GET /checklists HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:53045 - "OPTIONS /checklists/ HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53048 - "OPTIONS /checklists/ HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53047 - "GET /checklists/ HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53043 - "GET /admin/ips/approved HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53047 - "GET /checklists/ HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53048 - "GET /admin/ips/approved HTTP/1.1" 200 OK

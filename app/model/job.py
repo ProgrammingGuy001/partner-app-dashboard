@@ -18,7 +18,6 @@ from sqlalchemy.sql import func
 from app.database import Base
 
 
-# --- 1. Your Updated Job Model ---
 class Job(Base):
     __tablename__ = "job"
 
@@ -42,27 +41,15 @@ class Job(Base):
         Numeric(10, 2), nullable=True, default=0
     )
 
-    # --- NEW: Direct Link to a Primary Checklist Template ---
-    checklist_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("checklists.id"), nullable=True
+    # Relationships
+    job_checklists: Mapped[List["JobChecklist"]] = relationship(
+        "JobChecklist", back_populates="job", cascade="all, delete-orphan"
+    )
+    job_checklist_item_statuses: Mapped[List["JobChecklistItemStatus"]] = relationship(
+        "JobChecklistItemStatus", back_populates="job", cascade="all, delete-orphan"
     )
 
-    # --- NEW: Relationships ---
-    # 1. The specific tasks created for this job
-    checklist_items: Mapped[List["ChecklistItem"]] = relationship(
-        "ChecklistItem", back_populates="job"
-    )
 
-    # 2. The link table (if you need to track the template association)
-    linked_checklists: Mapped[List["JobChecklistLink"]] = relationship(
-        "JobChecklistLink", back_populates="job"
-    )
-
-    def __repr__(self):
-        return f"<Job {self.name}>"
-
-
-# --- 2. Checklist Template Model ---
 class Checklist(Base):
     __tablename__ = "checklists"
 
@@ -75,53 +62,69 @@ class Checklist(Base):
     )
 
     # Relationships
-    items: Mapped[List["ChecklistItem"]] = relationship(
+    checklist_items: Mapped[List["ChecklistItem"]] = relationship(
         "ChecklistItem", back_populates="checklist"
     )
-    linked_jobs: Mapped[List["JobChecklistLink"]] = relationship(
-        "JobChecklistLink", back_populates="checklist"
+    job_checklists: Mapped[List["JobChecklist"]] = relationship(
+        "JobChecklist", back_populates="checklist"
     )
 
 
-# --- 3. Link Table (Job <-> Checklist) ---
-class JobChecklistLink(Base):
-    __tablename__ = "job_checklist_link"
+class JobChecklist(Base):
+    __tablename__ = "job_checklists"
 
-    job_id: Mapped[int] = mapped_column(ForeignKey("job.id"), primary_key=True)
-    checklist_id: Mapped[int] = mapped_column(
-        ForeignKey("checklists.id"), primary_key=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("job.id"))
+    checklist_id: Mapped[int] = mapped_column(ForeignKey("checklists.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
     # Relationships
-    job: Mapped["Job"] = relationship("Job", back_populates="linked_checklists")
+    job: Mapped["Job"] = relationship("Job", back_populates="job_checklists")
     checklist: Mapped["Checklist"] = relationship(
-        "Checklist", back_populates="linked_jobs"
+        "Checklist", back_populates="job_checklists"
     )
 
 
-# --- 4. Checklist Item (The Actual Tasks) ---
 class ChecklistItem(Base):
     __tablename__ = "checklist_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-
-    # Foreign Keys
     checklist_id: Mapped[int] = mapped_column(ForeignKey("checklists.id"))
-    job_id: Mapped[int] = mapped_column(ForeignKey("job.id"))
-
-    # Task Data
     text: Mapped[str] = mapped_column(String)
-    status: Mapped[str] = mapped_column(String, default="pending")
     position: Mapped[int] = mapped_column(Integer, default=0)
-    checked: Mapped[bool] = mapped_column(Boolean, default=False)
-    comment: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    document_link: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=func.now(), onupdate=func.now()
     )
 
     # Relationships
-    checklist: Mapped["Checklist"] = relationship("Checklist", back_populates="items")
-    job: Mapped["Job"] = relationship("Job", back_populates="checklist_items")
+    checklist: Mapped["Checklist"] = relationship(
+        "Checklist", back_populates="checklist_items"
+    )
+    job_checklist_item_statuses: Mapped[List["JobChecklistItemStatus"]] = relationship(
+        "JobChecklistItemStatus", back_populates="checklist_item"
+    )
+
+
+class JobChecklistItemStatus(Base):
+    __tablename__ = "job_checklist_item_status"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("job.id"))
+    checklist_item_id: Mapped[int] = mapped_column(ForeignKey("checklist_items.id"))
+    checked: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_approved: Mapped[bool] = mapped_column(Boolean, default=False)
+    comment: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    admin_comment: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    document_link: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=func.now(), onupdate=func.now()
+    )
+
+    # Relationships
+    job: Mapped["Job"] = relationship("Job", back_populates="job_checklist_item_statuses")
+    checklist_item: Mapped["ChecklistItem"] = relationship(
+        "ChecklistItem", back_populates="job_checklist_item_statuses"
+    )
+    

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { jobAPI, adminAPI, type Job } from '../api/services';
-import { Plus, Edit2, Trash2, Play, Search, Filter, RefreshCw, History, User, UserCheck } from 'lucide-react';
+import { Plus, Edit2, Trash2, Play, Search, Filter, RefreshCw, History, User, UserCheck, ListChecks } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import JobFormModal from '../components/JobFormModal';
 import JobActionsModal from '../components/JobActionsModal';
@@ -22,6 +22,7 @@ const Jobs: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [actionJob, setActionJob] = useState<Job | null>(null);
+  const [actionModalTab, setActionModalTab] = useState<'actions' | 'checklists'>('actions');
 
   const fetchJobs = useCallback(async () => {
     try {
@@ -217,11 +218,24 @@ const Jobs: React.FC = () => {
                     <td className="px-6 py-4">
                       <div className="flex gap-2">
                         <button
-                          onClick={() => setActionJob(job)}
+                          onClick={() => {
+                            setActionJob(job);
+                            setActionModalTab('actions');
+                          }}
                           className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
                           title="Actions"
                         >
                           <Play size={18} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setActionJob(job);
+                            setActionModalTab('checklists');
+                          }}
+                          className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition"
+                          title="Checklist"
+                        >
+                          <ListChecks size={18} />
                         </button>
                         <button
                           onClick={() => setEditingJob(job)}
@@ -283,6 +297,7 @@ const Jobs: React.FC = () => {
       {actionJob && (
         <JobActionsModal
           job={actionJob}
+          initialTab={actionModalTab}
           onClose={() => setActionJob(null)}
           onSuccess={() => {
             setActionJob(null);

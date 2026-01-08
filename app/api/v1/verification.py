@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.model.ip import ip
 from app.model.job import Job
+from app.schemas.job import JobResponse
 
 from app.schemas.ip import (
     PANVerification, 
@@ -152,31 +153,10 @@ def check_panel_access(
 
     # ✅ If verified, fetch job data
     if all_verified:
-        # jobs = db.query(Job).filter(Job.assigned_ip_id == current_user.id).all()
         jobs = db.query(Job).all()
-        # print("Current user ID:", current_user.id)
-        # print("assigned ip for the  jobs:", [job.assigned_ip_id for job in jobs])
-        # print("Jobs assigned to user:", jobs)
-
-        # Convert SQLAlchemy objects → dict
-        job_data = [
-            {
-                "id": job.id,
-                "name": job.name,
-                "customer_name": job.customer_name,
-                "address": job.address,
-                "city": job.city,
-                "status": job.status,
-                "pincode": job.pincode,
-                "assigned_ip_id": job.assigned_ip_id,
-                "type": job.type,
-                "rate": job.rate,
-                "size": job.size,
-                "delivery_date": job.delivery_date,
-                "checklist_link": job.checklist_link
-            }
-            for job in jobs
-        ]
+        
+        # Convert SQLAlchemy objects to dict using JobResponse for safety and completeness
+        job_data = [JobResponse.model_validate(job).model_dump() for job in jobs]
 
         return {
             "has_full_access": True,

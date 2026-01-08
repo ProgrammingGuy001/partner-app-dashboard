@@ -4,10 +4,12 @@ from typing import List
 from app.database import get_db
 from app.schemas.job import JobStart,JobPause,JobFinish, JobCreate, JobUpdate, JobResponse
 from app.schemas.job_status_log import JobStatusLogResponse
+from app.schemas.checklist import JobChecklistItemStatusUpdate, JobChecklistItemStatusResponse
 from app.crud.job import (
     get_job_by_id, get_all_jobs, create_job, update_job, delete_job,
     start_job, pause_job, finish_job, get_job_status_history
 )
+from app.crud.checklist import update_job_checklist_item_status
 from app.core.security import get_current_user
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
@@ -56,3 +58,18 @@ def finish_existing_job(job_id: int, job_finish: JobFinish = JobFinish(), db: Se
 def get_job_history(job_id: int, db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
     """Get complete status change history for a job, including all pauses and resumes."""
     return get_job_status_history(db, job_id)
+
+@router.put("/{job_id}/checklists/items/{item_id}/approve", response_model=JobChecklistItemStatusResponse)
+def approve_checklist_item(
+    job_id: int,
+    item_id: int,
+    status_update: JobChecklistItemStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user)
+):
+    """Admin endpoint to approve/reject checklist items and add admin comments"""
+    # Verify job exists
+    job = get_job_by_id(db, job_id)
+    
+    # Admin can update is_approved and admin_comment
+    return update_job_checklist_item_status(db, job_id, item_id, status_update)
