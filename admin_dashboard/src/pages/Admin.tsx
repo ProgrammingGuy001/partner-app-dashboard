@@ -21,8 +21,8 @@ const Admin: React.FC = () => {
   const fetchIPs = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await adminAPI.getIPUsers();
-      setIps(response.data);
+      const data = await adminAPI.getIPUsers();
+      setIps(data);
       setError('');
     } catch {
       setError('Failed to fetch IPs');

@@ -31,12 +31,12 @@ const Jobs: React.FC = () => {
       if (statusFilter) params.status = statusFilter;
       if (typeFilter) params.type = typeFilter;
       if (searchTerm) params.search = searchTerm;
-      const [jobsResponse, workersResponse] = await Promise.all([
+      const [jobsData, workersData] = await Promise.all([
         jobAPI.getAll(params),
         adminAPI.getIPUsers()
       ]);
-      setJobs(jobsResponse.data);
-      setWorkers(workersResponse.data);
+      setJobs(jobsData);
+      setWorkers(workersData);
     } catch (error) {
       console.error('Error fetching jobs:', error);
     } finally {

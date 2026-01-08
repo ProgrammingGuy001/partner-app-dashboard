@@ -67,23 +67,23 @@ const ProjectAnalytics: React.FC = () => {
         }
 
         console.log('Fetching analytics with params:', params);
-        const [payoutResponse, jobsResponse] = await Promise.all([
+        const [payoutDataResult, jobsDataResult] = await Promise.all([
           analyticsAPI.getPayoutReport(params),
           jobAPI.getAll({ limit: 1000 })
         ]);
         
-        console.log('Analytics response:', payoutResponse);
-        console.log('Jobs response:', jobsResponse);
+        console.log('Analytics data:', payoutDataResult);
+        console.log('Jobs data:', jobsDataResult);
         
-        if (payoutResponse.data) {
-          setPayoutData(payoutResponse.data);
+        if (payoutDataResult) {
+          setPayoutData(payoutDataResult);
         } else {
           console.warn('No data received from analytics API');
           setPayoutData(null);
         }
 
-        if (jobsResponse.data) {
-          setJobs(Array.isArray(jobsResponse.data) ? jobsResponse.data : []);
+        if (jobsDataResult) {
+          setJobs(Array.isArray(jobsDataResult) ? jobsDataResult : []);
         }
       } catch (error: any) {
         console.error('Error fetching analytics:', error);

@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { checklistAPI } from '../api/services';
 
 export const useChecklists = () => {
-  const [data, setData] = useState([]);
-  const [error, setError] = useState(null);
+  const [data, setData] = useState<any[]>([]);
+  const [error, setError] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {

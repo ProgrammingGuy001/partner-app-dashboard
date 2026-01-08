@@ -32,16 +32,16 @@ const Dashboard: React.FC = () => {
       try {
         setLoading(true);
         // Fetch actual data from APIs
-        const [jobsResponse, ipsResponse] = await Promise.all([
+        const [jobsData, ipsData] = await Promise.all([
           jobAPI.getAll({ limit: 1000 }),
           adminAPI.getIPUsers()
         ]);
 
-        console.log('Jobs Response:', jobsResponse);
-        console.log('IPs Response:', ipsResponse);
+        console.log('Jobs Data:', jobsData);
+        console.log('IPs Data:', ipsData);
 
-        const jobs = Array.isArray(jobsResponse.data) ? jobsResponse.data : [];
-        const ips = Array.isArray(ipsResponse.data) ? ipsResponse.data : [];
+        const jobs = Array.isArray(jobsData) ? jobsData : [];
+        const ips = Array.isArray(ipsData) ? ipsData : [];
 
         console.log('Jobs count:', jobs.length);
         console.log('IPs count:', ips.length);

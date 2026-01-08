@@ -17,8 +17,8 @@ const Analytics: React.FC = () => {
       setLoading(true);
       setError('');
       // Fetch all jobs
-      const response = await jobAPI.getAll({ limit: 1000 });
-      setJobs(response.data);
+      const data = await jobAPI.getAll({ limit: 1000 });
+      setJobs(data);
     } catch (error) {
       console.error('Error fetching analytics:', error);
       setError('Failed to fetch analytics data. Please try again.');

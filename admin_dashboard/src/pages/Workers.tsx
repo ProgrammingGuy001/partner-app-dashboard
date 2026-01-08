@@ -38,8 +38,8 @@ const Workers: React.FC = () => {
   const fetchWorkers = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await adminAPI.getIPUsers();
-      setWorkers(response.data);
+      const data = await adminAPI.getIPUsers();
+      setWorkers(data);
     } catch (error) {
       console.error('Error fetching workers:', error);
     } finally {

@@ -12,8 +12,8 @@ const JobHistory: React.FC = () => {
     if (!jobId) return;
     try {
       setLoading(true);
-      const response = await jobAPI.getHistory(parseInt(jobId));
-      setHistory(response.data);
+      const data = await jobAPI.getHistory(parseInt(jobId));
+      setHistory(data);
     } catch (error) {
       console.error('Error fetching job history:', error);
     } finally {

@@ -50,8 +50,8 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
     if (!job.id) return;
     setLoadingChecklists(true);
     try {
-      const response = await checklistAPI.getJobChecklistsStatus(job.id);
-      setChecklists(response.data);
+      const data = await checklistAPI.getJobChecklistsStatus(job.id);
+      setChecklists(data);
     } catch (err) {
       console.error('Error fetching checklists:', err);
     } finally {

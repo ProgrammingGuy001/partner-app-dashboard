@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { jobAPI } from '../api/services';
+import { jobAPI, type Job, type JobStatusLog } from '../api/services';
 
 interface JobFilters {
   limit?: number;
@@ -9,8 +9,8 @@ interface JobFilters {
 }
 
 export const useJobs = (filters: JobFilters = {}) => {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
+  const [data, setData] = useState<Job[] | null>(null);
+  const [error, setError] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
@@ -33,8 +33,8 @@ export const useJobs = (filters: JobFilters = {}) => {
 };
 
 export const useJob = (id: number) => {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
+  const [data, setData] = useState<Job | null>(null);
+  const [error, setError] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -79,8 +79,8 @@ export const useDeleteJob = () => {
 };
 
 export const useJobHistory = (id: number) => {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
+  const [data, setData] = useState<JobStatusLog[] | null>(null);
+  const [error, setError] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {

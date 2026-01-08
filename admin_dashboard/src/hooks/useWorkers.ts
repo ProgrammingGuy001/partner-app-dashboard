@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { adminAPI } from '../api/services';
 
 export const useWorkers = () => {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
+  const [data, setData] = useState<any>(null);
+  const [error, setError] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
@@ -26,8 +26,8 @@ export const useWorkers = () => {
 };
 
 export const useApprovedWorkers = () => {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
+  const [data, setData] = useState<any>(null);
+  const [error, setError] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { analyticsAPI } from '../api/services';
+import { analyticsAPI, type PayoutSummary, type JobStageCount } from '../api/services';
 
 interface PayoutParams {
   period: string;
@@ -10,8 +10,8 @@ interface PayoutParams {
 }
 
 export const usePayoutReport = (params: PayoutParams) => {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
+  const [data, setData] = useState<PayoutSummary | null>(null);
+  const [error, setError] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -34,8 +34,8 @@ export const usePayoutReport = (params: PayoutParams) => {
 };
 
 export const useJobStages = () => {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
+  const [data, setData] = useState<JobStageCount[] | null>(null);
+  const [error, setError] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -58,8 +58,8 @@ export const useJobStages = () => {
 };
 
 export const useIPPerformance = () => {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
+  const [data, setData] = useState<any>(null);
+  const [error, setError] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {

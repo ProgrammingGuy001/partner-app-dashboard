@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { type Job, jobAPI, type JobUpdate, adminAPI, checklistAPI } from '../api/services';
+import { type Job, jobAPI, adminAPI, checklistAPI } from '../api/services';
 import { X } from 'lucide-react';
 
 interface IPUser {
@@ -72,8 +72,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
   useEffect(() => {
     const fetchIPUsers = async () => {
       try {
-        const response = await adminAPI.getApprovedIPUsers();
-        setIpUsers(response.data);
+        const data = await adminAPI.getApprovedIPUsers();
+        setIpUsers(data);
       } catch (error) {
         console.error('Error fetching IPUsers:', error);
       }
@@ -84,8 +84,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
   useEffect(() => {
     const fetchChecklists = async () => {
       try {
-        const response = await checklistAPI.getAll();
-        setChecklists(response.data);
+        const data = await checklistAPI.getAll();
+        setChecklists(data);
       } catch (error) {
         console.error('Error fetching checklists:', error);
       }

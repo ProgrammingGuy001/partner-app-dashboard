@@ -16,7 +16,7 @@ const Login: React.FC = () => {
 
     try {
       const response = await authAPI.login({ email, password });
-      localStorage.setItem('access_token', response.data.access_token);
+      localStorage.setItem('access_token', response.access_token);
       navigate('/dashboard');
     } catch (err: unknown) {
       if (err instanceof Error) {
