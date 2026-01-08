@@ -82,78 +82,78 @@ export interface PayoutSummary {
 // Auth APIs
 export const authAPI = {
   login: (data: LoginRequest): Promise<any> => 
-    axiosInstance.post('/auth/login/', data).then(res => res.data),
+    axiosInstance.post('/auth/login', data).then(res => res.data),
   signup: (data: SignupRequest): Promise<any> => 
-    axiosInstance.post('/auth/signup/', data).then(res => res.data),
+    axiosInstance.post('/auth/signup', data).then(res => res.data),
 };
 
 // Job APIs
 export const jobAPI = {
   getAll: (params?: any): Promise<Job[]> =>
-    axiosInstance.get('/jobs/', { params }).then(res => res.data),
+    axiosInstance.get('/jobs', { params }).then(res => res.data),
 
   getById: (id: number): Promise<Job> =>
-    axiosInstance.get(`/jobs/${id}/`).then(res => res.data),
+    axiosInstance.get(`/jobs/${id}`).then(res => res.data),
 
   create: (data: Job): Promise<Job> =>
-    axiosInstance.post('/jobs/', data).then(res => res.data),
+    axiosInstance.post('/jobs', data).then(res => res.data),
 
   update: (id: number, data: JobUpdate): Promise<Job> =>
-    axiosInstance.put(`/jobs/${id}/`, data).then(res => res.data),
+    axiosInstance.put(`/jobs/${id}`, data).then(res => res.data),
 
   delete: (id: number): Promise<any> =>
-    axiosInstance.delete(`/jobs/${id}/`).then(res => res.data),
+    axiosInstance.delete(`/jobs/${id}`).then(res => res.data),
 
   start: (id: number, notes?: string): Promise<any> =>
-    axiosInstance.post(`/jobs/${id}/start/`, { notes }).then(res => res.data),
+    axiosInstance.post(`/jobs/${id}/start`, { notes }).then(res => res.data),
 
   pause: (id: number, notes?: string): Promise<any> =>
-    axiosInstance.post(`/jobs/${id}/pause/`, { notes }).then(res => res.data),
+    axiosInstance.post(`/jobs/${id}/pause`, { notes }).then(res => res.data),
 
   finish: (id: number, notes?: string): Promise<any> =>
-    axiosInstance.post(`/jobs/${id}/finish/`, { notes }).then(res => res.data),
+    axiosInstance.post(`/jobs/${id}/finish`, { notes }).then(res => res.data),
 
   getHistory: (id: number): Promise<JobStatusLog[]> =>
-    axiosInstance.get(`/jobs/${id}/history/`).then(res => res.data),
+    axiosInstance.get(`/jobs/${id}/history`).then(res => res.data),
 };
 
 // Admin APIs
 export const adminAPI = {
   getIPUsers: (): Promise<any> =>
-    axiosInstance.get('/admin/ips/').then(res => res.data),
+    axiosInstance.get('/admin/ips').then(res => res.data),
 
   getApprovedIPUsers: (): Promise<any> =>
-    axiosInstance.get('/admin/ips/approved/').then(res => res.data),
+    axiosInstance.get('/admin/ips/approved').then(res => res.data),
 
   verifyIPUser: (phoneNumber: string): Promise<any> =>
-    axiosInstance.post(`/admin/verify-ip/${phoneNumber}/`).then(res => res.data),
+    axiosInstance.post(`/admin/verify-ip/${phoneNumber}`).then(res => res.data),
 };
 
 // Analytics APIs
 export const analyticsAPI = {
   getPayoutReport: (params: any): Promise<PayoutSummary> =>
-    axiosInstance.get('/analytics/payout/', { params }).then(res => res.data),
+    axiosInstance.get('/analytics/payout', { params }).then(res => res.data),
 
   getJobStages: (): Promise<JobStageCount[]> =>
-    axiosInstance.get('/analytics/job-stages/').then(res => res.data),
+    axiosInstance.get('/analytics/job-stages').then(res => res.data),
 
   getIPPerformance: (): Promise<any> =>
-    axiosInstance.get('/analytics/ip-performance/').then(res => res.data),
+    axiosInstance.get('/analytics/ip-performance').then(res => res.data),
 };
 
 export const checklistAPI = {
-  getAll: (): Promise<any> => axiosInstance.get('/checklists/').then(res => res.data),
+  getAll: (): Promise<any> => axiosInstance.get('/checklists').then(res => res.data),
 
-  create: (data: any): Promise<any> => axiosInstance.post('/checklists/', data).then(res => res.data),
+  create: (data: any): Promise<any> => axiosInstance.post('/checklists', data).then(res => res.data),
 
   getById: (id: number): Promise<any> =>
-    axiosInstance.get(`/checklists/${id}/`).then(res => res.data),
+    axiosInstance.get(`/checklists/${id}`).then(res => res.data),
 
   createItem: (checklistId: number, data: any): Promise<any> =>
-    axiosInstance.post(`/checklists/${checklistId}/items/`, data).then(res => res.data),
+    axiosInstance.post('/checklists/items', { ...data, checklist_id: checklistId }).then(res => res.data),
 
   getJobChecklistsStatus: (jobId: number): Promise<any> =>
-    axiosInstance.get(`/checklists/jobs/${jobId}/status/`).then(res => res.data),
+    axiosInstance.get(`/checklists/jobs/${jobId}/status`).then(res => res.data),
 
   updateJobChecklistItemStatus: (
     jobId: number,
@@ -161,7 +161,7 @@ export const checklistAPI = {
     data: { is_approved?: boolean; admin_comment?: string }
   ): Promise<any> =>
     axiosInstance.put(
-      `/checklists/jobs/${jobId}/items/${itemId}/status/`,
+      `/checklists/jobs/${jobId}/items/${itemId}/status`,
       data
     ).then(res => res.data),
 };

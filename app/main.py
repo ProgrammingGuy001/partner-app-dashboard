@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .api.v1 import auth, jobs, verification
 from .database import Base, engine
@@ -18,7 +18,6 @@ app = FastAPI(
     description="User Registration and Verification System",
     version="1.0.0",
 )
-app.add_middleware(HTTPSRedirectMiddleware)
 
 
 @app.on_event("startup")
@@ -37,6 +36,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # ... existing routers ...
 app.include_router(auth.router, prefix="/api/v1")

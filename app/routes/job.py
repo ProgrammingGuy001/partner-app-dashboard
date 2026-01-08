@@ -14,12 +14,12 @@ from app.core.security import get_current_user
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
-@router.post("/", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 def create_new_job(job: JobCreate, db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
     """Create a new job. Validates that assigned IP has is_assigned=False before assignment."""
     return create_job(db, job)
 
-@router.get("/", response_model=List[JobResponse])
+@router.get("", response_model=List[JobResponse])
 def read_jobs(skip: int = 0, limit: int = 100, status: str = None, type: str = None, search: str = None, db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
     """Get all jobs with pagination. Optional filters by status, type, and search."""
     return get_all_jobs(db, skip=skip, limit=limit, status=status, type=type, search=search)

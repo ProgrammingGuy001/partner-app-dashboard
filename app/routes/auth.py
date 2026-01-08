@@ -22,7 +22,7 @@ class LoginRequest(BaseModel):
     password: str
 
 @router.post("/login")
-def login(request: LoginRequest, db: Session = Depends(get_db),status_code=status.HTTP_200_OK):
+def login(request: LoginRequest, db: Session = Depends(get_db)):
     user = get_user_by_email(db, request.email)
     if not user or not verify_hashed_password(request.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")

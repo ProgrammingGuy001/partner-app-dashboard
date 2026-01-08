@@ -41,14 +41,14 @@ router = APIRouter(prefix="/checklists", tags=["Checklists"])
 
 
 # --- Checklist ---
-@router.post("/", response_model=ChecklistResponse)
+@router.post("", response_model=ChecklistResponse)
 def create_new_checklist(
     checklist: ChecklistCreate, db: Session = Depends(get_db)
 ):
     return create_checklist(db, checklist)
 
 
-@router.get("/", response_model=List[ChecklistResponse])
+@router.get("", response_model=List[ChecklistResponse])
 def read_all_checklists(
     skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
 ):
