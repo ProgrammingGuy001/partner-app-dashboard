@@ -11,11 +11,13 @@ from .routes.auth import router as auth_router
 from .routes.checklist import router as checklist_router
 from .routes.job import router as job_router
 
+
 app = FastAPI(
     title="Partner App API",
     description="User Registration and Verification System",
     version="1.0.0",
 )
+app.add_middleware(HTTPSRedirectMiddleware)
 
 
 @app.on_event("startup")
@@ -25,7 +27,12 @@ def startup():
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://partner-app-dashboard-navy.vercel.app",
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
