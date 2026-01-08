@@ -109,55 +109,60 @@ export interface PayoutByIPUser {
 
 // Auth APIs
 export const authAPI = {
-  login: (data: LoginRequest) => axiosInstance.post('/auth/login', data),
-  signup: (data: SignupRequest) => axiosInstance.post('/auth/signup', data),
+  login: (data: LoginRequest) => axiosInstance.post('/auth/login/', data),
+  signup: (data: SignupRequest) => axiosInstance.post('/auth/signup/', data),
 };
 
 // Job APIs
 export const jobAPI = {
-  getAll: (params?: { skip?: number; limit?: number; status?: string; type?: string; search?: string }) =>
+  getAll: (params?: any) =>
     axiosInstance.get('/jobs/', { params }),
-  getById: (id: number) => axiosInstance.get(`/jobs/${id}`),
-  create: (data: Job) => axiosInstance.post('/jobs/', data),
-  update: (id: number, data: JobUpdate) => axiosInstance.put(`/jobs/${id}`, data),
-  delete: (id: number) => axiosInstance.delete(`/jobs/${id}`),
+
+  getById: (id: number) =>
+    axiosInstance.get(`/jobs/${id}/`),
+
+  create: (data: Job) =>
+    axiosInstance.post('/jobs/', data),
+
+  update: (id: number, data: JobUpdate) =>
+    axiosInstance.put(`/jobs/${id}/`, data),
+
+  delete: (id: number) =>
+    axiosInstance.delete(`/jobs/${id}/`),
+
   start: (id: number, notes?: string) =>
-    axiosInstance.post(`/jobs/${id}/start`, { notes }),
+    axiosInstance.post(`/jobs/${id}/start/`, { notes }),
+
   pause: (id: number, notes?: string) =>
-    axiosInstance.post(`/jobs/${id}/pause`, { notes }),
+    axiosInstance.post(`/jobs/${id}/pause/`, { notes }),
+
   finish: (id: number, notes?: string) =>
-    axiosInstance.post(`/jobs/${id}/finish`, { notes }),
-  getHistory: (id: number) => axiosInstance.get(`/jobs/${id}/history`),
+    axiosInstance.post(`/jobs/${id}/finish/`, { notes }),
+
+  getHistory: (id: number) =>
+    axiosInstance.get(`/jobs/${id}/history/`),
 };
 
 // Admin APIs
 export const adminAPI = {
-  getIPUsers: () => axiosInstance.get('/admin/ips'),
-  getApprovedIPUsers: () => axiosInstance.get('/admin/ips/approved'),
+  getIPUsers: () =>
+    axiosInstance.get('/admin/ips/'),
+
+  getApprovedIPUsers: () =>
+    axiosInstance.get('/admin/ips/approved/'),
+
   verifyIPUser: (phoneNumber: string) =>
-    axiosInstance.post(`/admin/verify-ip/${phoneNumber}`),
+    axiosInstance.post(`/admin/verify-ip/${phoneNumber}/`),
 };
 
 // Analytics APIs
 export const analyticsAPI = {
-  getPayoutReport: (params: {
-    period: string;
-    year?: number;
-    month?: number;
-    quarter?: number;
-    week?: number;
-  }) => axiosInstance.get<PayoutSummary>('/analytics/payout', { params }),
-  getJobStages: () => axiosInstance.get<JobStageCount[]>('/analytics/job-stages'),
-  getIPPerformance: () => axiosInstance.get<PayoutByIPUser[]>('/analytics/ip-performance'),
-};
+  getPayoutReport: (params: any) =>
+    axiosInstance.get('/analytics/payout/', { params }),
 
-// Checklist APIs
-export const checklistAPI = {
-  getAll: () => axiosInstance.get('/checklists'),
-  create: (data: any) => axiosInstance.post('/checklists', data),
-  getById: (id: number) => axiosInstance.get(`/checklists/${id}`),
-  createItem: (checklistId: number, data: any) => axiosInstance.post(`/checklists/${checklistId}/items`, data),
-  getJobChecklistsStatus: (jobId: number) => axiosInstance.get(`/checklists/jobs/${jobId}/status`),
-  updateJobChecklistItemStatus: (jobId: number, itemId: number, data: { is_approved?: boolean; admin_comment?: string }) => 
-    axiosInstance.put(`/checklists/jobs/${jobId}/items/${itemId}/status`, data),
+  getJobStages: () =>
+    axiosInstance.get('/analytics/job-stages/'),
+
+  getIPPerformance: () =>
+    axiosInstance.get('/analytics/ip-performance/'),
 };
