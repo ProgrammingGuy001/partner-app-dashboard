@@ -98,7 +98,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               <a href="https://www.modula.in/">
                 <div className="h-16 px-4 flex items-center justify-center">
   <img
-    src="/public/logo.png"
+    src="/logo.png"
     alt="Logo"
     className="max-h-4/6 max-w-3/4 object-contain"
   />
