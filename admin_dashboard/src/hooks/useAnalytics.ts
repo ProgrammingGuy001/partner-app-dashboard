@@ -1,82 +1,35 @@
-import { useState, useEffect } from 'react';
-import { analyticsAPI, type PayoutSummary, type JobStageCount } from '../api/services';
+import { useQuery } from '@tanstack/react-query';
+import { analyticsAPI } from '@/api/services';
 
-interface PayoutParams {
+interface PayoutReportParams {
   period: string;
   year?: number;
   month?: number;
   quarter?: number;
-  week?: number;
 }
 
-export const usePayoutReport = (params: PayoutParams) => {
-  const [data, setData] = useState<PayoutSummary | null>(null);
-  const [error, setError] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      try {
-        const result = await analyticsAPI.getPayoutReport(params);
-        setData(result);
-      } catch (e) {
-        setError(e);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [params]);
-
-  return { data, error, isLoading };
+export const usePayoutReport = (params: PayoutReportParams) => {
+  return useQuery({
+    queryKey: ['analytics', 'payout', params],
+    queryFn: () => analyticsAPI.getPayoutReport(params),
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    // Only fetch if params are valid (e.g. month requires year)
+    enabled: !!params.period,
+  });
 };
 
 export const useJobStages = () => {
-  const [data, setData] = useState<JobStageCount[] | null>(null);
-  const [error, setError] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      try {
-        const result = await analyticsAPI.getJobStages();
-        setData(result);
-      } catch (e) {
-        setError(e);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchData();
-  }, []);
-
-  return { data, error, isLoading };
+  return useQuery({
+    queryKey: ['analytics', 'job-stages'],
+    queryFn: () => analyticsAPI.getJobStages(),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
 };
 
 export const useIPPerformance = () => {
-  const [data, setData] = useState<any>(null);
-  const [error, setError] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      try {
-        const result = await analyticsAPI.getIPPerformance();
-        setData(result);
-      } catch (e) {
-        setError(e);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchData();
-  }, []);
-
-  return { data, error, isLoading };
+  return useQuery({
+    queryKey: ['analytics', 'ip-performance'],
+    queryFn: () => analyticsAPI.getIPPerformance(),
+    staleTime: 10 * 60 * 1000, // 10 minutes
+  });
 };

@@ -1,5 +1,6 @@
 import axiosInstance from './axios';
 
+// ============ Types ============
 export interface LoginRequest {
   email: string;
   password: string;
@@ -10,6 +11,24 @@ export interface SignupRequest {
   password: string;
   isActive?: boolean;
   isApproved?: boolean;
+}
+
+// Proper API response structure
+export interface ApiResponse<T = unknown> {
+  data: T;
+  message?: string;
+  success: boolean;
+  status?: number;
+}
+
+export interface PaginatedResponse<T = unknown> {
+  data?: T[];
+  jobs?: T[]; // Backend returns 'jobs'
+  total: number;
+  page?: number;
+  limit?: number;
+  totalPages?: number;
+  message?: string;
 }
 
 export interface Job {
@@ -30,11 +49,13 @@ export interface Job {
   checklist_ids?: number[];
   job_checklists?: { checklist_id: number }[];
   google_map_link?: string;
-  status?: string;
+  status: string;
   additional_expense?: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
-export interface JobUpdate extends Partial<Job> {}
+export type JobUpdate = Partial<Omit<Job, 'id'>>;
 
 export interface JobStatusLog {
   id: number;
@@ -79,92 +100,158 @@ export interface PayoutSummary {
   }>;
 }
 
-// Auth APIs
-export const authAPI = {
-  login: (data: LoginRequest): Promise<any> => 
-    axiosInstance.post('/auth/login', data).then(res => res.data),
-  signup: (data: SignupRequest): Promise<any> => 
-    axiosInstance.post('/auth/signup', data).then(res => res.data),
+export interface IPUser {
+  id: number;
+  first_name: string;
+  last_name: string;
+  phone_number: string;
+  city: string;
+  pincode: string;
+  is_assigned: boolean;
+  is_verified: boolean;
+  is_pan_verified: boolean;
+  is_bank_details_verified: boolean;
+  is_id_verified: boolean;
+  pan_number?: string;
+  pan_name?: string;
+  account_number?: string;
+  ifsc_code?: string;
+  account_holder_name?: string;
+  registered_at: string;
+  verified_at?: string;
+}
+
+export interface Checklist {
+  id: number;
+  name: string;
+  items: ChecklistItem[];
+}
+
+export interface ChecklistItem {
+  id: number;
+  name: string;
+  is_completed: boolean;
+}
+
+// ============ API Response Helpers ============
+const handleResponse = <T>(response: any): T => {
+  // Check if response has data property (consistent API structure)
+  if (response.data !== undefined) {
+    return response.data;
+  }
+  // Fallback to the entire response
+  return response;
 };
 
-// Job APIs
+// ============ API Functions ============
+
+// Auth APIs
+export const authAPI = {
+  login: (data: LoginRequest): Promise<{ access_token: string }> =>
+    axiosInstance.post('/auth/login', data).then(res => handleResponse(res)),
+
+  signup: (data: SignupRequest): Promise<any> =>
+    axiosInstance.post('/auth/signup', data).then(res => handleResponse(res)),
+
+  getCurrentUser: (): Promise<any> =>
+    axiosInstance.get('/auth/me').then(res => handleResponse(res)),
+
+  logout: (): void => {
+    localStorage.removeItem('access_token');
+  }
+};
+
+// Job APIs with pagination support
 export const jobAPI = {
-  getAll: (params?: any): Promise<Job[]> =>
-    axiosInstance.get('/jobs', { params }).then(res => res.data),
+  getAll: (params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    type?: string;
+    search?: string;
+  }): Promise<Job[] | PaginatedResponse<Job>> => {
+    const { page = 1, limit = 100, ...rest } = params || {};
+    const skip = (page - 1) * limit;
+    return axiosInstance.get('/jobs', { 
+      params: { ...rest, skip, limit } 
+    }).then(res => handleResponse(res));
+  },
 
   getById: (id: number): Promise<Job> =>
-    axiosInstance.get(`/jobs/${id}`).then(res => res.data),
+    axiosInstance.get(`/jobs/${id}`).then(res => handleResponse(res)),
 
-  create: (data: Job): Promise<Job> =>
-    axiosInstance.post('/jobs', data).then(res => res.data),
+  create: (data: Omit<Job, 'id'>): Promise<Job> =>
+    axiosInstance.post('/jobs', data).then(res => handleResponse(res)),
 
   update: (id: number, data: JobUpdate): Promise<Job> =>
-    axiosInstance.put(`/jobs/${id}`, data).then(res => res.data),
+    axiosInstance.put(`/jobs/${id}`, data).then(res => handleResponse(res)),
 
-  delete: (id: number): Promise<any> =>
-    axiosInstance.delete(`/jobs/${id}`).then(res => res.data),
+  delete: (id: number): Promise<ApiResponse> =>
+    axiosInstance.delete(`/jobs/${id}`).then(res => handleResponse(res)),
 
-  start: (id: number, notes?: string): Promise<any> =>
-    axiosInstance.post(`/jobs/${id}/start`, { notes }).then(res => res.data),
+  start: (id: number, notes?: string): Promise<ApiResponse> =>
+    axiosInstance.post(`/jobs/${id}/start`, { notes }).then(res => handleResponse(res)),
 
-  pause: (id: number, notes?: string): Promise<any> =>
-    axiosInstance.post(`/jobs/${id}/pause`, { notes }).then(res => res.data),
+  pause: (id: number, notes?: string): Promise<ApiResponse> =>
+    axiosInstance.post(`/jobs/${id}/pause`, { notes }).then(res => handleResponse(res)),
 
-  finish: (id: number, notes?: string): Promise<any> =>
-    axiosInstance.post(`/jobs/${id}/finish`, { notes }).then(res => res.data),
+  finish: (id: number, notes?: string): Promise<ApiResponse> =>
+    axiosInstance.post(`/jobs/${id}/finish`, { notes }).then(res => handleResponse(res)),
 
   getHistory: (id: number): Promise<JobStatusLog[]> =>
-    axiosInstance.get(`/jobs/${id}/history`).then(res => res.data),
+    axiosInstance.get(`/jobs/${id}/history`).then(res => handleResponse(res)),
 };
 
 // Admin APIs
 export const adminAPI = {
-  getIPUsers: (): Promise<any> =>
-    axiosInstance.get('/admin/ips').then(res => res.data),
+  getIPUsers: (): Promise<IPUser[]> =>
+    axiosInstance.get('/admin/ips').then(res => handleResponse(res)),
 
-  getApprovedIPUsers: (): Promise<any> =>
-    axiosInstance.get('/admin/ips/approved').then(res => res.data),
+  getApprovedIPUsers: (): Promise<IPUser[]> =>
+    axiosInstance.get('/admin/ips/approved').then(res => handleResponse(res)),
 
-  verifyIPUser: (phoneNumber: string): Promise<any> =>
-    axiosInstance.post(`/admin/verify-ip/${phoneNumber}`).then(res => res.data),
+  verifyIPUser: (phoneNumber: string): Promise<ApiResponse> =>
+    axiosInstance.post(`/admin/verify-ip/${phoneNumber}`).then(res => handleResponse(res)),
 };
 
 // Analytics APIs
 export const analyticsAPI = {
-  getPayoutReport: (params: any): Promise<PayoutSummary> =>
-    axiosInstance.get('/analytics/payout', { params }).then(res => res.data),
+  getPayoutReport: (params: {
+    period: string;
+    year?: number;
+    month?: number;
+    quarter?: number;
+  }): Promise<PayoutSummary> =>
+    axiosInstance.get('/analytics/payout', { params }).then(res => handleResponse(res)),
 
   getJobStages: (): Promise<JobStageCount[]> =>
-    axiosInstance.get('/analytics/job-stages').then(res => res.data),
+    axiosInstance.get('/analytics/job-stages').then(res => handleResponse(res)),
 
   getIPPerformance: (): Promise<any> =>
-    axiosInstance.get('/analytics/ip-performance').then(res => res.data),
+    axiosInstance.get('/analytics/ip-performance').then(res => handleResponse(res)),
 };
 
+// Checklist APIs
 export const checklistAPI = {
-  getAll: (): Promise<any> => axiosInstance.get('/checklists').then(res => res.data),
+  getAll: (): Promise<Checklist[]> =>
+    axiosInstance.get('/checklists').then(res => handleResponse(res)),
 
-  create: (data: any): Promise<any> => axiosInstance.post('/checklists', data).then(res => res.data),
+  create: (data: { name: string }): Promise<Checklist> =>
+    axiosInstance.post('/checklists', data).then(res => handleResponse(res)),
 
-  getById: (id: number): Promise<any> =>
-    axiosInstance.get(`/checklists/${id}`).then(res => res.data),
+  getById: (id: number): Promise<Checklist> =>
+    axiosInstance.get(`/checklists/${id}`).then(res => handleResponse(res)),
 
-  createItem: (checklistId: number, data: any): Promise<any> =>
-    axiosInstance.post('/checklists/items', { ...data, checklist_id: checklistId }).then(res => res.data),
+  createItem: (checklistId: number, data: { name: string }): Promise<ApiResponse> =>
+    axiosInstance.post('/checklists/items', { ...data, checklist_id: checklistId }).then(res => handleResponse(res)),
 
-  getJobChecklistsStatus: (jobId: number): Promise<any> =>
-    axiosInstance.get(`/checklists/jobs/${jobId}/status`).then(res => res.data),
+  getJobChecklistsStatus: (jobId: number): Promise<ApiResponse> =>
+    axiosInstance.get(`/checklists/jobs/${jobId}/status`).then(res => handleResponse(res)),
 
   updateJobChecklistItemStatus: (
     jobId: number,
     itemId: number,
     data: { is_approved?: boolean; admin_comment?: string }
-  ): Promise<any> =>
-    axiosInstance.put(
-      `/checklists/jobs/${jobId}/items/${itemId}/status`,
-      data
-    ).then(res => res.data),
+  ): Promise<ApiResponse> =>
+    axiosInstance.put(`/checklists/jobs/${jobId}/items/${itemId}/status`, data).then(res => handleResponse(res)),
 };
-
-
-

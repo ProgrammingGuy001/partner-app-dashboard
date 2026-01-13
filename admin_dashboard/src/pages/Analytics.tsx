@@ -1,31 +1,53 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { jobAPI, type Job } from '../api/services';
+import { useJobs } from '@/hooks/useJobs';
+import { jobAPI, type Job } from '@/api/services';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { DollarSign, Briefcase, TrendingUp, RefreshCw, Target, Edit2, Save, X } from 'lucide-react';
+import { DollarSign, Briefcase, RefreshCw, Edit2, Save, X } from 'lucide-react';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
 
 const Analytics: React.FC = () => {
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [editingJobId, setEditingJobId] = useState<number | null>(null);
   const [editExpense, setEditExpense] = useState<string>('');
-  const [saving, setSaving] = useState(false);
 
-  const fetchAnalytics = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError('');
-      // Fetch all jobs
-      const data = await jobAPI.getAll({ limit: 1000 });
-      setJobs(data);
-    } catch (error) {
-      console.error('Error fetching analytics:', error);
-      setError('Failed to fetch analytics data. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+
+  const { data: jobsData, isLoading, error, refetch } = useJobs();
+
+  const jobs = React.useMemo(() => jobsData || [], [jobsData]);
+
+  // Calculate totals
+  const totals = useCallback(() => {
+    const totalJobs = jobs.length;
+    const totalPayout = jobs.reduce((sum: number, job: Job) => {
+      const rate = Number(job.rate) || 0;
+      const size = Number(job.size) || 0;
+      return sum + (rate * size);
+    }, 0);
+    
+    const totalExpenses = jobs.reduce((sum: number, job: Job) => sum + (Number(job.additional_expense) || 0), 0);
+    const totalSize = jobs.reduce((sum: number, job: Job) => sum + (Number(job.size) || 0), 0);
+    const totalCost = totalPayout + totalExpenses;
+    const avgRatePerUnit = totalSize > 0 ? totalCost / totalSize : 0;
+
+    return {
+      totalJobs,
+      totalPayout,
+      totalExpenses,
+      totalSize,
+      totalCost,
+      avgRatePerUnit,
+    };
+  }, [jobs]);
 
   const handleEditExpense = (jobId: number, currentExpense: number) => {
     setEditingJobId(jobId);
@@ -39,407 +61,385 @@ const Analytics: React.FC = () => {
 
   const handleSaveExpense = async (jobId: number) => {
     try {
-      setSaving(true);
       const expenseValue = Number(editExpense) || 0;
-      
       await jobAPI.update(jobId, {
         additional_expense: expenseValue
       });
 
-      // Update local state
-      setJobs(prevJobs =>
-        prevJobs.map(job =>
-          job.id === jobId
-            ? { ...job, additional_expense: expenseValue }
-            : job
-        )
-      );
+      toast.success("Expense updated successfully");
 
+      refetch();
       setEditingJobId(null);
       setEditExpense('');
-    } catch (error) {
-      console.error('Error updating expense:', error);
-      setError('Failed to update expense. Please try again.');
-    } finally {
-      setSaving(false);
+    } catch  {
+      toast.error("Failed to update expense");
     }
   };
 
-  useEffect(() => {
-    fetchAnalytics();
-  }, [fetchAnalytics]);
+  if (isLoading) {
+    return <AnalyticsSkeleton />;
+  }
 
-  // Calculate totals
-  const totalJobs = jobs.length;
-  
-  // Total payout = sum of (rate * size) for all jobs
-  const totalPayout = jobs.reduce((sum, job) => {
-    const rate = Number(job.rate) || 0;
-    const size = Number(job.size) || 0;
-    return sum + (rate * size);
-  }, 0);
-  
-  const totalExpenses = jobs.reduce((sum, job) => sum + (Number(job.additional_expense) || 0), 0);
-  const totalSize = jobs.reduce((sum, job) => sum + (Number(job.size) || 0), 0);
-  
-  // Calculate total cost (rate * size + additional_expense) for all jobs
-  const totalCost = totalPayout + totalExpenses;
-  
-  // Rate per unit = total cost / total size
-  const avgRatePerUnit = totalSize > 0 ? totalCost / totalSize : 0;
-
-  const statusColorMap: { [key: string]: string } = {
-    'created': '#6B7280',
-    'in_progress': '#3B82F6',
-    'paused': '#F59E0B',
-    'completed': '#10B981',
-    'cancelled': '#EF4444'
-  };
-
-  if (loading) {
+  if (error) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-16 w-16 border-4 border-blue-600 border-t-transparent"></div>
-          <p className="mt-4 text-gray-600 font-medium">Loading analytics...</p>
-        </div>
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <h3 className="text-lg font-semibold text-destructive mb-2">Error Loading Analytics</h3>
+            <p className="text-muted-foreground mb-4">
+              Failed to fetch analytics data. Please try again.
+            </p>
+            <Button onClick={() => refetch()}>Retry</Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
-  return (
-    <div className="space-y-8 pb-8">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Job Cost Analytics</h1>
-          <p className="text-gray-500 mt-1">Track individual job costs and rates</p>
-        </div>
-        <button
-          onClick={fetchAnalytics}
-          disabled={loading}
-          className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition flex items-center gap-2 shadow-sm"
-        >
-          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-          <span>Refresh</span>
-        </button>
-      </div>
+  const { totalJobs, totalExpenses, avgRatePerUnit } = totals();
 
-      <Link to="/dashboard/project-analytics" className="group">
-        <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm hover:shadow-md hover:border-purple-300 transition">
-          <div className="flex items-center gap-4">
-            <div className="bg-purple-50 p-3 rounded-lg group-hover:bg-purple-100 transition">
-              <Briefcase className="text-purple-600" size={28} />
+  return (
+    <div className="flex flex-col gap-6 p-6 max-w-[1600px] mx-auto">
+      {/* Header */}
+      <header className="flex flex-col md:flex-row md:justify-between md:items-start gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-primary">Job Cost Analytics</h1>
+          <p className="text-muted-foreground">Track individual job costs and rates</p>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => refetch()}
+            disabled={isLoading}
+            className="gap-2"
+            aria-label="Refresh analytics data"
+          >
+            <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
+            <span>Refresh</span>
+          </Button>
+        </div>
+      </header>
+
+      {/* Project Analytics Link */}
+      <Link to="/dashboard/project-analytics" className="group focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded-lg">
+        <Card className="hover:bg-muted/50 transition-colors cursor-pointer border-2 border-transparent group-focus:border-primary">
+          <CardContent className="p-6 flex items-center gap-4">
+            <div className="bg-muted p-3 rounded-lg group-hover:bg-background transition">
+              <Briefcase className="text-foreground" size={28} />
             </div>
             <div className="flex-1">
-              <h3 className="text-lg font-semibold text-gray-900">Project-wise Analytics</h3>
-              <p className="text-sm text-gray-500 mt-1">Analyze performance and costs by project</p>
+              <h3 className="text-lg font-semibold">Project-wise Analytics</h3>
+              <p className="text-sm text-muted-foreground">Analyze performance and costs by project</p>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       </Link>
 
-      {error && (
-        <div className="bg-red-50 border-l-4 border-red-500 text-red-700 px-4 py-3 rounded">
-          <p className="font-medium">Error</p>
-          <p className="text-sm">{error}</p>
-        </div>
-      )}
-
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm hover:shadow-md transition">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-500">Total Jobs</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">{totalJobs}</p>
-              <p className="text-xs text-gray-400 mt-1">All jobs</p>
-            </div>
-            <div className="bg-blue-50 p-3 rounded-lg">
-              <Briefcase className="text-blue-600" size={24} />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm hover:shadow-md transition">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-500">Total Payout</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">₹{totalPayout.toLocaleString(undefined, {maximumFractionDigits: 2})}</p>
-              <p className="text-xs text-gray-400 mt-1">All jobs</p>
-            </div>
-            <div className="bg-green-50 p-3 rounded-lg">
-              <DollarSign className="text-green-600" size={24} />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm hover:shadow-md transition">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-500">Additional Expenses</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">₹{totalExpenses.toLocaleString(undefined, {maximumFractionDigits: 2})}</p>
-              <p className="text-xs text-gray-400 mt-1">Total misc costs</p>
-            </div>
-            <div className="bg-red-50 p-3 rounded-lg">
-              <Target className="text-red-600" size={24} />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm hover:shadow-md transition">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-500">Avg Rate per Unit</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">₹{avgRatePerUnit.toFixed(2)}</p>
-              <p className="text-xs text-gray-400 mt-1">Price/area</p>
-            </div>
-            <div className="bg-purple-50 p-3 rounded-lg">
-              <TrendingUp className="text-purple-600" size={24} />
-            </div>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <KPICard
+          title="Total Jobs"
+          value={totalJobs}
+          description="All jobs"
+        />
+        <KPICard
+          title="Additional Expenses"
+          value={`₹${totalExpenses.toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
+          description="Total misc costs"
+        />
+        <KPICard
+          title="Avg Rate per Unit"
+          value={`₹${avgRatePerUnit.toFixed(2)}`}
+          description="Price/area"
+        />
       </div>
 
       {/* Job Cost Chart & Table */}
       <div className="grid grid-cols-1 gap-6">
-        {/* Cost Chart by Job */}
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-2">
-              <DollarSign className="text-gray-700" size={20} />
-              <h2 className="text-lg font-semibold text-gray-900">Cost per Job</h2>
-            </div>
-            <button
-              onClick={fetchAnalytics}
-              disabled={loading}
-              className="p-2 hover:bg-gray-100 rounded-lg transition"
-              title="Refresh"
-            >
-              <RefreshCw size={16} className={loading ? 'animate-spin text-blue-600' : 'text-gray-600'} />
-            </button>
-          </div>
-          {jobs.length > 0 ? (
-            <ResponsiveContainer width="100%" height={400}>
+        <CostChart jobs={jobs} />
+        <JobDetailsTable
+          jobs={jobs}
+          editingJobId={editingJobId}
+          editExpense={editExpense}
+          onEditExpense={handleEditExpense}
+          onSaveExpense={handleSaveExpense}
+          onCancelEdit={handleCancelEdit}
+          setEditExpense={setEditExpense}
+        />
+      </div>
+    </div>
+  );
+};
+
+// Helper Components
+const AnalyticsSkeleton: React.FC = () => (
+  <div className="flex flex-col gap-6 p-6">
+    <Skeleton className="h-10 w-64" />
+    <div className="grid grid-cols-4 gap-6">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <Skeleton key={i} className="h-32" />
+      ))}
+    </div>
+    <Skeleton className="h-[400px]" />
+    <Skeleton className="h-[600px]" />
+  </div>
+);
+
+const KPICard: React.FC<{
+  title: string;
+  value: string | number;
+  description: string;
+}> = ({ title, value, description }) => (
+  <Card className="@container/card">
+    <CardContent className="p-6">
+      <div>
+        <p className="text-sm font-medium text-muted-foreground">{title}</p>
+        <p className="text-2xl font-bold mt-2 tabular-nums @[200px]/card:text-3xl @[300px]/card:text-4xl transition-all duration-300">
+          {value}
+        </p>
+        <p className="text-xs text-muted-foreground mt-1">{description}</p>
+      </div>
+    </CardContent>
+  </Card>
+);
+
+const CostChart: React.FC<{ jobs: Array<{ id?: number; name: string; rate: number; size?: number; additional_expense?: number }> }> = ({ jobs }) => {
+  const chartData = jobs.slice(0, 20).map(job => {
+    const rate = Number(job.rate) || 0;
+    const size = Number(job.size) || 0;
+    const expense = Number(job.additional_expense) || 0;
+    const totalCost = rate * size + expense;
+    
+    return {
+      name: (job.name || 'Untitled').length > 15 
+        ? (job.name || 'Untitled').substring(0, 15) + '...' 
+        : (job.name || 'Untitled'),
+      totalCost,
+      expense,
+    };
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <DollarSign className="h-5 w-5 text-muted-foreground" /> Cost per Job
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {jobs.length > 0 ? (
+          <div className="h-[400px]" role="img" aria-label="Job cost comparison chart">
+            <ResponsiveContainer width="100%" height="100%">
               <BarChart 
-                data={jobs.slice(0, 20).map(job => {
-                  const rate = Number(job.rate) || 0;
-                  const size = Number(job.size) || 0;
-                  const expense = Number(job.additional_expense) || 0;
-                  const totalCost = rate * size + expense;
-                  const ratePerUnit = size > 0 ? totalCost / size : 0;
-                  
-                  return {
-                    name: (job.name || 'Untitled').length > 15 ? (job.name || 'Untitled').substring(0, 15) + '...' : (job.name || 'Untitled'),
-                    totalCost: totalCost,
-                    expense: expense,
-                    ratePerUnit: ratePerUnit
-                  };
-                })}
+                data={chartData}
                 margin={{ top: 10, right: 10, left: 10, bottom: 60 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis 
                   dataKey="name" 
-                  tick={{ fontSize: 10, fill: '#6B7280' }}
+                  tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
                   angle={-45}
                   textAnchor="end"
                   height={100}
+                  stroke="var(--muted-foreground)"
                 />
                 <YAxis 
-                  tick={{ fontSize: 12, fill: '#6B7280' }}
+                  tick={{ fontSize: 12, fill: 'var(--muted-foreground)' }}
                   tickFormatter={(value) => `₹${(value / 1000).toFixed(1)}k`}
+                  stroke="var(--muted-foreground)"
                 />
                 <Tooltip 
-                  formatter={(value: number) => `₹${Number(value).toLocaleString(undefined, {maximumFractionDigits: 2})}`}
+                  formatter={(value: number) => [
+                    `₹${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+                  ]}
                   contentStyle={{ 
-                    backgroundColor: 'rgba(255, 255, 255, 0.96)',
-                    border: '1px solid #e5e7eb',
+                    backgroundColor: 'var(--background)',
+                    border: '1px solid var(--border)',
                     borderRadius: '8px',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
                   }}
+                  cursor={{ fill: 'var(--muted)' }}
                 />
                 <Legend />
                 <Bar 
                   dataKey="totalCost" 
-                  fill="#10B981" 
-                  radius={[6, 6, 0, 0]}
+                  fill="#18181b" 
+                  radius={[4, 4, 0, 0]}
                   name="Total Cost"
                   maxBarSize={40}
                 />
                 <Bar 
                   dataKey="expense" 
-                  fill="#EF4444" 
-                  radius={[6, 6, 0, 0]}
+                  fill="#a1a1aa" 
+                  radius={[4, 4, 0, 0]}
                   name="Additional Expense"
                   maxBarSize={40}
                 />
               </BarChart>
             </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-[400px] text-gray-400">
-              <div className="text-center">
-                <DollarSign size={48} className="mx-auto mb-2 opacity-50" />
-                <p>No job data available</p>
-              </div>
-            </div>
-          )}
-          {jobs.length > 20 && (
-            <p className="text-xs text-gray-500 mt-4 text-center">Showing first 20 jobs. See table below for all jobs.</p>
-          )}
-        </div>
-
-        {/* Job Details Table */}
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-2">
-              <Briefcase className="text-gray-700" size={22} />
-              <h2 className="text-lg font-semibold text-gray-900">All Jobs Cost Details</h2>
-            </div>
-            <button
-              onClick={fetchAnalytics}
-              disabled={loading}
-              className="p-2 hover:bg-gray-100 rounded-lg transition"
-              title="Refresh"
-            >
-              <RefreshCw size={16} className={loading ? 'animate-spin text-blue-600' : 'text-gray-600'} />
-            </button>
           </div>
-          {jobs.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Job Name</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Customer</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Area</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Rate/area</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Payout</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Expense</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Total Cost</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Rate/Unit</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {jobs.map((job) => {
-                    const rate = Number(job.rate) || 0;
-                    const size = Number(job.size) || 0;
-                    const expense = Number(job.additional_expense) || 0;
-                    const payout = rate * size;
-                    const totalCost = payout + expense;
-                    const ratePerUnit = size > 0 ? totalCost / size : 0;
-                    const color = statusColorMap[job.status || 'created'] || '#6B7280';
-                    const isEditing = editingJobId === job.id;
-                    
-                    return (
-                      <tr key={job.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-4">
-                          <p className="font-medium text-gray-900">{job.name || 'Untitled'}</p>
-                          <p className="text-xs text-gray-500">{job.city || '-'}</p>
-                        </td>
-                        <td className="px-4 py-4">
-                          <p className="text-sm text-gray-700">{job.customer_name || '-'}</p>
-                        </td>
-                        <td className="px-4 py-4 text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }}></div>
-                            <span className="text-xs font-medium text-gray-600 capitalize">{(job.status || 'created').replace('_', ' ')}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4 text-right">
-                          <p className="text-sm text-gray-600">{size}</p>
-                        </td>
-                        <td className="px-4 py-4 text-right">
-                          <p className="text-sm text-gray-600">₹{rate.toLocaleString(undefined, {maximumFractionDigits: 2})}</p>
-                        </td>
-                        <td className="px-4 py-4 text-right">
-                          <p className="text-sm text-gray-600">₹{payout.toLocaleString(undefined, {maximumFractionDigits: 2})}</p>
-                        </td>
-                        <td className="px-4 py-4 text-right">
-                          {isEditing ? (
-                            <div className="flex items-center justify-end gap-2">
-                              <input
-                                type="number"
-                                value={editExpense}
-                                onChange={(e) => setEditExpense(e.target.value)}
-                                className="w-24 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                placeholder="0"
-                                autoFocus
-                              />
-                              <button
-                                onClick={() => handleSaveExpense(job.id!)}
-                                disabled={saving}
-                                className="p-1 text-green-600 hover:bg-green-50 rounded transition"
-                                title="Save"
-                              >
-                                <Save size={16} />
-                              </button>
-                              <button
-                                onClick={handleCancelEdit}
-                                disabled={saving}
-                                className="p-1 text-gray-600 hover:bg-gray-100 rounded transition"
-                                title="Cancel"
-                              >
-                                <X size={16} />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center justify-end gap-2">
-                              <p className="font-medium text-red-600">₹{expense.toLocaleString(undefined, {maximumFractionDigits: 2})}</p>
-                              <button
-                                onClick={() => handleEditExpense(job.id!, expense)}
-                                className="p-1 text-blue-600 hover:bg-blue-50 rounded transition"
-                                title="Edit expense"
-                              >
-                                <Edit2 size={14} />
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-4 text-right">
-                          <p className="font-semibold text-blue-600">₹{totalCost.toLocaleString(undefined, {maximumFractionDigits: 2})}</p>
-                        </td>
-                        <td className="px-4 py-4 text-right">
-                          <p className="text-sm font-medium text-gray-900">₹{ratePerUnit.toLocaleString(undefined, {maximumFractionDigits: 2})}</p>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold">
-                    <td className="px-4 py-4 text-gray-900" colSpan={4}>Total ({totalJobs} jobs)</td>
-                    <td className="px-4 py-4 text-right text-gray-600">{totalSize.toLocaleString(undefined, {maximumFractionDigits: 2})}</td>
-                    <td className="px-4 py-4 text-right text-gray-600">
-                      ₹{totalPayout.toLocaleString(undefined, {maximumFractionDigits: 2})}
-                    </td>
-                    <td className="px-4 py-4 text-right text-red-700">
-                      ₹{totalExpenses.toLocaleString(undefined, {maximumFractionDigits: 2})}
-                    </td>
-                    <td className="px-4 py-4 text-right text-blue-700">
-                      ₹{totalCost.toLocaleString(undefined, {maximumFractionDigits: 2})}
-                    </td>
-                    <td className="px-4 py-4 text-right text-gray-900">
-                      ₹{avgRatePerUnit.toLocaleString(undefined, {maximumFractionDigits: 2})}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          ) : (
-            <div className="flex items-center justify-center py-16 text-gray-400">
-              <div className="text-center">
-                <Briefcase size={48} className="mx-auto mb-3 opacity-50" />
-                <p className="text-gray-500 font-medium">No job data available</p>
-                <p className="text-sm text-gray-400 mt-1">Create some jobs to see cost details</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+        ) : (
+          <EmptyState icon={<DollarSign size={48} />} message="No job data available" />
+        )}
+      </CardContent>
+    </Card>
   );
 };
+
+const JobDetailsTable: React.FC<{
+  jobs: Job[];
+  editingJobId: number | null;
+  editExpense: string;
+  onEditExpense: (id: number, expense: number) => void;
+  onSaveExpense: (id: number) => void;
+  onCancelEdit: () => void;
+  setEditExpense: (value: string) => void;
+}> = ({ jobs, editingJobId, editExpense, onEditExpense, onSaveExpense, onCancelEdit, setEditExpense }) => (
+  <Card>
+    <CardHeader>
+      <CardTitle className="flex items-center gap-2">
+        <Briefcase className="h-5 w-5 text-muted-foreground" /> All Jobs Cost Details
+      </CardTitle>
+    </CardHeader>
+    <CardContent>
+      {jobs.length > 0 ? (
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Job Name</TableHead>
+                <TableHead>Customer</TableHead>
+                <TableHead className="text-center">Status</TableHead>
+                <TableHead className="text-right">Area</TableHead>
+                <TableHead className="text-right">Rate/area</TableHead>
+                <TableHead className="text-right">Payout</TableHead>
+                <TableHead className="text-right">Expense</TableHead>
+                <TableHead className="text-right">Total Cost</TableHead>
+                <TableHead className="text-right">Rate/Unit</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {jobs.map((job) => (
+                <JobTableRow
+                  key={job.id}
+                  job={job}
+                  isEditing={editingJobId === job.id}
+                  editExpense={editExpense}
+                  onEditExpense={onEditExpense}
+                  onSaveExpense={onSaveExpense}
+                  onCancelEdit={onCancelEdit}
+                  setEditExpense={setEditExpense}
+                />
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        <EmptyState icon={<Briefcase size={48} />} message="No job data available" />
+      )}
+    </CardContent>
+  </Card>
+);
+
+const JobTableRow: React.FC<{
+  job: Job;
+  isEditing: boolean;
+  editExpense: string;
+  onEditExpense: (id: number, expense: number) => void;
+  onSaveExpense: (id: number) => void;
+  onCancelEdit: () => void;
+  setEditExpense: (value: string) => void;
+}> = ({ job, isEditing, editExpense, onEditExpense, onSaveExpense, onCancelEdit, setEditExpense }) => {
+  const rate = Number(job.rate) || 0;
+  const size = Number(job.size) || 0;
+  const expense = Number(job.additional_expense) || 0;
+  const payout = rate * size;
+  const totalCost = payout + expense;
+  const ratePerUnit = size > 0 ? totalCost / size : 0;
+
+  return (
+    <TableRow>
+      <TableCell>
+        <div className="font-medium">{job.name || 'Untitled'}</div>
+        <div className="text-xs text-muted-foreground">{job.city || '-'}</div>
+      </TableCell>
+      <TableCell>{job.customer_name || '-'}</TableCell>
+      <TableCell className="text-center">
+        <div className="text-xs font-medium capitalize text-muted-foreground">
+          {(job.status || 'created').replace('_', ' ')}
+        </div>
+      </TableCell>
+      <TableCell className="text-right">{size}</TableCell>
+      <TableCell className="text-right">₹{rate.toLocaleString(undefined, { maximumFractionDigits: 2 })}</TableCell>
+      <TableCell className="text-right">₹{payout.toLocaleString(undefined, { maximumFractionDigits: 2 })}</TableCell>
+      <TableCell className="text-right">
+        {isEditing ? (
+          <div className="flex items-center justify-end gap-2">
+            <Input
+              type="number"
+              value={editExpense}
+              onChange={(e) => setEditExpense(e.target.value)}
+              className="w-24 h-8 text-right"
+              placeholder="0"
+              autoFocus
+              min="0"
+              step="0.01"
+              aria-label="Edit expense amount"
+            />
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => onSaveExpense(job.id!)}
+              className="h-8 w-8 text-foreground hover:text-foreground/80"
+              aria-label="Save expense"
+            >
+              <Save size={16} />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={onCancelEdit}
+              className="h-8 w-8"
+              aria-label="Cancel edit"
+            >
+              <X size={16} />
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-end gap-2">
+            <span className="font-medium text-muted-foreground">
+              ₹{expense.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            </span>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => onEditExpense(job.id!, expense)}
+              className="h-6 w-6 text-muted-foreground hover:text-foreground"
+              aria-label="Edit expense"
+            >
+              <Edit2 size={12} />
+            </Button>
+          </div>
+        )}
+      </TableCell>
+      <TableCell className="text-right font-semibold">
+        ₹{totalCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+      </TableCell>
+      <TableCell className="text-right font-medium text-muted-foreground">
+        ₹{ratePerUnit.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+      </TableCell>
+    </TableRow>
+  );
+};
+
+const EmptyState: React.FC<{ icon: React.ReactNode; message: string }> = ({ icon, message }) => (
+  <div className="flex items-center justify-center h-[400px] text-muted-foreground">
+    <div className="text-center">
+      <div className="mx-auto mb-2 opacity-50" aria-hidden="true">
+        {icon}
+      </div>
+      <p>{message}</p>
+    </div>
+  </div>
+);
 
 export default Analytics;

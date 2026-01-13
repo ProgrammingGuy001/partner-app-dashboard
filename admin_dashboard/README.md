@@ -1,117 +1,73 @@
-# Admin Dashboard
+# React + TypeScript + Vite
 
-A modern, functional React admin dashboard for managing jobs, analytics, and administrative tasks.
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-## Features
+Currently, two official plugins are available:
 
-- **Authentication**: Secure login system with JWT tokens
-- **Jobs Management**: Create, update, delete, and track job statuses (created, in_progress, paused, completed)
-- **Analytics Dashboard**: 
-  - Payout summaries by period (week, month, quarter, year)
-  - Job stage distribution charts
-  - IP performance metrics
-- **Admin Controls**: Verify IP users by phone number
-- **Responsive Design**: Built with Tailwind CSS for a modern, mobile-friendly UI
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
 
-## Tech Stack
+## React Compiler
 
-- React 18 + TypeScript
-- Vite
-- React Router v6
-- TanStack Query (React Query)
-- Axios
-- Recharts (for analytics charts)
-- Tailwind CSS
-- Lucide React (icons)
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
-## Getting Started
+## Expanding the ESLint configuration
 
-### Prerequisites
+If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
 
-- Node.js (v16 or higher)
-- Backend API running on port 8000 (or update `.env` file)
+```js
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
 
-### Installation
+      // Remove tseslint.configs.recommended and replace with this
+      tseslint.configs.recommendedTypeChecked,
+      // Alternatively, use this for stricter rules
+      tseslint.configs.strictTypeChecked,
+      // Optionally, add this for stylistic rules
+      tseslint.configs.stylisticTypeChecked,
 
-```bash
-# Install dependencies
-npm install
-
-# Run development server
-npm run dev
-
-# Build for production
-npm run build
-
-# Preview production build
-npm run preview
+      // Other configs...
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
 ```
 
-### Environment Variables
+You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
 
-Create a `.env` file in the root directory:
+```js
+// eslint.config.js
+import reactX from 'eslint-plugin-react-x'
+import reactDom from 'eslint-plugin-react-dom'
 
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+      // Enable lint rules for React
+      reactX.configs['recommended-typescript'],
+      // Enable lint rules for React DOM
+      reactDom.configs.recommended,
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
 ```
-VITE_API_BASE_URL=http://localhost:8000
-```
-
-## Default Login
-
-Use the credentials created in your backend system to login.
-
-## Available Routes
-
-- `/login` - Authentication page
-- `/dashboard` - Main dashboard
-- `/dashboard/jobs` - Jobs management
-- `/dashboard/analytics` - Analytics and reports
-- `/dashboard/admin` - Admin controls
-
-## API Integration
-
-The dashboard integrates with the following backend endpoints:
-
-- **Auth**: `/auth/login`, `/auth/signup`
-- **Jobs**: `/jobs/` (CRUD operations + start/pause/finish)
-- **Analytics**: `/analytics/payout`, `/analytics/job-stages`, `/analytics/ip-performance`
-- **Admin**: `/admin/verify-ip/{phone_number}`
-
-## Features by Page
-
-### Jobs Management
-- Create new jobs with all required details
-- Edit existing jobs
-- Delete jobs
-- Start/pause/finish jobs with optional notes
-- Filter jobs by status
-- Search jobs by name, customer, or city
-
-### Analytics
-- View total jobs and payouts for selected period
-- Interactive charts showing job distribution
-- IP performance metrics table
-- Period selection (week, month, quarter, year)
-
-### Admin Controls
-- Verify IP users by phone number
-- View verification status
-- Quick access to admin information
-
-## Development
-
-The project structure:
-
-```
-src/
-├── api/           # API service layer
-├── components/    # Reusable components
-├── pages/         # Page components
-├── hooks/         # Custom hooks (reserved)
-├── types/         # TypeScript types (reserved)
-└── utils/         # Utility functions (reserved)
-```
-
-## License
-
-MIT
-

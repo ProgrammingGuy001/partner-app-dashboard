@@ -1,6 +1,54 @@
 import React, { useState, useEffect } from 'react';
-import { type Job, jobAPI, adminAPI, checklistAPI } from '../api/services';
-import { X } from 'lucide-react';
+import { type Job, type JobUpdate, adminAPI, checklistAPI } from '@/api/services';
+import { useCreateJob, useUpdateJob } from '@/hooks/useJobs';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { ChevronDown } from "lucide-react"
+
+// Zod Schema for Validation
+const jobSchema = z.object({
+  name: z.string().min(1, "Job Name is required"),
+  customer_name: z.string().min(1, "Customer Name is required"),
+  address: z.string().min(1, "Address is required"),
+  city: z.string().min(1, "City is required"),
+  pincode: z.string().min(6, "Pincode must be 6 digits").max(6, "Pincode must be 6 digits").regex(/^\d+$/, "Must be numbers"),
+  google_map_link: z.string().url("Invalid URL").optional().or(z.literal("")),
+  type: z.string().min(1, "Type is required"),
+  rate: z.string().refine((val) => !isNaN(Number(val)) && Number(val) >= 0, { message: "Rate must be a positive number" }),
+  size: z.string().optional().refine((val) => !val || (!isNaN(Number(val)) && Number(val) >= 0), { message: "Size must be a positive number" }),
+  assigned_ip_id: z.string().optional(),
+  delivery_date: z.string().min(1, "Delivery Date is required"),
+  checklist_link: z.string().url("Invalid URL").optional().or(z.literal("")),
+});
+
+type JobFormValues = z.infer<typeof jobSchema>;
 
 interface IPUser {
   id: number;
@@ -23,29 +71,39 @@ interface JobFormModalProps {
 }
 
 const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) => {
-  const [formData, setFormData] = useState({
-    name: '',
-    customer_name: '',
-    address: '',
-    city: '',
-    pincode: '',
-    google_map_link: '',
-    type: '',
-    rate: '',
-    size: '',
-    assigned_ip_id: '',
-    delivery_date: '',
-    checklist_link: '',
-  });
   const [ipUsers, setIpUsers] = useState<IPUser[]>([]);
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [selectedChecklistIds, setSelectedChecklistIds] = useState<number[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [submitError, setSubmitError] = useState('');
+
+  const createJobMutation = useCreateJob();
+  const updateJobMutation = useUpdateJob();
+
+  const { register, handleSubmit, setValue, formState: { errors }, reset, watch } = useForm<JobFormValues>({
+    resolver: zodResolver(jobSchema),
+    defaultValues: {
+      name: '',
+      customer_name: '',
+      address: '',
+      city: '',
+      pincode: '',
+      google_map_link: '',
+      type: '',
+      rate: '',
+      size: '',
+      assigned_ip_id: '',
+      delivery_date: '',
+      checklist_link: '',
+    }
+  });
+
+  // Watch values for controlled components if needed, or just rely on setValue
+  const assignedIpId = watch('assigned_ip_id');
+  const jobType = watch('type');
 
   useEffect(() => {
     if (job) {
-      setFormData({
+      reset({
         name: job.name,
         customer_name: job.customer_name,
         address: job.address || '',
@@ -60,14 +118,13 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
         checklist_link: job.checklist_link || '',
       });
       
-      // Load existing checklists
       const ids: number[] = [];
       if (job.job_checklists && Array.isArray(job.job_checklists)) {
         ids.push(...job.job_checklists.map(jc => jc.checklist_id));
       }
       setSelectedChecklistIds(ids);
     }
-  }, [job]);
+  }, [job, reset]);
 
   useEffect(() => {
     const fetchIPUsers = async () => {
@@ -101,265 +158,254 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
     );
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
+  const onSubmit = async (data: JobFormValues) => {
+    setSubmitError('');
 
     try {
       const payload: any = {
-        name: formData.name,
-        customer_name: formData.customer_name,
-        address: formData.address,
-        city: formData.city,
-        pincode: parseInt(formData.pincode),
-        type: formData.type,
-        rate: parseFloat(formData.rate),
-        size: formData.size ? parseInt(formData.size) : 0,
-        assigned_ip_id: formData.assigned_ip_id ? parseInt(formData.assigned_ip_id) : null,
-        delivery_date: formData.delivery_date,
-        google_map_link: formData.google_map_link,
+        name: data.name,
+        customer_name: data.customer_name,
+        address: data.address,
+        city: data.city,
+        pincode: parseInt(data.pincode),
+        type: data.type,
+        rate: parseFloat(data.rate),
+        size: data.size ? parseInt(data.size) : 0,
+        assigned_ip_id: data.assigned_ip_id ? parseInt(data.assigned_ip_id) : undefined,
+        delivery_date: data.delivery_date,
+        google_map_link: data.google_map_link || undefined,
         checklist_ids: selectedChecklistIds,
       };
 
-      if (formData.checklist_link) payload.checklist_link = formData.checklist_link;
+      if (data.checklist_link) payload.checklist_link = data.checklist_link;
       
-      console.log('Submitting job payload:', payload);
-
       if (job?.id) {
-        await jobAPI.update(job.id, payload);
+        await updateJobMutation.mutateAsync({ id: job.id, data: payload as JobUpdate });
       } else {
-        await jobAPI.create(payload);
+        await createJobMutation.mutateAsync(payload as Job);
       }
       onSuccess();
     } catch (err: unknown) {
       console.error('Error saving job:', err);
       if (err instanceof Error) {
-        setError(err.message);
+        setSubmitError(err.message);
       } else {
-        setError('Operation failed');
+        setSubmitError('Operation failed');
       }
-    } finally {
-      setLoading(false);
     }
   };
 
+  const isLoading = createJobMutation.isPending || updateJobMutation.isPending;
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center z-10">
-          <h2 className="text-2xl font-bold text-gray-800">
-            {job ? 'Edit Job' : 'Create New Job'}
-          </h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
-            <X size={24} />
-          </button>
-        </div>
+    <Dialog open={true} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-3xl max-h-[85vh] flex flex-col p-0 overflow-hidden">
+        <DialogHeader className="p-6 border-b shrink-0">
+          <DialogTitle>{job ? 'Edit Job' : 'Create New Job'}</DialogTitle>
+        </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-              {error}
-            </div>
-          )}
+        <div className="flex-1 overflow-y-auto p-6">
+          <form id="job-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+            {submitError && (
+              <Alert variant="destructive">
+                <AlertDescription>{submitError}</AlertDescription>
+              </Alert>
+            )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Job Name *</label>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name *</label>
-              <input
-                type="text"
-                value={formData.customer_name}
-                onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
-              <select
-                value={formData.type}
-                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                required
-              >
-                <option value="">Select a type</option>
-                <option value="site_readiness">Site Readiness</option>
-                <option value="site_validation">Site Validation</option>
-                <option value="installation">Installation</option>
-                <option value="measurement">Measurement</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Rate (₹) *</label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.rate}
-                onChange={(e) => setFormData({ ...formData, rate: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Address *</label>
-              <input
-                type="text"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Google Map Link</label>
-              <input
-                type="url"
-                value={formData.google_map_link}
-                onChange={(e) => setFormData({ ...formData,google_map_link: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                placeholder="https://maps.google.com/..."
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">City *</label>
-              <input
-                type="text"
-                value={formData.city}
-                onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Pincode *</label>
-              <input
-                type="number"
-                value={formData.pincode}
-                onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Size</label>
-              <input
-                type="number"
-                value={formData.size}
-                onChange={(e) => setFormData({ ...formData, size: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Assigned IP</label>
-              <select
-                value={formData.assigned_ip_id}
-                onChange={(e) => setFormData({ ...formData, assigned_ip_id: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              >
-                <option value="">Select an IP User</option>
-                {ipUsers.map((ipUser) => (
-                  <option key={ipUser.id} value={ipUser.id} disabled={ipUser.is_assigned && ipUser.id !== job?.assigned_ip_id}>
-                    {ipUser.first_name} {ipUser.last_name} {ipUser.is_assigned && ipUser.id !== job?.assigned_ip_id ? '(Assigned)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Date *</label>
-              <input
-                type="date"
-                value={formData.delivery_date}
-                onChange={(e) => setFormData({ ...formData, delivery_date: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                required
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Select Checklists</label>
-              <div className="border border-gray-300 rounded-lg p-4 max-h-60 overflow-y-auto bg-gray-50">
-                {checklists.length === 0 ? (
-                  <p className="text-gray-500 text-sm">No checklists available</p>
-                ) : (
-                  <div className="space-y-2">
-                    {checklists.map((checklist) => (
-                      <label
-                        key={checklist.id}
-                        className="flex items-start space-x-3 p-2 hover:bg-gray-100 rounded cursor-pointer transition"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedChecklistIds.includes(checklist.id)}
-                          onChange={() => handleChecklistToggle(checklist.id)}
-                          className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                        />
-                        <div className="flex-1">
-                          <div className="font-medium text-gray-900">{checklist.name}</div>
-                          {checklist.description && (
-                            <div className="text-xs text-gray-500 mt-0.5">{checklist.description}</div>
-                          )}
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Job Name *</Label>
+                <Input
+                  id="name"
+                  {...register("name")}
+                  aria-invalid={!!errors.name}
+                />
+                {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
               </div>
-              <p className="mt-1 text-xs text-gray-500">
-                {selectedChecklistIds.length} checklist{selectedChecklistIds.length !== 1 ? 's' : ''} selected
-              </p>
-            </div>
 
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Custom Checklist Link (Optional)</label>
-              <input
-                type="url"
-                value={formData.checklist_link}
-                onChange={(e) => setFormData({ ...formData, checklist_link: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                placeholder="Or enter custom checklist URL"
-              />
-            </div>
-          </div>
+              <div className="space-y-2">
+                <Label htmlFor="customer_name">Customer Name *</Label>
+                <Input
+                  id="customer_name"
+                  {...register("customer_name")}
+                  aria-invalid={!!errors.customer_name}
+                />
+                {errors.customer_name && <p className="text-xs text-destructive">{errors.customer_name.message}</p>}
+              </div>
 
-          <div className="flex gap-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
-            >
-              {loading ? 'Saving...' : job ? 'Update Job' : 'Create Job'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+              <div className="space-y-2">
+                <Label htmlFor="type">Type *</Label>
+                <Select
+                  value={jobType}
+                  onValueChange={(value) => setValue("type", value, { shouldValidate: true })}
+                >
+                  <SelectTrigger aria-invalid={!!errors.type}>
+                    <SelectValue placeholder="Select a type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="site_readiness">Site Readiness</SelectItem>
+                    <SelectItem value="site_validation">Site Validation</SelectItem>
+                    <SelectItem value="installation">Installation</SelectItem>
+                    <SelectItem value="measurement">Measurement</SelectItem>
+                  </SelectContent>
+                </Select>
+                {errors.type && <p className="text-xs text-destructive">{errors.type.message}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="rate">Rate (₹) *</Label>
+                <Input
+                  id="rate"
+                  type="number"
+                  step="0.01"
+                  {...register("rate")}
+                  aria-invalid={!!errors.rate}
+                />
+                {errors.rate && <p className="text-xs text-destructive">{errors.rate.message}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="address">Address *</Label>
+                <Input
+                  id="address"
+                  {...register("address")}
+                  aria-invalid={!!errors.address}
+                />
+                {errors.address && <p className="text-xs text-destructive">{errors.address.message}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="google_map_link">Google Map Link</Label>
+                <Input
+                  id="google_map_link"
+                  type="url"
+                  placeholder="https://maps.google.com/..."
+                  {...register("google_map_link")}
+                  aria-invalid={!!errors.google_map_link}
+                />
+                {errors.google_map_link && <p className="text-xs text-destructive">{errors.google_map_link.message}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="city">City *</Label>
+                <Input
+                  id="city"
+                  {...register("city")}
+                  aria-invalid={!!errors.city}
+                />
+                {errors.city && <p className="text-xs text-destructive">{errors.city.message}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="pincode">Pincode *</Label>
+                <Input
+                  id="pincode"
+                  type="number"
+                  {...register("pincode")}
+                  aria-invalid={!!errors.pincode}
+                />
+                {errors.pincode && <p className="text-xs text-destructive">{errors.pincode.message}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="size">Size</Label>
+                <Input
+                  id="size"
+                  type="number"
+                  {...register("size")}
+                  aria-invalid={!!errors.size}
+                />
+                {errors.size && <p className="text-xs text-destructive">{errors.size.message}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="assigned_ip_id">Assigned IP</Label>
+                <Select
+                  value={assignedIpId}
+                  onValueChange={(value) => setValue("assigned_ip_id", value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select an IP User" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ipUsers.map((ipUser) => (
+                      <SelectItem 
+                        key={ipUser.id} 
+                        value={ipUser.id.toString()}
+                        disabled={ipUser.is_assigned && ipUser.id !== job?.assigned_ip_id}
+                      >
+                        {ipUser.first_name} {ipUser.last_name} {ipUser.is_assigned && ipUser.id !== job?.assigned_ip_id ? '(Assigned)' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="delivery_date">Delivery Date *</Label>
+                <Input
+                  id="delivery_date"
+                  type="date"
+                  {...register("delivery_date")}
+                  aria-invalid={!!errors.delivery_date}
+                />
+                {errors.delivery_date && <p className="text-xs text-destructive">{errors.delivery_date.message}</p>}
+              </div>
+
+              <div className="col-span-1 md:col-span-2 space-y-3">
+                <Label>Checklists</Label>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="w-full justify-between font-normal">
+                      <span>{selectedChecklistIds.length > 0 ? `${selectedChecklistIds.length} selected` : "Select Checklists"}</span>
+                      <ChevronDown className="h-4 w-4 opacity-50" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)] max-h-[300px] overflow-y-auto" align="start">
+                    <DropdownMenuLabel>Available Checklists</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {checklists.length === 0 ? (
+                      <div className="p-2 text-sm text-gray-500">No checklists available</div>
+                    ) : (
+                      checklists.map((checklist) => (
+                        <DropdownMenuCheckboxItem
+                          key={checklist.id}
+                          checked={selectedChecklistIds.includes(checklist.id)}
+                          onCheckedChange={() => handleChecklistToggle(checklist.id)}
+                        >
+                          {checklist.name}
+                        </DropdownMenuCheckboxItem>
+                      ))
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              <div className="col-span-1 md:col-span-2 space-y-2">
+                <Label htmlFor="checklist_link">Custom Checklist Link (Optional)</Label>
+                <Input
+                  id="checklist_link"
+                  type="url"
+                  placeholder="Or enter custom checklist URL"
+                  {...register("checklist_link")}
+                  aria-invalid={!!errors.checklist_link}
+                />
+                {errors.checklist_link && <p className="text-xs text-destructive">{errors.checklist_link.message}</p>}
+              </div>
+            </div>
+          </form>
+        </div>
+        
+        <DialogFooter className="p-6 border-t shrink-0">
+          <Button variant="outline" onClick={onClose} type="button">
+            Cancel
+          </Button>
+          <Button type="submit" form="job-form" disabled={isLoading}>
+            {isLoading ? 'Saving...' : job ? 'Update Job' : 'Create Job'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 

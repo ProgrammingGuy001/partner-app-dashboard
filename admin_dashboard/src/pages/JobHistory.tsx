@@ -1,14 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { jobAPI, type JobStatusLog } from '../api/services';
+import { jobAPI, type JobStatusLog } from '@/api/services';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 const JobHistory: React.FC = () => {
   const { jobId } = useParams<{ jobId: string }>();
   const [history, setHistory] = useState<JobStatusLog[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchHistory = async () => {
+  const fetchHistory = useCallback(async () => {
     if (!jobId) return;
     try {
       setLoading(true);
@@ -19,86 +30,85 @@ const JobHistory: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [jobId]);
 
   useEffect(() => {
     fetchHistory();
-  }, [jobId]);
+  }, [fetchHistory]);
 
-  const getStatusColor = (status?: string) => {
-    switch (status) {
-      case 'created': return 'bg-gray-100 text-gray-800';
-      case 'in_progress': return 'bg-blue-100 text-blue-800';
-      case 'paused': return 'bg-yellow-100 text-yellow-800';
-      case 'completed': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
+
+
+  // Helper for custom colors since Badge variants are limited
+  const getStatusClass = (status?: string) => {
+     switch (status) {
+      case 'in_progress': return 'bg-blue-100 text-blue-800 hover:bg-blue-100/80';
+      case 'paused': return 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100/80';
+      case 'completed': return 'bg-green-100 text-green-800 hover:bg-green-100/80';
+      default: return 'bg-gray-100 text-gray-800 hover:bg-gray-100/80';
     }
-  };
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6 p-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-800">Job History</h1>
-          <p className="text-gray-600 mt-1">View the status change history for a job</p>
+          <h1 className="text-3xl font-bold tracking-tight">Job History</h1>
+          <p className="text-muted-foreground">View the status change history for a job</p>
         </div>
-        <div className="flex gap-3">
-          <Link
-            to="/dashboard/jobs"
-            className="px-4 py-3 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition flex items-center gap-2 shadow-sm"
-          >
-            <ArrowLeft size={18} />
-            <span className="hidden sm:inline">Back to Jobs</span>
+        <div className="flex gap-2">
+          <Link to="/dashboard/jobs">
+            <Button variant="outline" className="gap-2">
+               <ArrowLeft size={16} /> Back to Jobs
+            </Button>
           </Link>
-          <button
-            onClick={fetchHistory}
-            disabled={loading}
-            className="px-4 py-3 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition flex items-center gap-2 shadow-sm"
-          >
-            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-            <span className="hidden sm:inline">Refresh</span>
-          </button>
+          <Button variant="outline" size="icon" onClick={fetchHistory} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-md p-6">
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
-            <p className="mt-4 text-gray-600">Loading job history...</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-gray-50 border-b">
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Status</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Notes</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Timestamp</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {history.map((log) => (
-                  <tr key={log.id} className="hover:bg-gray-50 transition">
-                    <td className="px-6 py-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(log.status)}`}>
-                        {log.status?.replace('_', ' ').toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">{log.notes}</td>
-                    <td className="px-6 py-4 text-sm text-gray-700">{new Date(log.timestamp).toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {history.length === 0 && (
-              <div className="text-center py-12 text-gray-500">
-                No history found for this job.
-              </div>
+      <Card>
+         <CardHeader>
+            <CardTitle>History Log</CardTitle>
+         </CardHeader>
+         <CardContent>
+            {loading ? (
+               <div className="p-8 text-center text-muted-foreground">
+                  Loading job history...
+               </div>
+            ) : (
+               <Table>
+                  <TableHeader>
+                     <TableRow>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Notes</TableHead>
+                        <TableHead>Timestamp</TableHead>
+                     </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                     {history.map((log) => (
+                        <TableRow key={log.id}>
+                           <TableCell>
+                              <Badge variant="outline" className={getStatusClass(log.status)}>
+                                 {log.status?.replace('_', ' ').toUpperCase()}
+                              </Badge>
+                           </TableCell>
+                           <TableCell>{log.notes}</TableCell>
+                           <TableCell>{new Date(log.timestamp).toLocaleString()}</TableCell>
+                        </TableRow>
+                     ))}
+                     {history.length === 0 && (
+                        <TableRow>
+                           <TableCell colSpan={3} className="h-24 text-center">
+                              No history found for this job.
+                           </TableCell>
+                        </TableRow>
+                     )}
+                  </TableBody>
+               </Table>
             )}
-          </div>
-        )}
-      </div>
+         </CardContent>
+      </Card>
     </div>
   );
 };

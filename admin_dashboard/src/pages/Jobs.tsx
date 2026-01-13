@@ -1,48 +1,71 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { jobAPI, adminAPI, type Job } from '../api/services';
-import { Plus, Edit2, Trash2, Play, Search, Filter, RefreshCw, History, User, UserCheck, ListChecks } from 'lucide-react';
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import JobFormModal from '../components/JobFormModal';
-import JobActionsModal from '../components/JobActionsModal';
-
-interface IPUser {
-  id: number;
-  first_name: string;
-  last_name: string;
-  is_assigned: boolean;
-}
+import { adminAPI, type Job, type IPUser } from '@/api/services';
+import { useJobs, useDeleteJob } from '@/hooks/useJobs';
+import { Plus, Edit2, Trash2, Play, Search, Filter, RefreshCw, History, User, ListChecks } from 'lucide-react';
+import JobFormModal from '@/components/JobFormModal';
+import JobActionsModal from '@/components/JobActionsModal';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
 
 const Jobs: React.FC = () => {
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [workers, setWorkers] = useState<IPUser[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
-  const [typeFilter, setTypeFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [actionJob, setActionJob] = useState<Job | null>(null);
   const [actionModalTab, setActionModalTab] = useState<'actions' | 'checklists'>('actions');
 
-  const fetchJobs = useCallback(async () => {
-    try {
-      setLoading(true);
-      const params: { limit: number; status?: string; type?: string, search?: string } = { limit: 100 };
-      if (statusFilter) params.status = statusFilter;
-      if (typeFilter) params.type = typeFilter;
-      if (searchTerm) params.search = searchTerm;
-      const [jobsData, workersData] = await Promise.all([
-        jobAPI.getAll(params),
-        adminAPI.getIPUsers()
-      ]);
-      setJobs(jobsData);
-      setWorkers(workersData);
-    } catch (error) {
-      console.error('Error fetching jobs:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, typeFilter, searchTerm]);
+  const { data: jobsData, isLoading: jobsLoading, refetch: refetchJobs } = useJobs({
+    status: statusFilter !== 'all' ? statusFilter : undefined,
+    type: typeFilter !== 'all' ? typeFilter : undefined,
+    search: searchTerm || undefined,
+  });
+
+  const deleteJobMutation = useDeleteJob();
+
+  const { data: workersData, isLoading: workersLoading } = useQuery({
+    queryKey: ['workers'],
+    queryFn: () => adminAPI.getIPUsers(),
+    staleTime: 1000 * 60 * 10, // 10 minutes
+  });
+
+  const jobs = jobsData || [];
+  const workers = workersData || [];
 
   const getWorkerName = (ipId?: number) => {
     if (!ipId) return null;
@@ -50,236 +73,160 @@ const Jobs: React.FC = () => {
     return worker ? `${worker.first_name} ${worker.last_name}` : 'Unknown';
   };
 
-  const isWorkerAssigned = (ipId?: number) => {
-    if (!ipId) return false;
-    const worker = workers.find(w => w.id === ipId);
-    return worker?.is_assigned || false;
+  const getStatusVariant = (status?: string) => {
+    switch (status) {
+      case 'created': return 'secondary';
+      case 'in_progress': return 'default';
+      case 'paused': return 'secondary';
+      case 'completed': return 'outline';
+      default: return 'secondary';
+    }
   };
-
-  useEffect(() => {
-    fetchJobs();
-  }, [fetchJobs]);
 
   const handleDelete = async (id: number) => {
     if (!confirm('Are you sure you want to delete this job?')) return;
+    
     try {
-      await jobAPI.delete(id);
-      fetchJobs();
-    } catch (error) {
-      console.error('Error deleting job:', error);
+      await deleteJobMutation.mutateAsync(id);
+      toast.success("Job deleted successfully");
+    } catch {
+      toast.error("Failed to delete job");
     }
   };
 
-  const getStatusColor = (status?: string) => {
-    switch (status) {
-      case 'created': return 'bg-gray-100 text-gray-800';
-      case 'in_progress': return 'bg-blue-100 text-blue-800';
-      case 'paused': return 'bg-yellow-100 text-yellow-800';
-      case 'completed': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
+  const handleSuccess = () => {
+    // refetchJobs() is not needed as useCreateJob/useUpdateJob in JobFormModal invalidates the query
+    // However, if we filter/search locally, we rely on React Query's invalidation to refetch with current params.
+    setShowCreateModal(false);
+    setEditingJob(null);
   };
+
+  const isLoading = jobsLoading || workersLoading;
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="flex flex-col gap-8 p-6 max-w-[1600px] mx-auto">
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-800">Jobs Management</h1>
-          <p className="text-gray-600 mt-1">Manage all jobs and assignments</p>
+          <h1 className="text-3xl font-bold tracking-tight text-primary">Jobs Management</h1>
+          <p className="text-muted-foreground">Manage all jobs and assignments</p>
         </div>
-        <div className="flex gap-3">
-          <button
-            onClick={fetchJobs}
-            disabled={loading}
-            className="px-4 py-3 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition flex items-center gap-2 shadow-sm"
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            size="icon" 
+            onClick={() => refetchJobs()} 
+            disabled={isLoading}
+            aria-label="Refresh jobs"
           >
-            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-            <span className="hidden sm:inline">Refresh</span>
-          </button>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="bg-blue-600 text-white px-6 py-3 rounded-lg flex items-center gap-2 hover:bg-blue-700 transition"
-          >
-            <Plus size={20} />
-            Create Job
-          </button>
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          </Button>
+          <Button onClick={() => setShowCreateModal(true)}>
+            <Plus className="mr-2 h-4 w-4" /> Create Job
+          </Button>
         </div>
-      </div>
+      </header>
 
-      <div className="bg-white rounded-xl shadow-md p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-gray-800">All Jobs</h2>
-          <button
-            onClick={fetchJobs}
-            disabled={loading}
-            className="p-2 hover:bg-gray-100 rounded-lg transition"
-            title="Refresh Jobs"
-          >
-            <RefreshCw size={16} className={loading ? 'animate-spin text-blue-600' : 'text-gray-600'} />
-          </button>
-        </div>
-        
-        <div className="flex gap-4 mb-6">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-3 text-gray-400" size={20} />
-            <input
-              type="text"
-              placeholder="Search jobs..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            />
-          </div>
-          <div className="relative">
-            <Filter className="absolute left-3 top-3 text-gray-400" size={20} />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="pl-10 pr-8 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none appearance-none"
-            >
-              <option value="">All Status</option>
-              <option value="created">Created</option>
-              <option value="in_progress">In Progress</option>
-              <option value="paused">Paused</option>
-              <option value="completed">Completed</option>
-            </select>
-          </div>
-          <div className="relative">
-            <Filter className="absolute left-3 top-3 text-gray-400" size={20} />
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className="pl-10 pr-8 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none appearance-none"
-            >
-              <option value="">All Types</option>
-              <option value="site_readiness">Site Readiness</option>
-              <option value="site_validation">Site Validation</option>
-              <option value="installation">Installation</option>
-              <option value="measurement">Measurement</option>
-            </select>
-          </div>
-        </div>
 
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
-            <p className="mt-4 text-gray-600">Loading jobs...</p>
+      <Card>
+        <CardHeader>
+          <CardTitle>All Jobs</CardTitle>
+          <CardDescription>
+            A list of all jobs in the system.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col md:flex-row gap-4 mb-6">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Search jobs..."
+                className="pl-8"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                aria-label="Search jobs"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-[180px]" aria-label="Filter by status">
+                  <Filter className="mr-2 h-4 w-4" />
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="created">Created</SelectItem>
+                  <SelectItem value="in_progress">In Progress</SelectItem>
+                  <SelectItem value="paused">Paused</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                </SelectContent>
+              </Select>
+              
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger className="w-[180px]" aria-label="Filter by type">
+                  <Filter className="mr-2 h-4 w-4" />
+                  <SelectValue placeholder="Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  <SelectItem value="site_readiness">Site Readiness</SelectItem>
+                  <SelectItem value="site_validation">Site Validation</SelectItem>
+                  <SelectItem value="installation">Installation</SelectItem>
+                  <SelectItem value="measurement">Measurement</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-gray-50 border-b">
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Job Name</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Customer</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Location</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Assigned Personnel</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Type</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Rate</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Status</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {jobs.map((job) => (
-                  <tr key={job.id} className="hover:bg-gray-50 transition">
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{job.name}</td>
-                    <td className="px-6 py-4 text-sm text-gray-700">{job.customer_name}</td>
-                    <td className="px-6 py-4 text-sm text-gray-700">{job.city}</td>
-                    <td className="px-6 py-4">
-                      {job.assigned_ip_id ? (
-                        <div className="flex items-center gap-2">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold ${
-                            isWorkerAssigned(job.assigned_ip_id) ? 'bg-orange-500' : 'bg-green-500'
-                          }`}>
-                            {getWorkerName(job.assigned_ip_id)?.split(' ').map(n => n[0]).join('') || '?'}
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{getWorkerName(job.assigned_ip_id)}</p>
-                            <span className={`text-xs ${isWorkerAssigned(job.assigned_ip_id) ? 'text-orange-600' : 'text-green-600'}`}>
-                              {isWorkerAssigned(job.assigned_ip_id) ? '● Assigned' : '● Unassigned'}
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-gray-400 flex items-center gap-1">
-                          <User size={14} />
-                          Not assigned
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">{job.type}</td>
-                    <td className="px-6 py-4 text-sm text-gray-700">₹{job.rate}</td>
-                    <td className="px-6 py-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(job.status)}`}>
-                        {job.status?.replace('_', ' ').toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => {
-                            setActionJob(job);
-                            setActionModalTab('actions');
-                          }}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                          title="Actions"
-                        >
-                          <Play size={18} />
-                        </button>
-                        <button
-                          onClick={() => {
-                            setActionJob(job);
-                            setActionModalTab('checklists');
-                          }}
-                          className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition"
-                          title="Checklist"
-                        >
-                          <ListChecks size={18} />
-                        </button>
-                        <button
-                          onClick={() => setEditingJob(job)}
-                          className="p-2 text-yellow-600 hover:bg-yellow-50 rounded-lg transition"
-                          title="Edit"
-                        >
-                          <Edit2 size={18} />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(job.id!)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
-                          title="Delete"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                        <Link
-                          to={`/dashboard/jobs/${job.id}/history`}
-                          className="p-2 text-gray-600 hover:bg-gray-50 rounded-lg transition"
-                          title="History"
-                        >
-                          <History size={18} />
-                        </Link>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {jobs.length === 0 && (
-              <div className="text-center py-12 text-gray-500">
-                No jobs found. Create your first job!
+
+          <div className="rounded-md border">
+            {isLoading ? (
+              <TableSkeleton />
+            ) : jobs.length === 0 ? (
+              <div className="p-8 text-center">
+                <p className="text-muted-foreground">No jobs found. Create your first job!</p>
               </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Job Name</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Location</TableHead>
+                    <TableHead>Assigned Personnel</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Rate</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {jobs.map((job) => (
+                    <JobRow
+                      key={job.id}
+                      job={job}
+                      workers={workers}
+                      getWorkerName={getWorkerName}
+                      getStatusVariant={getStatusVariant}
+                      onEdit={() => setEditingJob(job)}
+                      onDelete={handleDelete}
+                      onAction={(tab) => {
+                        setActionJob(job);
+                        setActionModalTab(tab);
+                      }}
+                    />
+                  ))}
+                </TableBody>
+              </Table>
             )}
           </div>
-        )}
-      </div>
+        </CardContent>
+      </Card>
 
+      {/* Modals */}
       {showCreateModal && (
         <JobFormModal
           onClose={() => setShowCreateModal(false)}
-          onSuccess={() => {
-            setShowCreateModal(false);
-            fetchJobs();
-          }}
+          onSuccess={handleSuccess}
         />
       )}
 
@@ -287,10 +234,7 @@ const Jobs: React.FC = () => {
         <JobFormModal
           job={editingJob}
           onClose={() => setEditingJob(null)}
-          onSuccess={() => {
-            setEditingJob(null);
-            fetchJobs();
-          }}
+          onSuccess={handleSuccess}
         />
       )}
 
@@ -299,13 +243,158 @@ const Jobs: React.FC = () => {
           job={actionJob}
           initialTab={actionModalTab}
           onClose={() => setActionJob(null)}
-          onSuccess={() => {
-            setActionJob(null);
-            fetchJobs();
-          }}
+          onSuccess={handleSuccess}
         />
       )}
     </div>
+  );
+};
+
+// Sub-components for better organization
+const TableSkeleton: React.FC = () => (
+  <div className="p-4 space-y-4">
+    {Array.from({ length: 5 }).map((_, i) => (
+      <div key={i} className="flex items-center justify-between">
+        <Skeleton className="h-4 w-1/4" />
+        <Skeleton className="h-4 w-1/6" />
+        <Skeleton className="h-4 w-1/6" />
+        <Skeleton className="h-4 w-1/6" />
+      </div>
+    ))}
+  </div>
+);
+
+const JobRow: React.FC<{
+  job: Job;
+  workers: IPUser[];
+  getWorkerName: (id?: number) => string | null;
+  getStatusVariant: (status?: string) => string;
+  onEdit: () => void;
+  onDelete: (id: number) => void;
+  onAction: (tab: 'actions' | 'checklists') => void;
+}> = ({ job, workers, getWorkerName, getStatusVariant, onEdit, onDelete, onAction }) => {
+  const workerName = getWorkerName(job.assigned_ip_id);
+  const worker = workers.find(w => w.id === job.assigned_ip_id);
+
+  return (
+    <TableRow>
+      <TableCell className="font-medium">{job.name}</TableCell>
+      <TableCell>{job.customer_name}</TableCell>
+      <TableCell>{job.city}</TableCell>
+      <TableCell>
+        {job.assigned_ip_id ? (
+          <div className="flex items-center gap-2">
+            <Avatar className="h-8 w-8">
+              <AvatarFallback className="bg-muted text-muted-foreground">
+                {workerName?.split(' ').map(n => n[0]).join('') || '?'}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex flex-col">
+              <span className="text-sm font-medium leading-none">{workerName}</span>
+              <span className="text-xs text-muted-foreground">
+                {worker?.is_assigned ? 'Assigned' : 'Unassigned'}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <User className="h-4 w-4" />
+            <span className="text-xs">Not assigned</span>
+          </div>
+        )}
+      </TableCell>
+      <TableCell className="capitalize">{job.type?.replace('_', ' ')}</TableCell>
+      <TableCell>₹{job.rate}</TableCell>
+      <TableCell>
+        <Badge variant={getStatusVariant(job.status) as "default" | "secondary" | "destructive" | "outline"}>
+          {job.status?.replace('_', ' ').toUpperCase()}
+        </Badge>
+      </TableCell>
+      <TableCell className="text-right">
+        <div className="flex justify-end gap-1">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => onAction('actions')}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Job actions"
+                >
+                  <Play className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Actions</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => onAction('checklists')}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Checklists"
+                >
+                  <ListChecks className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Checklists</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onEdit}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Edit job"
+                >
+                  <Edit2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Edit</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => onDelete(job.id!)}
+                  className="text-muted-foreground hover:text-destructive"
+                  aria-label="Delete job"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Delete</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link to={`/dashboard/jobs/${job.id}/history`} aria-label="View job history">
+                  <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+                    <History className="h-4 w-4" />
+                  </Button>
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent>History</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+      </TableCell>
+    </TableRow>
   );
 };
 
