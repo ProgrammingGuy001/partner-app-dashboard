@@ -4,7 +4,7 @@ from datetime import timedelta
 from pydantic import BaseModel
 from app.database import get_db
 from app.schemas.user import UserCreate
-from app.core.security import verify_hashed_password, create_access_token
+from app.core.security import verify_hashed_password, create_access_token, get_current_user
 from app.crud.user import get_user_by_email, create_user
 from app.config import settings
 
@@ -32,3 +32,4 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     access_token = create_access_token(data={"sub": user.email}, expires_delta=access_token_expires)
     
     return {"access_token": access_token, "token_type": "bearer"}
+

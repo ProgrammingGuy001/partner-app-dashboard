@@ -51,6 +51,16 @@ class JobFinish(BaseModel):
     notes: Optional[str] = None
 
 
+class IPSummary(BaseModel):
+    id: int
+    first_name: str
+    last_name: str
+    phone_number: str
+    is_assigned: bool
+
+    class Config:
+        from_attributes = True
+
 
 class JobResponse(BaseModel):
     id: int
@@ -63,6 +73,7 @@ class JobResponse(BaseModel):
     rate: Optional[Decimal] = None
     size: Optional[int] = None
     assigned_ip_id: Optional[int] = None
+    assigned_ip: Optional[IPSummary] = None
     delivery_date: Optional[date] = None
     checklist_link: Optional[str] = None
     google_map_link: Optional[str] = None

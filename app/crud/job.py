@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.model.job import Job, JobChecklist
 from app.model.ip import ip
 from app.model.job_status_log import JobStatusLog
@@ -11,7 +11,7 @@ from app.crud.ip import assign_ip, unassign_ip, check_ip_available
 def get_job_by_id(db: Session, job_id: int):
     """Get a job by ID with error handling"""
     try:
-        job = db.query(Job).filter(Job.id == job_id).first()
+        job = db.query(Job).options(joinedload(Job.assigned_ip)).filter(Job.id == job_id).first()
         if not job:
             raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
         return job
@@ -23,7 +23,7 @@ def get_job_by_id(db: Session, job_id: int):
 def get_all_jobs(db: Session, skip: int = 0, limit: int = 100, status: str = None, type: str = None, search: str = None):
     """Get all jobs with optional status, type, and search filters and error handling"""
     try:
-        query = db.query(Job)
+        query = db.query(Job).options(joinedload(Job.assigned_ip))
         if status:
             query = query.filter(Job.status == status)
         if type:
@@ -184,7 +184,7 @@ def start_job(db: Session, job_id: int, notes: str = None):
         if db_job.assigned_ip_id:
             assign_ip(db, db_job.assigned_ip_id, commit=False)
         else:
-            raise HTTPException(status_code=400, detail="Cannot start job without an assigned IP")
+            raise HTTPException(status_code=400, detail="Cannot start job: No IP assigned. Please edit the job to assign an IP first.")
         
         db_job.status = "in_progress"
         

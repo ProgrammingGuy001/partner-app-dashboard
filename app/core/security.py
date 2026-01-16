@@ -5,6 +5,8 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from app.config import settings
+from app.database import get_db
+from app.model.user import User
 
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 security = HTTPBearer()
@@ -41,6 +43,12 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-def get_current_user(email: str = Depends(verify_token)):
-    return email
+def get_current_user(email: str = Depends(verify_token), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Could not validate credentials"
+        )
+    return user
     

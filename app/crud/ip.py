@@ -35,7 +35,18 @@ def assign_ip(db: Session, ip_id: int, commit: bool = True):
             raise HTTPException(status_code=404, detail=f"IP with ID {ip_id} not found")
         
         if ip_user.is_assigned:
-            raise HTTPException(status_code=400, detail=f"IP {ip_id} is already assigned to another job")
+            # Find the active job holding this IP
+            from app.model.job import Job
+            active_job = db.query(Job).filter(
+                Job.assigned_ip_id == ip_id, 
+                Job.status == 'in_progress'
+            ).first()
+            
+            error_detail = f"IP {ip_id} is already assigned to another job"
+            if active_job:
+                error_detail += f" (Job ID: {active_job.id}, Name: {active_job.name})"
+            
+            raise HTTPException(status_code=400, detail=error_detail)
         
         ip_user.is_assigned = True
         

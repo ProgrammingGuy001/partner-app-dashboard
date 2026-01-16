@@ -118,14 +118,14 @@ def complete_job(
     }
 
 
-# ✅ Get job checklists with status for IP user
+# ✅ Get job checklists (Metadata only)
 @router.get("/{job_id}/checklists", response_model=dict)
 def get_job_checklists(
     job_id: int,
     current_user: ip = Depends(get_verified_user),
     db: Session = Depends(get_db)
 ):
-    """Get all checklists for a job with their items and current status"""
+    """Get list of checklists assigned to a job (without items)"""
     # Verify job exists and belongs to current user
     job = db.query(Job).filter(
         Job.id == job_id,
@@ -144,54 +144,100 @@ def get_job_checklists(
     result = []
     for jc in job_checklists:
         checklist = jc.checklist
-        
-        # Get all items for the checklist
-        items = db.query(ChecklistItem).filter(
-            ChecklistItem.checklist_id == checklist.id
-        ).order_by(ChecklistItem.position).all()
-        
-        items_with_status = []
-        for item in items:
-            # Get status for each item for this job
-            item_status = db.query(JobChecklistItemStatus).filter(
-                JobChecklistItemStatus.job_id == job_id,
-                JobChecklistItemStatus.checklist_item_id == item.id
-            ).first()
-            
-            items_with_status.append({
-                "id": item.id,
-                "checklist_id": item.checklist_id,
-                "text": item.text,
-                "position": item.position,
-                "created_at": item.created_at,
-                "updated_at": item.updated_at,
-                "status": {
-                    "id": item_status.id if item_status else None,
-                    "job_id": item_status.job_id if item_status else job_id,
-                    "checklist_item_id": item_status.checklist_item_id if item_status else item.id,
-                    "checked": item_status.checked if item_status else False,
-                    "is_approved": item_status.is_approved if item_status else False,
-                    "comment": item_status.comment if item_status else None,
-                    "admin_comment": item_status.admin_comment if item_status else None,
-                    "document_link": item_status.document_link if item_status else None,
-                    "created_at": item_status.created_at if item_status else None,
-                    "updated_at": item_status.updated_at if item_status else None,
-                } if item_status or True else None
-            })
-
         result.append({
             "id": checklist.id,
             "name": checklist.name,
             "description": checklist.description,
             "created_at": checklist.created_at,
             "updated_at": checklist.updated_at,
-            "items": items_with_status
         })
     
     return {
         "message": "Checklists fetched successfully",
         "job_id": job_id,
         "checklists": result
+    }
+
+
+# ✅ Get items for a specific checklist in a job
+@router.get("/{job_id}/checklists/{checklist_id}/items", response_model=dict)
+def get_job_checklist_items(
+    job_id: int,
+    checklist_id: int,
+    current_user: ip = Depends(get_verified_user),
+    db: Session = Depends(get_db)
+):
+    """Get items and status for a specific checklist within a job"""
+    # Verify job exists and belongs to current user
+    job = db.query(Job).filter(
+        Job.id == job_id,
+        Job.assigned_ip_id == current_user.id
+    ).first()
+
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found or not assigned to you"
+        )
+
+    # Verify checklist is actually assigned to this job
+    job_checklist_link = db.query(JobChecklist).filter(
+        JobChecklist.job_id == job_id,
+        JobChecklist.checklist_id == checklist_id
+    ).first()
+
+    if not job_checklist_link:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Checklist not assigned to this job"
+        )
+
+    # Get checklist details
+    checklist = job_checklist_link.checklist
+
+    # Get all items for the checklist
+    items = db.query(ChecklistItem).filter(
+        ChecklistItem.checklist_id == checklist_id
+    ).order_by(ChecklistItem.position).all()
+    
+    items_with_status = []
+    for item in items:
+        # Get status for each item for this job
+        item_status = db.query(JobChecklistItemStatus).filter(
+            JobChecklistItemStatus.job_id == job_id,
+            JobChecklistItemStatus.checklist_item_id == item.id
+        ).first()
+        
+        items_with_status.append({
+            "id": item.id,
+            "checklist_id": item.checklist_id,
+            "text": item.text,
+            "position": item.position,
+            "created_at": item.created_at,
+            "updated_at": item.updated_at,
+            "status": {
+                "id": item_status.id if item_status else None,
+                "job_id": item_status.job_id if item_status else job_id,
+                "checklist_item_id": item_status.checklist_item_id if item_status else item.id,
+                "checked": item_status.checked if item_status else False,
+                "is_approved": item_status.is_approved if item_status else False,
+                "comment": item_status.comment if item_status else None,
+                "admin_comment": item_status.admin_comment if item_status else None,
+                "document_link": item_status.document_link if item_status else None,
+                "created_at": item_status.created_at if item_status else None,
+                "updated_at": item_status.updated_at if item_status else None,
+            } if item_status or True else None
+        })
+
+    return {
+        "message": "Checklist items fetched successfully",
+        "job_id": job_id,
+        "checklist": {
+            "id": checklist.id,
+            "name": checklist.name,
+            "description": checklist.description,
+            "items": items_with_status
+        }
     }
 
 
@@ -227,13 +273,12 @@ def update_checklist_item_status(
 
     # IP users can only update checked, comment, and document_link
     # They cannot approve (is_approved) or add admin_comment
-    filtered_update = JobChecklistItemStatusUpdate(
-        checked=status_update.checked,
-        comment=status_update.comment,
-        document_link=status_update.document_link,
-        is_approved=None,  # IP users cannot approve
-        admin_comment=None  # IP users cannot add admin comments
+    update_data = status_update.model_dump(
+        include={'checked', 'comment', 'document_link'}, 
+        exclude_unset=True
     )
+    
+    filtered_update = JobChecklistItemStatusUpdate(**update_data)
 
     updated_status = update_job_checklist_item_status(db, job_id, item_id, filtered_update)
     

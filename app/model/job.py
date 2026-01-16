@@ -30,7 +30,7 @@ class Job(Base):
     city: Mapped[str] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, default="created")
     pincode: Mapped[int] = mapped_column(Integer, nullable=True)
-    assigned_ip_id: Mapped[int] = mapped_column(Integer, nullable=True)
+    assigned_ip_id: Mapped[int] = mapped_column(Integer, ForeignKey("ip.id"), nullable=True)
     type: Mapped[str] = mapped_column(String, nullable=True)
     rate: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=True)
     size: Mapped[int] = mapped_column(Integer, nullable=True)
@@ -42,6 +42,7 @@ class Job(Base):
     )
 
     # Relationships
+    assigned_ip: Mapped["ip"] = relationship("ip")
     job_checklists: Mapped[List["JobChecklist"]] = relationship(
         "JobChecklist", back_populates="job", cascade="all, delete-orphan"
     )
