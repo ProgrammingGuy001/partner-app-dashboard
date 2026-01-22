@@ -83,4 +83,4 @@ app.include_router(checklist_router)
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "environment": settings.ENVIRONMENT}
+    return {"status": "ok"}
