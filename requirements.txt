@@ -12,7 +12,7 @@ alembic==1.17.1
 python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.2
 python-dotenv==1.2.1
-argon2_cffi
+argon2-cffi==25.1.0
 
 # Pydantic
 pydantic==2.12.3
@@ -30,3 +30,6 @@ cachetools==5.3.2
 
 # Rate Limiting
 slowapi==0.1.9
+
+# Scheduler
+APScheduler==3.11.2
