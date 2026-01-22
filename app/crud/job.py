@@ -192,7 +192,7 @@ def start_job(db: Session, job_id: int, notes: str = None):
         
         # Assign IP when starting or resuming
         if db_job.assigned_ip_id:
-            assign_ip(db, db_job.assigned_ip_id,db_job.user_id commit=False)
+            assign_ip(db, db_job.assigned_ip_id,db_job.user_id ,commit=False)
         else:
             raise HTTPException(status_code=400, detail="Cannot start job: No IP assigned. Please edit the job to assign an IP first.")
         
