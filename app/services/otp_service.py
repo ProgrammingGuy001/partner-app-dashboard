@@ -1,54 +1,64 @@
-
-
-import os
+import logging
 import requests
 import urllib.parse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.utils.helpers import generate_otp, capitalize_first_name
-from app.model.ip import ip  # adjust path
+from app.model.ip import ip
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Configure logger instead of print statements
+logger = logging.getLogger(__name__)
+
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 
 class OTPService:
 
     @staticmethod
     def generate_and_store_otp(db: Session, phone_number: str) -> str:
-        """Generate OTP and store plain OTP in DB with expiry"""
+        """Generate OTP and store hashed OTP in DB with expiry"""
         otp = generate_otp(settings.OTP_LENGTH)
+        #!added for debugging purpose only, remove in production
+        print(otp);
 
-        expiry_time = datetime.utcnow() + timedelta(minutes=settings.OTP_EXPIRY_MINUTES)
+        expiry_time = datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRY_MINUTES)
 
         user = db.query(ip).filter(ip.phone_number == phone_number).first()
 
         if not user:
             raise Exception("User not found")
 
-        user.otp = str(otp)            # store raw OTP
+        # Hash OTP before storing for security
+        user.otp = pwd_context.hash(str(otp))
         user.otp_expiry = expiry_time
         db.commit()
 
-        return otp
+        return otp  # Return plain OTP to send via SMS
 
 
     @staticmethod
     def verify_otp(db: Session, phone_number: str, otp: str) -> bool:
-        """Check OTP stored in DB"""
+        """Verify OTP against hashed value in DB"""
         user = db.query(ip).filter(ip.phone_number == phone_number).first()
 
         if not user or not user.otp:
             return False
+        if user.otp_expiry.tzinfo is None:
+            user.otp_expiry = user.otp_expiry.replace(tzinfo=timezone.utc)
         
         # Check expiry
-        if user.otp_expiry < datetime.utcnow():
+        if user.otp_expiry < datetime.now(timezone.utc):
+            # Clear expired OTP
+            user.otp = None
+            user.otp_expiry = None
+            db.commit()
             return False
 
-        # Compare OTP directly
-        if str(user.otp) != str(otp).strip():
+        # Verify hashed OTP
+        if not pwd_context.verify(str(otp).strip(), user.otp):
             return False
 
         # OTP valid, wipe fields
@@ -57,7 +67,6 @@ class OTPService:
         db.commit()
 
         return True
-
 
 
     @staticmethod
@@ -85,16 +94,14 @@ class OTPService:
                 f"entityid={entity_id}&tempid={template_id}"
             )
 
-            print("Sending SMS to:", formatted_number)
-            print("otp isss ", otp_code)
             response = requests.get(url, timeout=10)
             response.raise_for_status()
 
-            print(f"✅ OTP sent successfully to {formatted_number}: {response.text}")
+            logger.info(f"OTP sent successfully to {formatted_number[:4]}****")
             return True
 
         except requests.exceptions.RequestException as e:
-            print("❌ Error sending SMS:", str(e))
+            logger.error(f"Error sending SMS: {str(e)}")
             return False
 
     @staticmethod
@@ -105,5 +112,5 @@ class OTPService:
         return {
             "success": sms_sent,
             "message": "OTP sent successfully" if sms_sent else "Failed to send OTP",
-            "otp": otp if not sms_sent else None
+            # Never return OTP in response - even in development, use logs if needed
         }

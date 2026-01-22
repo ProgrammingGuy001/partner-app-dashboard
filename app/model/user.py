@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Boolean
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from typing import List
 from app.database import Base
 
 class User(Base):
@@ -10,4 +11,6 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String, nullable=False)
     isActive: Mapped[bool] = mapped_column(Boolean, default=True)
     isApproved: Mapped[bool] = mapped_column(Boolean, default=False)
- 
+    is_superadmin: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    jobs: Mapped[List["Job"]] = relationship("Job", back_populates="user")

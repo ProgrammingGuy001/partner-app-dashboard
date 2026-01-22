@@ -7,38 +7,43 @@ from app.schemas.job_status_log import JobStatusLogCreate
 from fastapi import HTTPException
 from datetime import date, datetime
 from app.crud.ip import assign_ip, unassign_ip, check_ip_available
+from app.utils.ip_assignment import is_admin_allowed_for_ip
 
-def get_job_by_id(db: Session, job_id: int):
-    """Get a job by ID with error handling"""
+def get_job_by_id(db: Session, job_id: int, user_id: int = None):
+    """Get a job by ID with error handling and authorization"""
     try:
         job = db.query(Job).options(joinedload(Job.assigned_ip)).filter(Job.id == job_id).first()
         if not job:
             raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
+        if user_id is not None and job.user_id != user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to access this job")
         return job
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-def get_all_jobs(db: Session, skip: int = 0, limit: int = 100, status: str = None, type: str = None, search: str = None):
+def get_all_jobs(db: Session, skip: int = 0, limit: int = 100, status: str = None, type: str = None, search: str = None, user_id: int = None, admin_id: int = None):
     """Get all jobs with optional status, type, and search filters and error handling"""
     try:
         query = db.query(Job).options(joinedload(Job.assigned_ip))
+        if user_id:
+            query = query.filter(Job.user_id == user_id)
         if status:
             query = query.filter(Job.status == status)
         if type:
             query = query.filter(Job.type == type)
         if search:
             query = query.filter(
-                (Job.name.ilike(f"%{search}%")) |
-                (Job.customer_name.ilike(f"%{search}%")) |
-                (Job.city.ilike(f"%{search}%"))
+                (Job.name.ilike(f"{search}%")) |
+                (Job.customer_name.ilike(f"{search}%")) |
+                (Job.city.ilike(f"{search}%"))
             )
         return query.offset(skip).limit(limit).all()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-def create_job(db: Session, job: JobCreate):
+def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = False):
     """Create a new job with IP validation and error handling"""
     try:
         # Check if IP is assigned and already_assigned is False (only if IP is provided)
@@ -48,13 +53,19 @@ def create_job(db: Session, job: JobCreate):
                 raise HTTPException(status_code=404, detail=f"IP with ID {job.assigned_ip_id} not found")
             if ip_user.is_assigned:
                 raise HTTPException(status_code=400, detail=f"IP {ip_user.id} is already assigned to another job")
+            
+            # Check if admin is assigned to this IP (superadmins can bypass)
+            if not is_superadmin:
+                if not is_admin_allowed_for_ip(db, job.assigned_ip_id, user_id):
+                    raise HTTPException(status_code=403, detail=f"Admin {user_id} is not allowed to be assigned IP {job.assigned_ip_id}")
         
         job_data = job.model_dump()
         # Ensure checklist_ids and checklist_id are handled
         checklist_ids = job_data.pop('checklist_ids', [])
         job_data.pop('checklist_id', None) # Remove legacy field if present
+        job_data.pop('user_id', None) # Remove user_id to avoid multiple values error
         
-        db_job = Job(**job_data)
+        db_job = Job(**job_data, user_id=user_id)
         db.add(db_job)
         db.flush()  # Flush to get the job ID
 
@@ -93,7 +104,6 @@ def update_job(db: Session, job_id: int, job_update: JobUpdate):
             raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
         
         update_data = job_update.model_dump(exclude_unset=True)
-        print(f"DEBUG: Updating job {job_id} with data: {update_data}")
         
         # Handle IP assignment changes
         if 'assigned_ip_id' in update_data:
@@ -182,7 +192,7 @@ def start_job(db: Session, job_id: int, notes: str = None):
         
         # Assign IP when starting or resuming
         if db_job.assigned_ip_id:
-            assign_ip(db, db_job.assigned_ip_id, commit=False)
+            assign_ip(db, db_job.assigned_ip_id,db_job.user_id commit=False)
         else:
             raise HTTPException(status_code=400, detail="Cannot start job: No IP assigned. Please edit the job to assign an IP first.")
         
@@ -290,7 +300,7 @@ def get_job_status_history(db: Session, job_id: int):
         # Get all status logs for this job, ordered by timestamp
         status_logs = db.query(JobStatusLog).filter(
             JobStatusLog.job_id == job_id
-        ).order_by(JobStatusLog.timestamp.asc()).all()
+        ).order_by(JobStatusLog.timestamp.desc()).all()
         
         return status_logs
     except HTTPException:

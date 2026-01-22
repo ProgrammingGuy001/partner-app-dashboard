@@ -1,100 +1,56 @@
-import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
+import React, { Suspense } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Toaster } from "@/components/ui/sonner"
+import { authAPI } from "@/api/services"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { Separator } from "@/components/ui/separator"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-} from "@/components/ui/breadcrumb"
-
-
-import Login from '@/pages/Login';
-import SignUp from '@/pages/SignUp';
-import Dashboard from '@/pages/Dashboard';
-import Jobs from '@/pages/Jobs';
-import Workers from '@/pages/Workers';
-import Analytics from '@/pages/Analytics';
-import ProjectAnalytics from '@/pages/ProjectAnalytics';
-import JobHistory from '@/pages/JobHistory';
-import Checklists from '@/pages/Checklist';
+import { BreadcrumbNav } from "@/components/BreadcrumbNav"
+import { Loader2 } from "lucide-react"
 
 import './App.css';
 
-// Create Query Client with proper caching
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      // Data is fresh for 2 minutes
-      staleTime: 2 * 60 * 1000,
-      // Cache data for 10 minutes
-      gcTime: 10 * 60 * 1000,
-      // Retry failed requests
-      retry: 1,
-      // Don't refetch on window focus for dashboard (optional)
-      refetchOnWindowFocus: false,
-      // Refetch on reconnect
-      refetchOnReconnect: true,
-      // Error handling
-      throwOnError: false,
-    },
-    mutations: {
-      // Retry failed mutations once
-      retry: 1,
-    },
-  },
-});
+// Lazy load pages for better performance
+const Login = React.lazy(() => import('@/pages/Login'));
+const SignUp = React.lazy(() => import('@/pages/SignUp'));
+const Dashboard = React.lazy(() => import('@/pages/Dashboard'));
+const Jobs = React.lazy(() => import('@/pages/Jobs'));
+const Workers = React.lazy(() => import('@/pages/Workers'));
+const Analytics = React.lazy(() => import('@/pages/Analytics'));
+const ProjectAnalytics = React.lazy(() => import('@/pages/ProjectAnalytics'));
+const JobHistory = React.lazy(() => import('@/pages/JobHistory'));
+const Checklists = React.lazy(() => import('@/pages/Checklist'));
+const BOMHistory = React.lazy(() => import('@/pages/BOMHistory'));
 
-// Breadcrumb component
-const BreadcrumbNav = () => {
-  const location = useLocation();
-  const pathnames = location.pathname.split('/').filter(x => x);
-  
-  const breadcrumbItems = pathnames.map((name, index) => {
-    const routeTo = `/${pathnames.slice(0, index + 1).join('/')}`;
-    const isLast = index === pathnames.length - 1;
-    const displayName = name
-      .split('-')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-
-    if (isLast) {
-      return (
-        <BreadcrumbItem key={name}>
-          <BreadcrumbPage>{displayName}</BreadcrumbPage>
-        </BreadcrumbItem>
-      );
-    }
-
-    return (
-      <BreadcrumbItem key={name}>
-        <BreadcrumbLink href={routeTo}>{displayName}</BreadcrumbLink>
-      </BreadcrumbItem>
-    );
-  });
-
-  return (
-    <Breadcrumb>
-      <BreadcrumbList>
-        {breadcrumbItems}
-      </BreadcrumbList>
-    </Breadcrumb>
-  );
-};
+// Loading Fallback
+const PageLoader = () => (
+  <div className="flex h-screen w-full items-center justify-center">
+    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+  </div>
+);
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const token = localStorage.getItem('access_token');
-  
-  if (!token) {
+  const { data: user, isLoading, isError } = useQuery({
+    queryKey: ['auth', 'user'],
+    queryFn: () => authAPI.getCurrentUser(), // Use existing getCurrentUser
+    retry: false,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (isError || !user) {
     return <Navigate to="/login" replace />;
   }
-  
+
   return <>{children}</>;
 };
 
@@ -104,13 +60,15 @@ const DashboardLayout = () => {
       <SidebarProvider>
         <AppSidebar />
         <SidebarInset>
-          <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
+          <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-2 h-4" />
             <BreadcrumbNav />
           </header>
           <main className="flex flex-1 flex-col gap-4 p-4">
-            <Outlet />
+            <Suspense fallback={<div className="flex items-center justify-center h-full min-h-[400px]"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>}>
+              <Outlet />
+            </Suspense>
           </main>
         </SidebarInset>
       </SidebarProvider>
@@ -120,46 +78,40 @@ const DashboardLayout = () => {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
+    <>
       <Router>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/register" element={<SignUp />} />
-          <Route path="/dashboard" element={<DashboardLayout />}>
-            <Route index element={<Dashboard />} />
-            <Route path="jobs" element={<Jobs />} />
-            <Route path="workers" element={<Workers />} />
-            <Route path="analytics" element={<Analytics />} />
-            <Route path="project-analytics" element={<ProjectAnalytics />} />
-            <Route path="advanced-analytics" element={<ProjectAnalytics />} />
-            <Route path="jobs/:jobId/history" element={<JobHistory />} />
-            <Route path="checklists" element={<Checklists />} />
-            <Route path="admin" element={<Navigate to="/dashboard/workers" replace />} />
-          </Route>
-          
-          {/* Catch all route */}
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/register" element={<SignUp />} />
+            <Route path="/dashboard" element={<DashboardLayout />}>
+              <Route index element={<Dashboard />} />
+              <Route path="jobs" element={<Jobs />} />
+              <Route path="workers" element={<Workers />} />
+              <Route path="analytics" element={<Analytics />} />
+              <Route path="project-analytics" element={<ProjectAnalytics />} />
+              <Route path="advanced-analytics" element={<ProjectAnalytics />} />
+              <Route path="jobs/:jobId/history" element={<JobHistory />} />
+              <Route path="checklists" element={<Checklists />} />
+              <Route path="bom" element={<BOMHistory />} />
+              <Route path="admin" element={<Navigate to="/dashboard/workers" replace />} />
+            </Route>
+
+            {/* Catch all route */}
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </Suspense>
       </Router>
-      
-      <Toaster 
+
+      <Toaster
         position="top-right"
         toastOptions={{
           duration: 3000,
           className: 'toast group',
         }}
       />
-      
-      {/* React Query DevTools for development */}
-      {import.meta.env.DEV && (
-        <ReactQueryDevtools 
-          initialIsOpen={false}
-          buttonPosition="bottom-right"
-          position="bottom"
-        />
-      )}
-    </QueryClientProvider>
+    </>
   );
 }
 

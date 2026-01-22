@@ -30,6 +30,24 @@ class UserRegistration(BaseModel):
 
 class LoginRequest(BaseModel):
     phone_number: str
+    
+    @validator('phone_number')
+    def validate_phone_number(cls, v):
+        """Validate and normalize phone number"""
+        digits = ''.join(filter(str.isdigit, v))
+        
+        if digits.startswith('91'):
+            if len(digits) != 12:
+                raise ValueError('Phone number with country code must be 12 digits')
+        elif len(digits) == 10:
+            # Validate Indian mobile number format (starts with 6-9)
+            if not digits[0] in '6789':
+                raise ValueError('Invalid Indian mobile number')
+            digits = '91' + digits
+        else:
+            raise ValueError('Phone number must be 10 digits (or 12 with country code)')
+        
+        return digits
 
 
 class OTPVerification(BaseModel):

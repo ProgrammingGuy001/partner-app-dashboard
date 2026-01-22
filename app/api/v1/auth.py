@@ -1,18 +1,23 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from app.schemas.ip import UserResponse as IPUserResponse
+from app.schemas.user import UserResponse as AdminUserResponse
+from typing import Union
+from app.model.user import User
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database import get_db
+from app.config import settings
 from app.model.ip import ip
 
 from app.schemas.ip import (
     UserRegistration, 
     LoginRequest, 
-    OTPVerification,  
+    OTPVerification,
     UserResponse,
-    TokenResponse
 )
 from app.services.otp_service import OTPService
 from app.utils.helpers import create_access_token
+from app.utils.rate_limiter import limiter
 from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -24,7 +29,6 @@ def register_user(user_data: UserRegistration, db: Session = Depends(get_db)):
     
     # Check if user already exists
     existing_user = db.query(ip).filter(ip.phone_number == user_data.phone_number).first()
-    print("user details", existing_user)
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -49,7 +53,8 @@ def register_user(user_data: UserRegistration, db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-def login(login_data: LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")  # Max 5 login attempts per minute per IP
+def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_db)):
     """Login user and send OTP"""
     
     # Normalize phone_number number
@@ -84,8 +89,9 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/verify-otp", response_model=TokenResponse)
-def verify_otp(otp_data: OTPVerification, db: Session = Depends(get_db)):
+@router.post("/verify-otp", response_model=UserResponse)
+@limiter.limit("10/minute")  # Max 10 OTP verification attempts per minute per IP
+def verify_otp(request: Request, otp_data: OTPVerification, response: Response, db: Session = Depends(get_db)):
     """Verify OTP and authenticate user"""
     
     # Normalize phone_number number
@@ -112,22 +118,28 @@ def verify_otp(otp_data: OTPVerification, db: Session = Depends(get_db)):
     
     # Update user verification status
     user.is_verified = True
-    user.verified_at = datetime.utcnow()
+    user.verified_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(user)
     
     # Generate access token
     access_token = create_access_token(data={"sub": str(user.id)})
     
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": user
-    }
+    # Set cookie
+    response.set_cookie(
+        key="access_token",
+        value=f"Bearer {access_token}",
+        httponly=True,
+        samesite="lax",
+        secure=settings.ENVIRONMENT == "production"  # Only True in production
+    )
+    
+    return user
 
 
 @router.post("/resend-otp")
-def resend_otp(login_data: LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("3/minute")  # Max 3 resend attempts per minute per IP (stricter to prevent SMS bombing)
+def resend_otp(request: Request, login_data: LoginRequest, db: Session = Depends(get_db)):
     """Resend OTP to user"""
     
     # Normalize phone_number number
@@ -159,18 +171,30 @@ def resend_otp(login_data: LoginRequest, db: Session = Depends(get_db)):
     }
 
 
+@router.get("/me", response_model=Union[IPUserResponse, AdminUserResponse])
+def read_users_me(current_user: Union[ip, User] = Depends(get_current_user)):
+    """Get current user"""
+    return current_user
+    
+
 @router.post("/logout")
 def logout(
-    current_user: ip = Depends(get_current_user),
+    response: Response,
+    current_user: Union[ip, User] = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     
-    # Optionally log the logout time for audit purposes
-    #current_user.last_logout_at = datetime.utcnow()
-    current_user.is_verified = False
-    db.commit()
+    # Clear cookie first
+    response.delete_cookie(key="access_token")
     
-    return {
-        "message": f"User with phone_number {current_user.phone_number} logged out successfully.",
-        "logout_time": current_user.last_logout_at
-    }
+    if isinstance(current_user, ip):
+        current_user.is_verified = False
+        db.commit()
+        message = f"User with phone number {current_user.phone_number} logged out successfully."
+    elif isinstance(current_user, User):
+        message = f"User with email {current_user.email} logged out successfully."
+    else:
+        # Fallback for any other user types that might be introduced
+        message = "User logged out successfully."
+
+    return {"message": message}

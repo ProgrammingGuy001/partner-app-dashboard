@@ -15,12 +15,12 @@ export const useJobs = (filters?: {
         limit: filters?.limit || 100,
         ...filters
       });
-      
+
       // Handle array response (direct list)
       if (Array.isArray(response)) {
         return response;
       }
-      
+
       // Handle object response (paginated wrapper)
       return response.jobs || response.data || [];
     },
@@ -62,15 +62,15 @@ export const useUpdateJob = () => {
       queryClient.setQueryData(['jobs', variables.id], data);
       // Invalidate all jobs queries
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
-      
-     toast.success("Job updated successfully");
+
+      toast.success("Job updated successfully");
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.message || "Failed to update job");
 
     },
 
-});
+  });
 }
 
 export const useDeleteJob = () => {
@@ -94,5 +94,31 @@ export const useJobHistory = (id?: number) => {
     queryFn: () => jobAPI.getHistory(id!),
     enabled: !!id,
     staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+};
+
+export const useJobAction = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, action, notes }: { id: number; action: 'start' | 'pause' | 'finish'; notes?: string }) => {
+      switch (action) {
+        case 'start': return jobAPI.start(id, notes);
+        case 'pause': return jobAPI.pause(id, notes);
+        case 'finish': return jobAPI.finish(id, notes);
+      }
+    },
+    onSuccess: (_, variables) => {
+      // Invalidate list and specific job query
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['jobs', variables.id] });
+      // Invalidate history
+      queryClient.invalidateQueries({ queryKey: ['jobs', variables.id, 'history'] });
+
+      toast.success(`Job ${variables.action}ed successfully`);
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || "Action failed");
+    },
   });
 };

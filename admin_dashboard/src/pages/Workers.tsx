@@ -1,11 +1,11 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
 import debounce from 'lodash.debounce';
-import { adminAPI, type IPUser } from '@/api/services';
-import { 
-  Users, CheckCircle, XCircle, Search, MapPin, Phone, Calendar, 
-  CreditCard, Building2, Award, Briefcase, RefreshCw, Eye, AlertCircle
+import { adminAPI, type IPUser, type AdminUser } from '@/api/services';
+import {
+  Users, CheckCircle, XCircle, Search, MapPin, Phone, Calendar,
+  CreditCard, Building2, Award, Briefcase, RefreshCw, Eye, AlertCircle, UserPlus
 } from 'lucide-react';
 import {
   Table,
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
@@ -31,11 +32,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 
 const Workers: React.FC = () => {
@@ -44,6 +45,7 @@ const Workers: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<'all' | 'verified' | 'pending' | 'unassigned'>('all');
   const [selectedWorker, setSelectedWorker] = useState<IPUser | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [selectedAdminIds, setSelectedAdminIds] = useState<number[]>([]);
   const queryClient = useQueryClient();
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -52,17 +54,35 @@ const Workers: React.FC = () => {
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
 
+  // Fetch admin users for assignment dropdown
+  const { data: adminUsers = [] } = useQuery({
+    queryKey: ['admin-users'],
+    queryFn: () => adminAPI.getAdminUsers(),
+    staleTime: 1000 * 60 * 5,
+  });
+
   const verifyMutation = useMutation({
-    mutationFn: (phoneNumber: string) => adminAPI.verifyIPUser(phoneNumber),
+    mutationFn: ({ phoneNumber, adminIds }: { phoneNumber: string, adminIds?: number[] }) =>
+      adminAPI.verifyIPUser(phoneNumber, adminIds),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workers'] });
       toast.success("Worker verified successfully");
       setShowDetails(false);
+      setSelectedAdminIds([]);
     },
     onError: (error: AxiosError<{ message: string }>) => {
       toast.error(error.response?.data?.message || "Failed to verify worker");
     },
   });
+
+  // Load existing admin assignments when worker is selected
+  useEffect(() => {
+    if (selectedWorker?.assigned_admin_ids) {
+      setSelectedAdminIds(selectedWorker.assigned_admin_ids);
+    } else {
+      setSelectedAdminIds([]);
+    }
+  }, [selectedWorker]);
 
   // Debounced search handler
   const handleSearch = useCallback(
@@ -81,18 +101,18 @@ const Workers: React.FC = () => {
   const workers = data || [];
 
   const filteredWorkers = workers.filter(worker => {
-    const matchesSearch = 
+    const matchesSearch =
       worker.first_name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
       worker.last_name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
       worker.phone_number.includes(debouncedSearchTerm) ||
       worker.city.toLowerCase().includes(debouncedSearchTerm.toLowerCase());
-    
-    const matchesFilter = 
+
+    const matchesFilter =
       filterStatus === 'all' ||
       (filterStatus === 'verified' && worker.is_id_verified) ||
       (filterStatus === 'pending' && !worker.is_id_verified) ||
       (filterStatus === 'unassigned' && !worker.is_assigned);
-    
+
     return matchesSearch && matchesFilter;
   });
 
@@ -114,8 +134,16 @@ const Workers: React.FC = () => {
 
   const handleVerify = (phoneNumber: string) => {
     if (window.confirm('Are you sure you want to verify this worker?')) {
-      verifyMutation.mutate(phoneNumber);
+      verifyMutation.mutate({ phoneNumber, adminIds: selectedAdminIds.length > 0 ? selectedAdminIds : undefined });
     }
+  };
+
+  const toggleAdminSelection = (adminId: number) => {
+    setSelectedAdminIds(prev =>
+      prev.includes(adminId)
+        ? prev.filter(id => id !== adminId)
+        : [...prev, adminId]
+    );
   };
 
   if (error) {
@@ -224,6 +252,7 @@ const Workers: React.FC = () => {
                     <TableHead>Contact</TableHead>
                     <TableHead>Location</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Assigned Admins</TableHead>
                     <TableHead>Verification</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -256,6 +285,9 @@ const Workers: React.FC = () => {
         onOpenChange={setShowDetails}
         onVerify={handleVerify}
         getVerificationScore={getVerificationScore}
+        adminUsers={adminUsers}
+        selectedAdminIds={selectedAdminIds}
+        toggleAdminSelection={toggleAdminSelection}
       />
     </div>
   );
@@ -306,7 +338,7 @@ const WorkerRow: React.FC<{
   isVerifying: boolean;
 }> = ({ worker, getVerificationScore, onViewDetails, onVerify, isVerifying }) => {
   const score = getVerificationScore(worker);
-  
+
   return (
     <TableRow>
       <TableCell>
@@ -338,6 +370,11 @@ const WorkerRow: React.FC<{
         <Badge variant={worker.is_assigned ? "secondary" : "outline"}>
           {worker.is_assigned ? 'Assigned' : 'Unassigned'}
         </Badge>
+      </TableCell>
+      <TableCell>
+        <div className="text-sm text-muted-foreground">
+          {worker.assigned_admin_ids?.length || 0} admin(s)
+        </div>
       </TableCell>
       <TableCell>
         <div className="w-[120px] space-y-1">
@@ -380,18 +417,21 @@ const DetailsModal: React.FC<{
   onOpenChange: (open: boolean) => void;
   onVerify: (phoneNumber: string) => void;
   getVerificationScore: (worker: IPUser) => number;
-}> = ({ worker, open, onOpenChange, onVerify, getVerificationScore }) => {
+  adminUsers: AdminUser[];
+  selectedAdminIds: number[];
+  toggleAdminSelection: (adminId: number) => void;
+}> = ({ worker, open, onOpenChange, onVerify, getVerificationScore, adminUsers, selectedAdminIds, toggleAdminSelection }) => {
   if (!worker) return null;
-  
+
   const score = getVerificationScore(worker);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
         <DialogHeader className="p-6 border-b shrink-0">
           <DialogTitle>Personnel Details</DialogTitle>
         </DialogHeader>
-        <ScrollArea className="flex-1 p-6">
+        <div className="flex-1 overflow-y-auto p-6 min-h-0">
           <div className="space-y-6">
             {/* Worker Header */}
             <div className="bg-muted/30 rounded-xl p-6 flex gap-4 items-center border">
@@ -437,14 +477,59 @@ const DetailsModal: React.FC<{
                 ].map((item, idx) => (
                   <div key={idx} className="p-3 rounded border flex items-center justify-between">
                     <span className="text-sm font-medium">{item.label}</span>
-                    {item.value ? 
-                      <CheckCircle className="h-4 w-4 text-primary" /> : 
+                    {item.value ?
+                      <CheckCircle className="h-4 w-4 text-primary" /> :
                       <XCircle className="h-4 w-4 text-muted-foreground" />
                     }
                   </div>
                 ))}
               </div>
             </div>
+
+            {/* Admin Assignment Section */}
+            {adminUsers.length > 0 && (
+              <>
+                <Separator />
+                <div className="overflow-hidden">
+                  <h4 className="font-semibold mb-3 flex items-center gap-2 text-sm">
+                    <UserPlus className="h-4 w-4" /> Assign Admins to this Personnel
+                  </h4>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Select which admins can manage jobs for this personnel
+                  </p>
+                  <div className="space-y-2 max-h-[200px] overflow-y-auto border rounded-lg p-3">
+                    {adminUsers.map((admin) => (
+                      <div
+                        key={admin.id}
+                        className="flex items-center gap-3 p-2 rounded hover:bg-muted/50 cursor-pointer min-w-0"
+                        onClick={() => toggleAdminSelection(admin.id)}
+                      >
+                        <Checkbox
+                          id={`admin-${admin.id}`}
+                          checked={selectedAdminIds.includes(admin.id)}
+                          onCheckedChange={() => toggleAdminSelection(admin.id)}
+                          className="shrink-0"
+                        />
+                        <Label
+                          htmlFor={`admin-${admin.id}`}
+                          className="flex-1 cursor-pointer flex items-center justify-between gap-2 min-w-0"
+                        >
+                          <span className="truncate text-sm">{admin.email}</span>
+                          {admin.is_superadmin && (
+                            <Badge variant="secondary" className="text-xs shrink-0">Super</Badge>
+                          )}
+                        </Label>
+                      </div>
+                    ))}
+                  </div>
+                  {selectedAdminIds.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      {selectedAdminIds.length} admin(s) selected
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
 
             {/* Financial Details */}
             {(worker.pan_number || worker.account_number) && <Separator />}
@@ -476,17 +561,17 @@ const DetailsModal: React.FC<{
             {/* Verify Button */}
             {!worker.is_id_verified && (
               <div className="pt-4">
-                <Button 
-                  className="w-full" 
+                <Button
+                  className="w-full"
                   size="lg"
                   onClick={() => onVerify(worker.phone_number)}
                 >
-                  Verify Personnel
+                  Verify Personnel {selectedAdminIds.length > 0 && `& Assign ${selectedAdminIds.length} Admin(s)`}
                 </Button>
               </div>
             )}
           </div>
-        </ScrollArea>
+        </div>
       </DialogContent>
     </Dialog>
   );

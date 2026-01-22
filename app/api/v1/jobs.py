@@ -1,5 +1,8 @@
+import logging
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
+from app.config import settings
 from app.database import get_db
 from app.model.ip import ip
 from app.model.job import Job, JobChecklist, ChecklistItem, JobChecklistItemStatus
@@ -9,9 +12,14 @@ from app.schemas.checklist import (
     JobChecklistItemStatusUpdate,
     JobChecklistItemStatusResponse
 )
+from app.schemas.job_status_log import JobStatusLogResponse
 from app.api.deps import get_verified_user
 from app.services.s3_service import upload_file_to_s3
 from app.crud.checklist import update_job_checklist_item_status
+from app.crud.job import get_job_status_history
+from typing import List
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/dashboard/jobs", tags=["Dashboard"])
 
@@ -22,13 +30,8 @@ def get_all_jobs(
     current_user: ip = Depends(get_verified_user),
     db: Session = Depends(get_db)
 ):
+    """Get all jobs assigned to current user"""
     jobs = db.query(Job).filter(Job.assigned_ip_id == current_user.id).all()
-    
-    # Manually serialize using JobResponse if needed, or just rely on response_model
-    # Since we want to return a wrapper object, we can't easily use response_model=List[JobResponse] directly for the whole thing
-    # But FastAPI can handle it if we define a proper schema for the wrapper.
-    # For now, let's just make sure we are not returning raw SQLAlchemy objects if possible.
-    
     serialized_jobs = [JobResponse.model_validate(j) for j in jobs]
 
     return {
@@ -45,17 +48,61 @@ def get_single_job(
     current_user: ip = Depends(get_verified_user),
     db: Session = Depends(get_db)
 ):
-    job = db.query(Job).filter(Job.id == job_id).first()
+    """Get a single job - only if assigned to current user"""
+    job = db.query(Job).filter(
+        Job.id == job_id,
+        Job.assigned_ip_id == current_user.id
+    ).first()
 
     if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found"
+            detail="Job not found or not assigned to you"
         )
 
     return {
         "message": "Job retrieved successfully",
         "job": JobResponse.model_validate(job)
+    }
+
+
+@router.get("/{job_id}/history", response_model=List[JobStatusLogResponse])
+def get_job_history(
+    job_id: int,
+    current_user: ip = Depends(get_verified_user),
+    db: Session = Depends(get_db)
+):
+    """Get job status history for a specific job"""
+    job = db.query(Job).filter(Job.id == job_id, Job.assigned_ip_id == current_user.id).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found or not assigned to you"
+        )
+    
+    return get_job_status_history(db, job_id)
+
+
+@router.get("/{job_id}/progress", response_model=dict)
+def get_job_progress(
+    job_id: int,
+    current_user: ip = Depends(get_verified_user),
+    db: Session = Depends(get_db)
+):
+    """Get job progress uploads (placeholder - no progress table yet)"""
+    job = db.query(Job).filter(Job.id == job_id, Job.assigned_ip_id == current_user.id).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found or not assigned to you"
+        )
+    
+    # TODO: Implement progress upload tracking table
+    # For now, return empty uploads list
+    return {
+        "message": "Progress fetched successfully",
+        "job_id": job_id,
+        "uploads": []
     }
 
 
@@ -68,24 +115,41 @@ async def upload_progress_update(
     current_user: ip = Depends(get_verified_user),
     db: Session = Depends(get_db)
 ):
-    job = db.query(Job).filter(Job.id == job_id).first()
+    """Upload a file for job progress - with validation"""
+    # Authorization: verify job belongs to current user
+    job = db.query(Job).filter(
+        Job.id == job_id,
+        Job.assigned_ip_id == current_user.id
+    ).first()
 
     if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found"
+            detail="Job not found or not assigned to you"
         )
-
-    # Read file content
+    
+    # Validate file extension
+    file_ext = Path(file.filename).suffix.lower() if file.filename else ""
+    if file_ext not in settings.allowed_extensions_list:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid file type. Allowed: {', '.join(settings.allowed_extensions_list)}"
+        )
+    
+    # Read file content and validate size
     file_content = await file.read()
+    max_size_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    if len(file_content) > max_size_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File too large. Maximum size: {settings.MAX_UPLOAD_SIZE_MB}MB"
+        )
+    
     file_url = upload_file_to_s3(
         file_content=file_content,
         filename=file.filename,
         content_type=file.content_type
     )
-
-    # Save the uploaded file link to DB later (if you have a table)
-    # job.progress_images.append(file_url) — later phase
 
     return {
         "message": "File uploaded successfully",
@@ -93,19 +157,22 @@ async def upload_progress_update(
     }
 
 
-# ✅ Complete job
 @router.get("/{job_id}/completed", response_model=dict)
 def complete_job(
     job_id: int,
     current_user: ip = Depends(get_verified_user),
     db: Session = Depends(get_db)
 ):
-    job = db.query(Job).filter(Job.id == job_id).first()
+    """Mark a job as completed - only if assigned to current user"""
+    job = db.query(Job).filter(
+        Job.id == job_id,
+        Job.assigned_ip_id == current_user.id
+    ).first()
 
     if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found"
+            detail="Job not found or not assigned to you"
         )
 
     job.status = "completed"

@@ -28,9 +28,10 @@ class Job(Base):
     customer_name: Mapped[str] = mapped_column(String, nullable=True)
     address: Mapped[str] = mapped_column(String, nullable=True)
     city: Mapped[str] = mapped_column(String, nullable=True)
-    status: Mapped[str] = mapped_column(String, default="created")
+    status: Mapped[str] = mapped_column(String, default="created", index=True)
     pincode: Mapped[int] = mapped_column(Integer, nullable=True)
-    assigned_ip_id: Mapped[int] = mapped_column(Integer, ForeignKey("ip.id"), nullable=True)
+    assigned_ip_id: Mapped[int] = mapped_column(Integer, ForeignKey("ip.id"), nullable=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     type: Mapped[str] = mapped_column(String, nullable=True)
     rate: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=True)
     size: Mapped[int] = mapped_column(Integer, nullable=True)
@@ -40,9 +41,23 @@ class Job(Base):
     additional_expense: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=True, default=0
     )
+    
+    # Customer phone for OTP verification
+    customer_phone: Mapped[str | None] = mapped_column(String, nullable=True)
+    
+    # Start OTP fields (sent when job starts)
+    start_otp: Mapped[str | None] = mapped_column(String, nullable=True)
+    start_otp_expiry: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    start_otp_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    # End OTP fields (sent when job completes)
+    end_otp: Mapped[str | None] = mapped_column(String, nullable=True)
+    end_otp_expiry: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_otp_verified: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Relationships
     assigned_ip: Mapped["ip"] = relationship("ip")
+    user: Mapped["User"] = relationship("User")
     job_checklists: Mapped[List["JobChecklist"]] = relationship(
         "JobChecklist", back_populates="job", cascade="all, delete-orphan"
     )

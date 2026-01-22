@@ -35,6 +35,7 @@ export interface Job {
   id?: number;
   name: string;
   customer_name: string;
+  customer_phone?: string;
   address?: string;
   city: string;
   pincode: number;
@@ -51,6 +52,8 @@ export interface Job {
   google_map_link?: string;
   status: string;
   additional_expense?: number;
+  start_otp_verified?: boolean;
+  end_otp_verified?: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -119,6 +122,28 @@ export interface IPUser {
   account_holder_name?: string;
   registered_at: string;
   verified_at?: string;
+  assigned_admin_ids?: number[];
+}
+
+export interface AdminUser {
+  id: number;
+  email: string;
+  isActive: boolean;
+  isApproved: boolean;
+  is_superadmin: boolean;
+}
+
+export interface User {
+  id: number;
+  email: string;
+  isActive: boolean;
+  isApproved: boolean;
+  is_superadmin: boolean;
+}
+
+export interface OTPResponse {
+  success: boolean;
+  message: string;
 }
 
 export interface Checklist {
@@ -147,7 +172,7 @@ const handleResponse = <T>(response: any): T => {
 
 // Auth APIs
 export const authAPI = {
-  login: (data: LoginRequest): Promise<{ access_token: string }> =>
+  login: (data: LoginRequest): Promise<any> =>
     axiosInstance.post('/auth/login', data).then(res => handleResponse(res)),
 
   signup: (data: SignupRequest): Promise<any> =>
@@ -156,9 +181,11 @@ export const authAPI = {
   getCurrentUser: (): Promise<any> =>
     axiosInstance.get('/auth/me').then(res => handleResponse(res)),
 
-  logout: (): void => {
-    localStorage.removeItem('access_token');
-  }
+  logout: (): Promise<any> =>
+    axiosInstance.post('/auth/logout').then(res => {
+      localStorage.removeItem('access_token');
+      return handleResponse(res);
+    }),
 };
 
 // Job APIs with pagination support
@@ -172,8 +199,8 @@ export const jobAPI = {
   }): Promise<Job[] | PaginatedResponse<Job>> => {
     const { page = 1, limit = 100, ...rest } = params || {};
     const skip = (page - 1) * limit;
-    return axiosInstance.get('/jobs', { 
-      params: { ...rest, skip, limit } 
+    return axiosInstance.get('/jobs', {
+      params: { ...rest, skip, limit }
     }).then(res => handleResponse(res));
   },
 
@@ -198,6 +225,19 @@ export const jobAPI = {
   finish: (id: number, notes?: string): Promise<ApiResponse> =>
     axiosInstance.post(`/jobs/${id}/finish`, { notes }).then(res => handleResponse(res)),
 
+  // OTP-based job start/finish
+  requestStartOTP: (id: number): Promise<OTPResponse> =>
+    axiosInstance.post(`/jobs/${id}/request-start-otp`).then(res => handleResponse(res)),
+
+  verifyStartOTP: (id: number, otp: string, notes?: string): Promise<Job> =>
+    axiosInstance.post(`/jobs/${id}/verify-start-otp`, { otp, notes }).then(res => handleResponse(res)),
+
+  requestEndOTP: (id: number): Promise<OTPResponse> =>
+    axiosInstance.post(`/jobs/${id}/request-end-otp`).then(res => handleResponse(res)),
+
+  verifyEndOTP: (id: number, otp: string, notes?: string): Promise<Job> =>
+    axiosInstance.post(`/jobs/${id}/verify-end-otp`, { otp, notes }).then(res => handleResponse(res)),
+
   getHistory: (id: number): Promise<JobStatusLog[]> =>
     axiosInstance.get(`/jobs/${id}/history`).then(res => handleResponse(res)),
 };
@@ -210,8 +250,17 @@ export const adminAPI = {
   getApprovedIPUsers: (): Promise<IPUser[]> =>
     axiosInstance.get('/admin/ips/approved').then(res => handleResponse(res)),
 
-  verifyIPUser: (phoneNumber: string): Promise<ApiResponse> =>
-    axiosInstance.post(`/admin/verify-ip/${phoneNumber}`).then(res => handleResponse(res)),
+  verifyIPUser: (phoneNumber: string, adminIds?: number[]): Promise<ApiResponse> =>
+    axiosInstance.post(`/admin/verify-ip/${phoneNumber}`, { admin_ids: adminIds }).then(res => handleResponse(res)),
+
+  getAdminUsers: (): Promise<AdminUser[]> =>
+    axiosInstance.get('/admin/admin-users').then(res => handleResponse(res)),
+
+  assignAdminsToIP: (ipId: number, adminIds: number[]): Promise<ApiResponse> =>
+    axiosInstance.post(`/admin/ips/${ipId}/assign-admins`, { admin_ids: adminIds }).then(res => handleResponse(res)),
+
+  getIPAdmins: (ipId: number): Promise<AdminUser[]> =>
+    axiosInstance.get(`/admin/ips/${ipId}/admins`).then(res => handleResponse(res)),
 };
 
 // Analytics APIs

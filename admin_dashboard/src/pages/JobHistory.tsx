@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { jobAPI, type JobStatusLog } from '@/api/services';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { formatDateTimeIST, formatDuration } from '@/lib/utils';
 import {
   Table,
   TableBody,
@@ -82,24 +83,39 @@ const JobHistory: React.FC = () => {
                      <TableRow>
                         <TableHead>Status</TableHead>
                         <TableHead>Notes</TableHead>
-                        <TableHead>Timestamp</TableHead>
+                        <TableHead>Timestamp (IST)</TableHead>
+                        <TableHead>Duration</TableHead>
                      </TableRow>
                   </TableHeader>
                   <TableBody>
-                     {history.map((log) => (
-                        <TableRow key={log.id}>
-                           <TableCell>
-                              <Badge variant="outline" className={getStatusClass(log.status)}>
-                                 {log.status?.replace('_', ' ').toUpperCase()}
-                              </Badge>
-                           </TableCell>
-                           <TableCell>{log.notes}</TableCell>
-                           <TableCell>{new Date(log.timestamp).toLocaleString()}</TableCell>
-                        </TableRow>
-                     ))}
+                     {history.map((log, index) => {
+                        let duration = null;
+                        if (index === 0) {
+                          if (log.status === 'in_progress' || log.status === 'paused') {
+                            duration = new Date().getTime() - new Date(log.timestamp).getTime();
+                          }
+                        } else {
+                          duration = new Date(history[index - 1].timestamp).getTime() - new Date(log.timestamp).getTime();
+                        }
+                        
+                        return (
+                          <TableRow key={log.id}>
+                             <TableCell>
+                                <Badge variant="outline" className={getStatusClass(log.status)}>
+                                   {log.status?.replace('_', ' ').toUpperCase()}
+                                </Badge>
+                             </TableCell>
+                             <TableCell>{log.notes}</TableCell>
+                             <TableCell>{formatDateTimeIST(log.timestamp)}</TableCell>
+                             <TableCell className="text-muted-foreground">
+                                {duration ? formatDuration(duration) : '-'}
+                             </TableCell>
+                          </TableRow>
+                        );
+                     })}
                      {history.length === 0 && (
                         <TableRow>
-                           <TableCell colSpan={3} className="h-24 text-center">
+                           <TableCell colSpan={4} className="h-24 text-center">
                               No history found for this job.
                            </TableCell>
                         </TableRow>

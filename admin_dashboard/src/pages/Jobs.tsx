@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { adminAPI, type Job, type IPUser } from '@/api/services';
@@ -50,11 +50,13 @@ const Jobs: React.FC = () => {
   const [actionJob, setActionJob] = useState<Job | null>(null);
   const [actionModalTab, setActionModalTab] = useState<'actions' | 'checklists'>('actions');
 
-  const { data: jobsData, isLoading: jobsLoading, refetch: refetchJobs } = useJobs({
+  const filters = useMemo(() => ({
     status: statusFilter !== 'all' ? statusFilter : undefined,
     type: typeFilter !== 'all' ? typeFilter : undefined,
     search: searchTerm || undefined,
-  });
+  }), [statusFilter, typeFilter, searchTerm]);
+
+  const { data: jobsData, isLoading: jobsLoading, refetch: refetchJobs } = useJobs(filters);
 
   const deleteJobMutation = useDeleteJob();
 

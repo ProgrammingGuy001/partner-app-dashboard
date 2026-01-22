@@ -36,6 +36,7 @@ import { ChevronDown } from "lucide-react"
 const jobSchema = z.object({
   name: z.string().min(1, "Job Name is required"),
   customer_name: z.string().min(1, "Customer Name is required"),
+  customer_phone: z.string().min(10, "Phone must be at least 10 digits").regex(/^\d+$/, "Must be numbers").optional().or(z.literal("")),
   address: z.string().min(1, "Address is required"),
   city: z.string().min(1, "City is required"),
   pincode: z.string().min(6, "Pincode must be 6 digits").max(6, "Pincode must be 6 digits").regex(/^\d+$/, "Must be numbers"),
@@ -84,6 +85,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
     defaultValues: {
       name: '',
       customer_name: '',
+      customer_phone: '',
       address: '',
       city: '',
       pincode: '',
@@ -101,11 +103,19 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
   const assignedIpId = watch('assigned_ip_id');
   const jobType = watch('type');
 
+  // Update size to 1 when job type is not installation
+  useEffect(() => {
+    if (jobType && jobType !== 'installation') {
+      setValue('size', '1');
+    }
+  }, [jobType, setValue]);
+
   useEffect(() => {
     if (job) {
       reset({
         name: job.name,
         customer_name: job.customer_name,
+        customer_phone: job.customer_phone || '',
         address: job.address || '',
         city: job.city,
         pincode: job.pincode.toString(),
@@ -117,7 +127,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
         delivery_date: job.delivery_date || '',
         checklist_link: job.checklist_link || '',
       });
-      
+
       const ids: number[] = [];
       if (job.job_checklists && Array.isArray(job.job_checklists)) {
         ids.push(...job.job_checklists.map(jc => jc.checklist_id));
@@ -151,8 +161,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
   }, []);
 
   const handleChecklistToggle = (id: number) => {
-    setSelectedChecklistIds(prev => 
-      prev.includes(id) 
+    setSelectedChecklistIds(prev =>
+      prev.includes(id)
         ? prev.filter(item => item !== id)
         : [...prev, id]
     );
@@ -165,6 +175,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
       const payload: any = {
         name: data.name,
         customer_name: data.customer_name,
+        customer_phone: data.customer_phone || undefined,
         address: data.address,
         city: data.city,
         pincode: parseInt(data.pincode),
@@ -178,7 +189,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
       };
 
       if (data.checklist_link) payload.checklist_link = data.checklist_link;
-      
+
       if (job?.id) {
         await updateJobMutation.mutateAsync({ id: job.id, data: payload as JobUpdate });
       } else {
@@ -231,6 +242,19 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
                   aria-invalid={!!errors.customer_name}
                 />
                 {errors.customer_name && <p className="text-xs text-destructive">{errors.customer_name.message}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="customer_phone">Customer Phone (for OTP)</Label>
+                <Input
+                  id="customer_phone"
+                  type="tel"
+                  placeholder="10-digit phone number"
+                  {...register("customer_phone")}
+                  aria-invalid={!!errors.customer_phone}
+                />
+                {errors.customer_phone && <p className="text-xs text-destructive">{errors.customer_phone.message}</p>}
+                <p className="text-xs text-gray-500">OTP will be sent to this number for job start/complete</p>
               </div>
 
               <div className="space-y-2">
@@ -308,11 +332,13 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="size">Size</Label>
+                <Label htmlFor="size">Size {jobType === 'installation' ? '' : '(Auto-set to 1 for non-installation jobs)'}</Label>
                 <Input
                   id="size"
                   type="number"
                   {...register("size")}
+                  disabled={jobType !== 'installation'}
+                  className={jobType !== 'installation' ? 'bg-gray-100 cursor-not-allowed' : ''}
                   aria-invalid={!!errors.size}
                 />
                 {errors.size && <p className="text-xs text-destructive">{errors.size.message}</p>}
@@ -329,8 +355,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
                   </SelectTrigger>
                   <SelectContent>
                     {ipUsers.map((ipUser) => (
-                      <SelectItem 
-                        key={ipUser.id} 
+                      <SelectItem
+                        key={ipUser.id}
                         value={ipUser.id.toString()}
                         disabled={ipUser.is_assigned && ipUser.id !== job?.assigned_ip_id}
                       >
@@ -395,7 +421,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
             </div>
           </form>
         </div>
-        
+
         <DialogFooter className="p-6 border-t shrink-0">
           <Button variant="outline" onClick={onClose} type="button">
             Cancel

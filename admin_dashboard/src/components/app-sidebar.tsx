@@ -1,14 +1,17 @@
 import * as React from "react"
+import { useQuery } from "@tanstack/react-query"
 import {
   IconChartBar,
   IconDashboard,
   IconFolder,
   IconListDetails,
   IconUsers,
+  IconBox,
 } from "@tabler/icons-react"
 
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
+import { authAPI } from "@/api/services"
 import {
   Sidebar,
   SidebarContent,
@@ -20,11 +23,6 @@ import {
 } from "@/components/ui/sidebar"
 
 const data = {
-  user: {
-    name: "User",
-    email: "user@example.com",
-    avatar: "/avatars/shadcn.jpg",
-  },
   navMain: [
     {
       title: "Dashboard",
@@ -51,40 +49,28 @@ const data = {
       url: "/dashboard/project-analytics",
       icon: IconFolder,
     },
+    {
+      title: "BOM Requests",
+      url: "/dashboard/bom",
+      icon: IconBox,
+    },
   ],
 }
 
-function decodeJwt(token: string) {
-  try {
-    const base64Url = token.split('.')[1];
-    if (!base64Url) return null;
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
-        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-    }).join(''));
-    return JSON.parse(jsonPayload);
-  } catch (e) {
-    console.error("Error decoding JWT", e);
-    return null;
-  }
-}
-
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
-  const [user, setUser] = React.useState(data.user)
+  // Use React Query cached user data (already fetched by ProtectedRoute)
+  const { data: userData } = useQuery({
+    queryKey: ['auth', 'user'],
+    queryFn: () => authAPI.getCurrentUser(),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
 
-  React.useEffect(() => {
-    const token = localStorage.getItem("access_token")
-    if (token) {
-      const decoded = decodeJwt(token)
-      if (decoded && decoded.sub) {
-        setUser({
-          name: "Admin",
-          email: decoded.sub,
-          avatar: "/avatars/shadcn.jpg",
-        })
-      }
-    }
-  }, [])
+  const user = {
+    name: userData?.is_superadmin ? "Super Admin" : "Admin",
+    email: userData?.email || "user@example.com",
+    avatar: "/avatars/shadcn.jpg",
+    is_superadmin: userData?.is_superadmin || false,
+  }
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>
@@ -97,12 +83,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             >
               <a href="https://www.modula.in/">
                 <div className="h-16 px-4 flex items-center justify-center">
-  <img
-    src="/logo.png"
-    alt="Logo"
-    className="max-h-4/6 max-w-3/4 object-contain"
-  />
-</div>
+                  <img
+                    src="/logo.png"
+                    alt="Logo"
+                    className="max-h-4/6 max-w-3/4 object-contain"
+                  />
+                </div>
 
               </a>
             </SidebarMenuButton>

@@ -14,8 +14,8 @@ const Login: React.FC = () => {
     setLoading(true);
 
     try {
-      const response = await authAPI.login(data);
-      localStorage.setItem('access_token', response.access_token);
+      await authAPI.login(data);
+      // Cookie is set by backend
       toast.success('Logged in successfully');
       navigate('/dashboard');
     } catch (err: unknown) {
@@ -31,22 +31,22 @@ const Login: React.FC = () => {
     }
   };
 
-    return (
+  return (
     <div className="bg-zinc-50 flex min-h-svh flex-col items-center justify-center gap-6 p-6 md:p-10">
       <div className="flex w-full max-w-sm flex-col gap-6">
-         <a href="https://www.modula.in/">
-                <div className="h-16 px-4 flex items-center justify-center">
-  <img
-    src="/logo.png"
-    alt="Logo"
-    className="max-h-4/6 max-w-3/4 object-contain"
-  />
-</div>
+        <a href="https://www.modula.in/">
+          <div className="h-16 px-4 flex items-center justify-center">
+            <img
+              src="/logo.png"
+              alt="Logo"
+              className="max-h-4/6 max-w-3/4 object-contain"
+            />
+          </div>
         </a>
-        <LoginForm 
-        onSubmit={handleLogin}
-        loading={loading}
-        error={error}
+        <LoginForm
+          onSubmit={handleLogin}
+          loading={loading}
+          error={error}
         />
       </div>
     </div>

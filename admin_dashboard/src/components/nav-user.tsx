@@ -1,6 +1,7 @@
 import {
   IconDotsVertical,
   IconLogout,
+  IconShield,
 } from "@tabler/icons-react"
 
 import {
@@ -22,7 +23,10 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { Badge } from "@/components/ui/badge"
 import { useNavigate } from "react-router-dom"
+import { useQueryClient } from "@tanstack/react-query"
+import { authAPI } from "@/api/services"
 
 export function NavUser({
   user,
@@ -33,13 +37,21 @@ export function NavUser({
     avatar: string
     ipNumber?: string
     jobCount?: number
+    is_superadmin?: boolean
   }
 }) {
   const { isMobile } = useSidebar()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
-  const handleLogout = () => {
-    localStorage.removeItem('access_token')
+  const handleLogout = async () => {
+    try {
+      await authAPI.logout()
+    } catch (error) {
+      console.error('Logout error:', error)
+    }
+    // Clear all cached queries
+    queryClient.clear()
     navigate('/login')
   }
 
@@ -54,10 +66,20 @@ export function NavUser({
             >
               <Avatar className="h-8 w-8 rounded-lg grayscale">
                 <AvatarImage src={user.avatar} alt={user.name} />
-                <AvatarFallback className="rounded-lg">CN</AvatarFallback>
+                <AvatarFallback className="rounded-lg">
+                  {user.is_superadmin ? 'SA' : 'AD'}
+                </AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">{user.name}</span>
+                <span className="truncate font-medium flex items-center gap-2">
+                  {user.name}
+                  {user.is_superadmin && (
+                    <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 bg-amber-100 text-amber-700 border-amber-200">
+                      <IconShield className="h-2.5 w-2.5 mr-0.5" />
+                      Super
+                    </Badge>
+                  )}
+                </span>
                 <span className="text-muted-foreground truncate text-xs">
                   {user.email}
                 </span>
@@ -80,10 +102,19 @@ export function NavUser({
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                 <Avatar className="h-8 w-8 rounded-lg">
                   <AvatarImage src={user.avatar} alt={user.name} />
-                  <AvatarFallback className="rounded-lg">CN</AvatarFallback>
+                  <AvatarFallback className="rounded-lg">
+                    {user.is_superadmin ? 'SA' : 'AD'}
+                  </AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-medium">{user.name}</span>
+                  <span className="truncate font-medium flex items-center gap-2">
+                    {user.name}
+                    {user.is_superadmin && (
+                      <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 bg-amber-100 text-amber-700">
+                        Super Admin
+                      </Badge>
+                    )}
+                  </span>
                   <span className="text-muted-foreground truncate text-xs">
                     {user.email}
                   </span>
