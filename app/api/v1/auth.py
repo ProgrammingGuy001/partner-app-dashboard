@@ -128,10 +128,10 @@ def verify_otp(request: Request, otp_data: OTPVerification, response: Response, 
     # Set cookie
     response.set_cookie(
         key="access_token",
-        value=access_token,
+        value=f"Bearer {access_token}",
         httponly=True,
         samesite="none",
-        secure=True  
+        secure=True # Only True in production
     )
     
     return user
