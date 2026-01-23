@@ -130,8 +130,8 @@ def verify_otp(request: Request, otp_data: OTPVerification, response: Response, 
         key="access_token",
         value=access_token,
         httponly=True,
-        samesite="lax",
-        secure=settings.ENVIRONMENT == "production"  # Only True in production
+        samesite="none",
+        secure=True  
     )
     
     return user
