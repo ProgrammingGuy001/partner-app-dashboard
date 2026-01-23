@@ -64,13 +64,13 @@ export function NavUser({
               size="lg"
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
-              <Avatar className="h-8 w-8 rounded-lg grayscale">
+              <Avatar className="h-9 w-9 rounded-lg ring-2 ring-sidebar-border/30 shadow-sm transition-transform group-hover:scale-105">
                 <AvatarImage src={user.avatar} alt={user.name} />
-                <AvatarFallback className="rounded-lg">
+                <AvatarFallback className="rounded-lg bg-gradient-to-br from-primary/80 to-primary text-primary-foreground font-medium">
                   {user.is_superadmin ? 'SA' : 'AD'}
                 </AvatarFallback>
               </Avatar>
-              <div className="grid flex-1 text-left text-sm leading-tight">
+              <div className="grid flex-1 text-left text-sm leading-tight ml-0.5">
                 <span className="truncate font-medium flex items-center gap-2">
                   {user.name}
                   {user.is_superadmin && (

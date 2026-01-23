@@ -128,7 +128,7 @@ def verify_otp(request: Request, otp_data: OTPVerification, response: Response, 
     # Set cookie
     response.set_cookie(
         key="access_token",
-        value=f"Bearer {access_token}",
+        value=access_token,
         httponly=True,
         samesite="lax",
         secure=settings.ENVIRONMENT == "production"  # Only True in production

@@ -74,31 +74,30 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>
-      <SidebarHeader>
+      <SidebarHeader className="border-b border-sidebar-border/50 bg-gradient-to-b from-sidebar to-sidebar/80 pb-4">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
               asChild
-              className="data-[slot=sidebar-menu-button]:!p-1.5"
+              className="data-[slot=sidebar-menu-button]:!p-0 hover:bg-transparent"
             >
-              <a href="https://www.modula.in/">
-                <div className="h-16 px-4 flex items-center justify-center">
+              <a href="https://www.modula.in/" className="flex items-center justify-center">
+                <div className="h-14 px-3 flex items-center justify-center transition-transform hover:scale-105 duration-200">
                   <img
                     src="/logo.png"
                     alt="Logo"
-                    className="max-h-4/6 max-w-3/4 object-contain"
+                    className="max-h-full max-w-full object-contain drop-shadow-sm"
                   />
                 </div>
-
               </a>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className="px-2 py-4">
         <NavMain items={data.navMain} />
       </SidebarContent>
-      <SidebarFooter>
+      <SidebarFooter className="border-t border-sidebar-border/50 bg-gradient-to-t from-sidebar to-sidebar/80 pt-3">
         <NavUser user={user} />
       </SidebarFooter>
     </Sidebar>
