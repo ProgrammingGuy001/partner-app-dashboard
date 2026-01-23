@@ -129,9 +129,9 @@ def check_panel_access(
         current_user.is_bank_details_verified
     )
 
-    # ✅ If verified, fetch job data
+    # ✅ If verified, fetch jobs assigned to this user only
     if all_verified:
-        jobs = db.query(Job).all()
+        jobs = db.query(Job).filter(Job.assigned_ip_id == current_user.id).all()
         
         # Convert SQLAlchemy objects to dict using JobResponse for safety and completeness
         job_data = [JobResponse.model_validate(job).model_dump() for job in jobs]

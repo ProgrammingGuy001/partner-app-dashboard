@@ -267,13 +267,20 @@ def get_job_checklist_items(
         ChecklistItem.checklist_id == checklist_id
     ).order_by(ChecklistItem.position).all()
     
+    # Fetch all item statuses for this job in a single query (N+1 fix)
+    item_ids = [item.id for item in items]
+    all_statuses = db.query(JobChecklistItemStatus).filter(
+        JobChecklistItemStatus.job_id == job_id,
+        JobChecklistItemStatus.checklist_item_id.in_(item_ids)
+    ).all()
+    
+    # Create a lookup dictionary for O(1) status access
+    status_map = {s.checklist_item_id: s for s in all_statuses}
+    
     items_with_status = []
     for item in items:
-        # Get status for each item for this job
-        item_status = db.query(JobChecklistItemStatus).filter(
-            JobChecklistItemStatus.job_id == job_id,
-            JobChecklistItemStatus.checklist_item_id == item.id
-        ).first()
+        # Get status from lookup instead of querying DB
+        item_status = status_map.get(item.id)
         
         items_with_status.append({
             "id": item.id,

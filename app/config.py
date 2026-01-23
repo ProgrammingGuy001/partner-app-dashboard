@@ -48,11 +48,11 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_MB: int = 10
     ALLOWED_FILE_EXTENSIONS: str = ".jpg,.jpeg,.png,.pdf,.doc,.docx"
     
-    # Odoo Settings
-    ODOO_URL: str
-    ODOO_DB: str
-    ODOO_USERNAME: str
-    ODOO_PASSWORD: str
+    # Odoo Settings (optional - only needed if Odoo integration is used)
+    ODOO_URL: Optional[str] = None
+    ODOO_DB: Optional[str] = None
+    ODOO_USERNAME: Optional[str] = None
+    ODOO_PASSWORD: Optional[str] = None
     
     @property
     def trusted_hosts_list(self) -> List[str]:

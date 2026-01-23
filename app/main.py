@@ -4,17 +4,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from slowapi.errors import RateLimitExceeded
 
-from .api.v1 import auth, jobs, verification,bom
-from .config import settings
-from .database import Base, engine
-from .routes.analytics import router as analytics_router
-from .routes.approval import router as approval_router
-from .routes.auth import router as auth_router
-from .routes.bom import router as bom_router
-from .routes.checklist import router as checklist_router
-from .routes.job import router as job_router
-from .utils.rate_limiter import limiter, rate_limit_exceeded_handler
-from .core.scheduler import start_scheduler, shutdown_scheduler
+from app.api.v1 import auth, jobs, verification,bom
+from app.config import settings
+from app.database import Base, engine
+from app.routes.analytics import router as analytics_router
+from app.routes.approval import router as approval_router
+from app.routes.auth import router as auth_router
+from app.routes.bom import router as bom_router
+from app.routes.checklist import router as checklist_router
+from app.routes.job import router as job_router
+from app.utils.rate_limiter import limiter, rate_limit_exceeded_handler
+from app.core.scheduler import start_scheduler, shutdown_scheduler
 
 
 @asynccontextmanager
