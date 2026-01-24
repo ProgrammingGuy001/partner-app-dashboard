@@ -1,6 +1,6 @@
 
 # Use an official Python runtime as a parent image
-FROM python:3.9-slim
+FROM python:3.14-trixie
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
