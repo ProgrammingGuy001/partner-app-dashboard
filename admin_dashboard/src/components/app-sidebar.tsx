@@ -86,7 +86,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   <img
                     src="/logo.png"
                     alt="Logo"
-                    className="max-h-full max-w-full object-contain drop-shadow-sm"
+                    className="h-10 object-contain drop-shadow-sm"
                   />
                 </div>
               </a>
