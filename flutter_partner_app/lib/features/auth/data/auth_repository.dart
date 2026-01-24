@@ -16,10 +16,14 @@ class AuthRepository {
 
   AuthRepository({required this.apiClient, required this.secureStorage});
 
+  /// Login and send OTP. Returns the phone number (with country code) on success.
+  /// Throws an exception on failure.
   Future<Map<String, dynamic>> login(String phoneNumber) async {
-    final response = await apiClient.post('/auth/login', data: {
-      'phone_number': phoneNumber,
-    });
+    final response = await apiClient.post(
+      '/auth/login',
+      data: {'phone_number': phoneNumber},
+    );
+    // Response: {"message": "OTP sent...", "phone_number": "91xxxxxxxxxx"}
     return response.data;
   }
 
@@ -40,22 +44,35 @@ class AuthRepository {
     return response.data;
   }
 
+  /// Verify OTP and authenticate user.
+  /// Backend returns user object directly and sets httpOnly cookie with token.
+  /// We extract token from Set-Cookie header.
   Future<Map<String, dynamic>> verifyOtp(String phoneNumber, String otp) async {
     final response = await apiClient.post('/auth/verify-otp', data: {
       'phone_number': phoneNumber,
       'otp': otp,
     });
-    
-    // Store token if present
-    if (response.data['access_token'] != null) {
-      await secureStorage.saveToken(response.data['access_token']);
+
+    // Backend sets cookie: access_token=Bearer {token}
+    // Try to extract token from Set-Cookie header
+    final setCookie = response.headers['set-cookie'];
+    if (setCookie != null && setCookie.isNotEmpty) {
+      for (final cookie in setCookie) {
+        if (cookie.contains('access_token=')) {
+          // Extract: access_token=Bearer {token}; ...
+          final match = RegExp(r'access_token=Bearer%20([^;]+)').firstMatch(cookie) ??
+                        RegExp(r'access_token=Bearer\s+([^;]+)').firstMatch(cookie);
+          if (match != null) {
+            await secureStorage.saveToken(match.group(1)!);
+          }
+        }
+      }
     }
-    
+
+    // Response is the user object directly (not wrapped)
     // Store user data
-    if (response.data['user'] != null) {
-      await secureStorage.saveUserData(jsonEncode(response.data['user']));
-    }
-    
+    await secureStorage.saveUserData(jsonEncode(response.data));
+
     return response.data;
   }
 
