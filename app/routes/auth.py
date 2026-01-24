@@ -39,8 +39,8 @@ def login(request: Request, response: Response, login_data: LoginRequest, db: Se
         key="access_token",
         value=f"Bearer {access_token}",
         httponly=True,
-        secure=settings.ENVIRONMENT == "production", # Only true for production/staging (needs HTTPS)
-        samesite="lax",
+        secure=True, # Always secure for cross-site
+        samesite="none", # Required for cross-site
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
     )
     
@@ -58,7 +58,7 @@ def logout(response: Response):
     response.delete_cookie(
         key="access_token",
         httponly=True,
-        secure=settings.ENVIRONMENT == "production",
-        samesite="lax"
+        secure=True,
+        samesite="none"
     )
     return {"message": "Logged out successfully"}

@@ -48,6 +48,9 @@ origins = [
     "https://partner-app-dashboard-navy.vercel.app",
 ]
 
+
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=settings.trusted_hosts_list)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -55,9 +58,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=settings.trusted_hosts_list)
 
 # API v1 routers
 app.include_router(auth.router, prefix="/api/v1")
