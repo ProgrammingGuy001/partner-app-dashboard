@@ -39,26 +39,15 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 
-# Environment-based CORS configuration
-def get_allowed_origins():
-    if settings.ENVIRONMENT == "production":
-        return ["https://partner-app-dashboard-navy.vercel.app"]
-    elif settings.ENVIRONMENT == "staging":
-        return [
-            "https://partner-app-dashboard-navy.vercel.app",
-            "https://staging.partner-app-dashboard.vercel.app",
-        ]
-    else:  # development
-        return [
-            "https://partner-app-dashboard-navy.vercel.app",
-            "http://localhost:5173",
-            "http://localhost:3000",
-        ]
 
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_allowed_origins(),
+    allow_origins=[
+        "https://partner-app-dashboard-navy.vercel.app",
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
