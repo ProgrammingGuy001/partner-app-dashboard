@@ -96,7 +96,7 @@ def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = 
         print(f"ERROR: create_job failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error creating job: {str(e)}")
 
-def update_job(db: Session, job_id: int, job_update: JobUpdate):
+def update_job(db: Session, job_id: int, job_update: JobUpdate, admin_id: int = None, is_superadmin: bool = False):
     """Update a job - IP will be assigned/unassigned based on job status changes"""
     try:
         db_job = db.query(Job).filter(Job.id == job_id).first()
@@ -114,11 +114,11 @@ def update_job(db: Session, job_id: int, job_update: JobUpdate):
             if db_job.status == "in_progress" and new_ip_id != old_ip_id:
                 # Unassign old IP if exists
                 if old_ip_id:
-                    unassign_ip(db, old_ip_id, commit=False)
+                    unassign_ip(db, old_ip_id, admin_id, is_superadmin, commit=False)
                 
                 # Assign new IP
                 if new_ip_id:
-                    assign_ip(db, new_ip_id, commit=False)
+                    assign_ip(db, new_ip_id, admin_id, is_superadmin, commit=False)
 
         # Handle Checklist changes
         if 'checklist_ids' in update_data:
@@ -152,7 +152,7 @@ def update_job(db: Session, job_id: int, job_update: JobUpdate):
         print(f"ERROR: update_job failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error updating job: {str(e)}")
 
-def delete_job(db: Session, job_id: int):
+def delete_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bool = False):
     """Delete a job, its status logs, and unassign its IP with error handling"""
     try:
         db_job = db.query(Job).filter(Job.id == job_id).first()
@@ -161,7 +161,7 @@ def delete_job(db: Session, job_id: int):
         
         # Unassign IP if exists
         if db_job.assigned_ip_id:
-            unassign_ip(db, db_job.assigned_ip_id, commit=False)
+            unassign_ip(db, db_job.assigned_ip_id, admin_id, is_superadmin, commit=False)
         
         # Delete all job checklists for this job
         db.query(JobChecklist).filter(JobChecklist.job_id == job_id).delete(synchronize_session=False)
@@ -180,7 +180,7 @@ def delete_job(db: Session, job_id: int):
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error deleting job: {str(e)}")
 
-def start_job(db: Session, job_id: int, notes: str = None):
+def start_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bool = False, notes: str = None):
     """Start a job - ASSIGNS the IP when starting"""
     try:
         db_job = db.query(Job).filter(Job.id == job_id).first()
@@ -192,7 +192,7 @@ def start_job(db: Session, job_id: int, notes: str = None):
         
         # Assign IP when starting or resuming
         if db_job.assigned_ip_id:
-            assign_ip(db, db_job.assigned_ip_id,db_job.user_id ,commit=False)
+            assign_ip(db, db_job.assigned_ip_id, admin_id, is_superadmin, commit=False)
         else:
             raise HTTPException(status_code=400, detail="Cannot start job: No IP assigned. Please edit the job to assign an IP first.")
         
@@ -218,7 +218,7 @@ def start_job(db: Session, job_id: int, notes: str = None):
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error starting job: {str(e)}")
 
-def pause_job(db: Session, job_id: int, notes: str = None):
+def pause_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bool = False, notes: str = None):
     """Pause a job - UNASSIGNS the IP during pause"""
     try:
         db_job = db.query(Job).filter(Job.id == job_id).first()
@@ -229,7 +229,7 @@ def pause_job(db: Session, job_id: int, notes: str = None):
             raise HTTPException(status_code=400, detail=f"Only jobs in progress can be paused. Current status: {db_job.status}")
         
         if db_job.assigned_ip_id:
-            unassign_ip(db,db_job.assigned_ip_id,commit=False)
+            unassign_ip(db, db_job.assigned_ip_id, admin_id, is_superadmin, commit=False)
 
         db_job.status = "paused"
         
@@ -253,7 +253,7 @@ def pause_job(db: Session, job_id: int, notes: str = None):
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error pausing job: {str(e)}")
 
-def finish_job(db: Session, job_id: int, notes: str = None):
+def finish_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bool = False, notes: str = None):
     """Finish a job - UNASSIGNS the IP when completing"""
     try:
         db_job = db.query(Job).filter(Job.id == job_id).first()
@@ -265,7 +265,7 @@ def finish_job(db: Session, job_id: int, notes: str = None):
         
         # Unassign IP when completing the job
         if db_job.assigned_ip_id:
-            unassign_ip(db, db_job.assigned_ip_id, commit=False)
+            unassign_ip(db, db_job.assigned_ip_id, admin_id, is_superadmin, commit=False)
         
         db_job.status = "completed"
         
