@@ -45,6 +45,7 @@ export interface Job {
   assigned_ip_id?: number;
   assigned_ip_name?: string;
   is_ip_available?: boolean;
+  start_date?: string;
   delivery_date: string;
   checklist_link?: string;
   checklist_ids?: number[];

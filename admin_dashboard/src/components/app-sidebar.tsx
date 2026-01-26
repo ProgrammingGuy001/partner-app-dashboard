@@ -81,15 +81,20 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               asChild
               className="data-[slot=sidebar-menu-button]:!p-0 hover:bg-transparent"
             >
-              <a href="https://www.modula.in/" className="flex items-center justify-center">
-                <div className="h-14 px-3 flex items-center justify-center transition-transform hover:scale-105 duration-200">
-                  <img
-                    src="/logo.png"
-                    alt="Logo"
-                    className="h-10 object-contain drop-shadow-sm"
-                  />
-                </div>
-              </a>
+             <a
+  href="https://www.modula.in/"
+  target="_blank"
+  rel="noopener noreferrer"
+  aria-label="Visit Modula website"
+  className="flex items-center justify-center overflow-visible"
+>
+  <img
+    src="/logo.png"
+    alt="Modula logo"
+    className="h-10 object-contain transition-transform duration-200 hover:scale-105"
+  />
+</a>
+
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

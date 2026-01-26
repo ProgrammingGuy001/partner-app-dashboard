@@ -17,6 +17,8 @@ class JobBase(BaseModel):
     rate: Decimal = Field(..., max_digits=10, decimal_places=2)
     size: Optional[int] = None
     assigned_ip_id: Optional[int] = None
+    assigned_ip_id: Optional[int] = None
+    start_date: Optional[date] = None
     delivery_date: date
     checklist_link: Optional[str] = None
     google_map_link: Optional[str] = None
@@ -38,6 +40,8 @@ class JobUpdate(BaseModel):
     size: Optional[int] = None
     assigned_ip_id: Optional[int] = None
     status: Optional[str] = None
+    status: Optional[str] = None
+    start_date: Optional[date] = None
     delivery_date: Optional[date] = None
     checklist_ids: Optional[list[int]] = None
     checklist_link: Optional[str] = None
@@ -93,6 +97,8 @@ class JobResponse(BaseModel):
     assigned_ip_id: Optional[int] = None
     user_id: Optional[int] = None
     assigned_ip: Optional[IPSummary] = None
+    assigned_ip: Optional[IPSummary] = None
+    start_date: Optional[date] = None
     delivery_date: Optional[date] = None
     checklist_link: Optional[str] = None
     google_map_link: Optional[str] = None

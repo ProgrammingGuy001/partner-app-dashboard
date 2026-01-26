@@ -41,6 +41,7 @@ class Job(Base):
     additional_expense: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=True, default=0
     )
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     
     # Customer phone for OTP verification
     customer_phone: Mapped[str | None] = mapped_column(String, nullable=True)

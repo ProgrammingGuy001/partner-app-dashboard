@@ -45,6 +45,7 @@ const jobSchema = z.object({
   rate: z.string().refine((val) => !isNaN(Number(val)) && Number(val) >= 0, { message: "Rate must be a positive number" }),
   size: z.string().optional().refine((val) => !val || (!isNaN(Number(val)) && Number(val) >= 0), { message: "Size must be a positive number" }),
   assigned_ip_id: z.string().optional(),
+  start_date: z.string().min(1, "Start Date is required"),
   delivery_date: z.string().min(1, "Delivery Date is required"),
   checklist_link: z.string().url("Invalid URL").optional().or(z.literal("")),
 });
@@ -94,6 +95,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
       rate: '',
       size: '',
       assigned_ip_id: '',
+      start_date: '',
       delivery_date: '',
       checklist_link: '',
     }
@@ -124,6 +126,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
         rate: job.rate.toString(),
         size: job.size?.toString() || '',
         assigned_ip_id: job.assigned_ip_id?.toString() || '',
+        start_date: job.start_date || '',
         delivery_date: job.delivery_date || '',
         checklist_link: job.checklist_link || '',
       });
@@ -183,6 +186,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
         rate: parseFloat(data.rate),
         size: data.size ? parseInt(data.size) : 0,
         assigned_ip_id: data.assigned_ip_id ? parseInt(data.assigned_ip_id) : undefined,
+        start_date: data.start_date,
         delivery_date: data.delivery_date,
         google_map_link: data.google_map_link || undefined,
         checklist_ids: selectedChecklistIds,
@@ -376,6 +380,17 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
                   aria-invalid={!!errors.delivery_date}
                 />
                 {errors.delivery_date && <p className="text-xs text-destructive">{errors.delivery_date.message}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="start_date">Start Date *</Label>
+                <Input
+                  id="start_date"
+                  type="date"
+                  {...register("start_date")}
+                  aria-invalid={!!errors.start_date}
+                />
+                {errors.start_date && <p className="text-xs text-destructive">{errors.start_date.message}</p>}
               </div>
 
               <div className="col-span-1 md:col-span-2 space-y-3">

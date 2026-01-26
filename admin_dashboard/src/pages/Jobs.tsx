@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { adminAPI, type Job, type IPUser } from '@/api/services';
 import { useJobs, useDeleteJob } from '@/hooks/useJobs';
-import { Plus, Edit2, Trash2, Play, Search, Filter, RefreshCw, History, User, ListChecks } from 'lucide-react';
+import { Plus, Edit2, Trash2, Play, Search, Filter, RefreshCw, History, User, ListChecks, AlertTriangle } from 'lucide-react';
 import JobFormModal from '@/components/JobFormModal';
 import JobActionsModal from '@/components/JobActionsModal';
 import {
@@ -87,7 +87,7 @@ const Jobs: React.FC = () => {
 
   const handleDelete = async (id: number) => {
     if (!confirm('Are you sure you want to delete this job?')) return;
-    
+
     try {
       await deleteJobMutation.mutateAsync(id);
       toast.success("Job deleted successfully");
@@ -113,10 +113,10 @@ const Jobs: React.FC = () => {
           <p className="text-muted-foreground">Manage all jobs and assignments</p>
         </div>
         <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            size="icon" 
-            onClick={() => refetchJobs()} 
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => refetchJobs()}
             disabled={isLoading}
             aria-label="Refresh jobs"
           >
@@ -163,7 +163,7 @@ const Jobs: React.FC = () => {
                   <SelectItem value="completed">Completed</SelectItem>
                 </SelectContent>
               </Select>
-              
+
               <Select value={typeFilter} onValueChange={setTypeFilter}>
                 <SelectTrigger className="w-[180px]" aria-label="Filter by type">
                   <Filter className="mr-2 h-4 w-4" />
@@ -278,9 +278,33 @@ const JobRow: React.FC<{
   const workerName = getWorkerName(job.assigned_ip_id);
   const worker = workers.find(w => w.id === job.assigned_ip_id);
 
+  const isPastStartDate = useMemo(() => {
+    if (!job.start_date || job.status !== 'created') return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const start = new Date(job.start_date);
+    return start < today;
+  }, [job.start_date, job.status]);
+
   return (
     <TableRow>
-      <TableCell className="font-medium">{job.name}</TableCell>
+      <TableCell className="font-medium">
+        <div className="flex items-center gap-2">
+          {job.name}
+          {isPastStartDate && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <AlertTriangle className="h-4 w-4 text-destructive" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Start date passed! Please update start date.</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
+      </TableCell>
       <TableCell>{job.customer_name}</TableCell>
       <TableCell>{job.city}</TableCell>
       <TableCell>
