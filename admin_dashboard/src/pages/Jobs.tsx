@@ -97,10 +97,13 @@ const Jobs: React.FC = () => {
   };
 
   const handleSuccess = () => {
-    // refetchJobs() is not needed as useCreateJob/useUpdateJob in JobFormModal invalidates the query
-    // However, if we filter/search locally, we rely on React Query's invalidation to refetch with current params.
+    // Explicitly refetch jobs to ensure UI is up to date
+    // (Requested for OTP flows which might not invalidate queries automatically)
+    refetchJobs();
+
     setShowCreateModal(false);
     setEditingJob(null);
+    setActionJob(null);
   };
 
   const isLoading = jobsLoading || workersLoading;
