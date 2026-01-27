@@ -80,19 +80,19 @@ const Dashboard: React.FC = () => {
               icon={<Briefcase className="h-4 w-4" />}
             />
             <StatCard
-              title="Active Jobs"
+              title="In progress Jobs"
               value={stats.activeJobs}
               description="Currently in progress"
               icon={<Activity className="h-4 w-4" />}
             />
             <StatCard
-              title="Completed"
+              title="Completed Jobs"
               value={stats.completedJobs}
               description="Successfully finished"
               icon={<CheckCircle2 className="h-4 w-4" />}
             />
             <StatCard
-              title="Personnel"
+              title="Total Personnel"
               value={stats.totalIPs}
               description={`${stats.availableIPs} available`}
               icon={<Users className="h-4 w-4" />}

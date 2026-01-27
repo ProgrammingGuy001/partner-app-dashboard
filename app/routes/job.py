@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List
+from pathlib import Path
 from app.database import get_db
 from app.schemas.job import (
     JobStart, JobPause, JobFinish, JobCreate, JobUpdate, JobResponse,
@@ -16,6 +17,8 @@ from app.crud.checklist import update_job_checklist_item_status
 from app.core.security import get_current_user
 from app.services.polling_service import trigger_polling_on_crud
 from app.services.customer_otp_service import CustomerOTPService
+from app.services.s3_service import upload_file_to_s3
+from app.config import settings
 import app.model as models
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
@@ -163,3 +166,39 @@ def approve_checklist_item(
     
     # Admin can update is_approved and admin_comment
     return update_job_checklist_item_status(db, job_id, item_id, status_update)
+
+
+@router.post("/upload-file", response_model=dict)
+async def upload_job_file(
+    file: UploadFile = File(...),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Upload a file (e.g. Final Drawing) and return the S3 URL"""
+    # Validate file extension
+    allowed = settings.allowed_extensions_list
+    file_ext = Path(file.filename).suffix.lower() if file.filename else ""
+    if file_ext not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid file type. Allowed: {', '.join(allowed)}"
+        )
+    
+    # Read content
+    file_content = await file.read()
+    
+    # Validate size
+    max_size = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    if len(file_content) > max_size:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File too large. Maximum size: {settings.MAX_UPLOAD_SIZE_MB}MB"
+        )
+        
+    # Upload
+    file_url = upload_file_to_s3(
+        file_content=file_content,
+        filename=file.filename,
+        content_type=file.content_type
+    )
+    
+    return {"url": file_url}

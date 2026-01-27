@@ -241,6 +241,14 @@ export const jobAPI = {
 
   getHistory: (id: number): Promise<JobStatusLog[]> =>
     axiosInstance.get(`/jobs/${id}/history`).then(res => handleResponse(res)),
+
+  uploadFile: (file: File): Promise<{ url: string }> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return axiosInstance.post('/jobs/upload-file', formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }).then(res => handleResponse(res));
+  },
 };
 
 // Admin APIs

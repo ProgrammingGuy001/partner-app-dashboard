@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { type Job, type JobUpdate, adminAPI, checklistAPI } from '@/api/services';
+import { type Job, type JobUpdate, adminAPI, checklistAPI, jobAPI } from '@/api/services';
 import { useCreateJob, useUpdateJob } from '@/hooks/useJobs';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -30,7 +30,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { ChevronDown } from "lucide-react"
+import { ChevronDown, Trash2 } from "lucide-react"
 
 // Zod Schema for Validation
 const jobSchema = z.object({
@@ -77,6 +77,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [selectedChecklistIds, setSelectedChecklistIds] = useState<number[]>([]);
   const [submitError, setSubmitError] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
 
   const createJobMutation = useCreateJob();
   const updateJobMutation = useUpdateJob();
@@ -169,6 +170,22 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
         ? prev.filter(item => item !== id)
         : [...prev, id]
     );
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    try {
+      const response = await jobAPI.uploadFile(file);
+      setValue('checklist_link', response.url, { shouldValidate: true });
+    } catch (error) {
+      console.error("Upload failed", error);
+      setSubmitError("File upload failed");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const onSubmit = async (data: JobFormValues) => {
@@ -423,14 +440,47 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
               </div>
 
               <div className="col-span-1 md:col-span-2 space-y-2">
-                <Label htmlFor="checklist_link">Custom Checklist Link (Optional)</Label>
-                <Input
-                  id="checklist_link"
-                  type="url"
-                  placeholder="Or enter custom checklist URL"
+                <Label htmlFor="checklist_link">Final Drawing (Optional)</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="file-upload"
+                    type="file"
+                    onChange={handleFileUpload}
+                    disabled={isUploading}
+                    className="cursor-pointer"
+                  />
+                  {isUploading && <span className="text-sm text-muted-foreground animate-pulse">Uploading...</span>}
+                </div>
+
+                {/* Hidden input to store the URL */}
+                <input
+                  type="hidden"
                   {...register("checklist_link")}
-                  aria-invalid={!!errors.checklist_link}
                 />
+
+                {/* Show uploaded link */}
+                {watch('checklist_link') && (
+                  <div className="flex items-center gap-2 mt-1 p-2 bg-muted rounded-md border">
+                    <span className="text-sm font-medium">Uploaded:</span>
+                    <a
+                      href={watch('checklist_link')}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-500 hover:underline truncate max-w-[300px]"
+                    >
+                      View Final Drawing
+                    </a>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 ml-auto"
+                      onClick={() => setValue('checklist_link', '', { shouldValidate: true })}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                )}
                 {errors.checklist_link && <p className="text-xs text-destructive">{errors.checklist_link.message}</p>}
               </div>
             </div>
