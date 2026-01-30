@@ -1,7 +1,7 @@
 import axios from 'axios';
 import axiosRetry from 'axios-retry';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://13.204.238.136:8001';
 
 
 // Add request timeout
@@ -35,8 +35,8 @@ axiosInstance.interceptors.response.use(
     if (response?.status === 401) {
       try {
         // Redirect to login if unauthorized
-        if (!window.location.pathname.includes('/login')) {
-          window.location.assign('/login');
+        if (!globalThis.location.pathname.includes('/login')) {
+          globalThis.location.assign('/login');
         }
       } catch (e) {
         console.error('Error during logout:', e);
