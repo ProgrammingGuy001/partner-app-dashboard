@@ -1,7 +1,7 @@
 import axios from 'axios';
 import axiosRetry from 'axios-retry';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://13.204.238.136:8001';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://adminapi.modula.in';
 
 
 // Add request timeout
