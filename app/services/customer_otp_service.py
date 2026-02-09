@@ -136,8 +136,7 @@ class CustomerOTPService:
             formatted_number = phone_number if phone_number.startswith("91") else f"91{phone_number}"
             capitalized_name = capitalize_first_name(customer_name)
             
-            action_text = "start" if action_type == "start" else "complete"
-            message = f"Hi {capitalized_name}, Here's your OTP to {action_text} the job: {otp_code}. Keep it safe and don't share it with anyone. - Team Modula"
+            message = f"Hi {capitalized_name}, Here's your Modula OTP: {otp_code}. Keep it safe and don't share it with anyone. - Team Modula"
             
             encoded_password = urllib.parse.quote(password)
             encoded_message = urllib.parse.quote(message)
