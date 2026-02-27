@@ -34,13 +34,14 @@ def login(request: Request, response: Response, login_data: LoginRequest, db: Se
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(data={"sub": user.email}, expires_delta=access_token_expires)
     
-    # Set HttpOnly cookie
+    # Set HttpOnly cookie - secure only in production (HTTPS)
+    is_production = settings.ENVIRONMENT == "production"
     response.set_cookie(
         key="access_token",
         value=f"Bearer {access_token}",
         httponly=True,
-        secure=True, # Always secure for cross-site
-        samesite="none", # Required for cross-site
+        secure=is_production,
+        samesite="none" if is_production else "lax",
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
     )
     
@@ -55,10 +56,11 @@ def read_users_me(current_user: UserResponse = Depends(get_current_user)):
 @router.post("/logout")
 def logout(response: Response):
     """Clear the access_token cookie to log user out"""
+    is_production = settings.ENVIRONMENT == "production"
     response.delete_cookie(
         key="access_token",
         httponly=True,
-        secure=True,
-        samesite="none"
+        secure=is_production,
+        samesite="none" if is_production else "lax"
     )
     return {"message": "Logged out successfully"}

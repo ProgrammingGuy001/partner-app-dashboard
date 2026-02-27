@@ -7,6 +7,7 @@ import {
   IconListDetails,
   IconUsers,
   IconBox,
+  IconChecklist,
 } from "@tabler/icons-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -22,40 +23,53 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 
-const data = {
-  navMain: [
-    {
-      title: "Dashboard",
-      url: "/dashboard",
-      icon: IconDashboard,
-    },
-    {
-      title: "Jobs",
-      url: "/dashboard/jobs",
-      icon: IconListDetails,
-    },
-    {
-      title: "IP personnel",
-      url: "/dashboard/workers",
-      icon: IconUsers,
-    },
-    {
-      title: "Analytics",
-      url: "/dashboard/analytics",
-      icon: IconChartBar,
-    },
-    {
-      title: "Projects",
-      url: "/dashboard/project-analytics",
-      icon: IconFolder,
-    },
-    {
-      title: "BOM Requests",
-      url: "/dashboard/bom",
-      icon: IconBox,
-    },
-  ],
-}
+const navGroups = [
+  {
+    label: "Operations",
+    items: [
+      {
+        title: "Dashboard",
+        url: "/dashboard",
+        icon: IconDashboard,
+      },
+      {
+        title: "Jobs",
+        url: "/dashboard/jobs",
+        icon: IconListDetails,
+      },
+      {
+        title: "IP Personnel",
+        url: "/dashboard/workers",
+        icon: IconUsers,
+      },
+    ],
+  },
+  {
+    label: "Insights",
+    items: [
+      {
+        title: "Analytics",
+        url: "/dashboard/analytics",
+        icon: IconChartBar,
+      },
+      {
+        title: "Projects",
+        url: "/dashboard/project-analytics",
+        icon: IconFolder,
+      },
+      {
+        title: "BOM Requests",
+        url: "/dashboard/bom",
+        icon: IconBox,
+      },
+      {
+        title: "Checklists",
+        url: "/dashboard/checklists",
+        icon: IconChecklist,
+      },
+    ],
+  },
+]
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   // Use React Query cached user data (already fetched by ProtectedRoute)
@@ -81,26 +95,26 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               asChild
               className="data-[slot=sidebar-menu-button]:!p-0 hover:bg-transparent"
             >
-             <a
-  href="https://www.modula.in/"
-  target="_blank"
-  rel="noopener noreferrer"
-  aria-label="Visit Modula website"
-  className="flex items-center justify-center overflow-visible"
->
-  <img
-    src="/logo.png"
-    alt="Modula logo"
-    className="h-10 object-contain transition-transform duration-200 hover:scale-105"
-  />
-</a>
+              <a
+                href="https://www.modula.in/"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Visit Modula website"
+                className="flex items-center justify-center overflow-visible"
+              >
+                <img
+                  src="/logo.png"
+                  alt="Modula logo"
+                  className="h-10 object-contain transition-transform duration-200 hover:scale-105"
+                />
+              </a>
 
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent className="px-2 py-4">
-        <NavMain items={data.navMain} />
+        <NavMain groups={navGroups} />
       </SidebarContent>
       <SidebarFooter className="border-t border-sidebar-border/50 bg-gradient-to-t from-sidebar to-sidebar/80 pt-3">
         <NavUser user={user} />

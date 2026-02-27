@@ -1,5 +1,6 @@
-import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
+import { Separator } from "@/components/ui/separator"
+import { BreadcrumbNav } from "@/components/BreadcrumbNav"
 
 export function SiteHeader() {
   return (
@@ -10,11 +11,7 @@ export function SiteHeader() {
           orientation="vertical"
           className="mx-2 data-[orientation=vertical]:h-5 bg-border/60"
         />
-        <div className="flex items-center gap-3">
-          <h1 className="text-base font-semibold tracking-tight text-foreground/90">
-            Welcome to Modula Partner Dashboard
-          </h1>
-        </div>
+        <BreadcrumbNav />
       </div>
     </header>
   )

@@ -7,7 +7,7 @@ from app.database import get_db
 from app.schemas.requisite_schema import SiteRequisiteSubmit, SODetailResponse, BOMItemResponse
 from app.services.odoo_service import OdooService
 from app.services.requisite_service import RequisiteService
-from app.api.deps import get_verified_user
+from app.api.deps import get_fully_verified_user
 from app.model.ip import ip
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/dashboard/bom", tags=["BOM"])
 async def submit_site_requisite(
     data: SiteRequisiteSubmit,
     db: Session = Depends(get_db),
-    current_user: ip = Depends(get_verified_user)
+    current_user: ip = Depends(get_fully_verified_user)
 ):
     """
     Submit site requisite (Partner Only)
@@ -44,7 +44,7 @@ async def get_requisite_history(
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
-    current_user: ip = Depends(get_verified_user)
+    current_user: ip = Depends(get_fully_verified_user)
 ):
     """
     Get all site requisite history
@@ -62,7 +62,7 @@ async def get_requisite_history(
 async def get_requisite_by_sales_order(
     sales_order: str,
     db: Session = Depends(get_db),
-    current_user: ip = Depends(get_verified_user)
+    current_user: ip = Depends(get_fully_verified_user)
 ):
     """
     Get requisite history for specific sales order (Partner)
@@ -82,7 +82,7 @@ async def update_requisite_status(
     so_id: int,
     status: str,
     db: Session = Depends(get_db),
-    current_user: ip = Depends(get_verified_user)
+    current_user: ip = Depends(get_fully_verified_user)
 ):
     """
     Update site requisite status 
@@ -105,7 +105,7 @@ async def get_bom_items(
     sales_order: str, 
     cabinet_position: str,
     db: Session = Depends(get_db),
-    current_user: ip = Depends(get_verified_user)
+    current_user: ip = Depends(get_fully_verified_user)
 ):
     """
     Fetch complete BOM hierarchy from Odoo 

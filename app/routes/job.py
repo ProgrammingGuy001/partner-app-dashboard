@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File, Query
 from sqlalchemy.orm import Session
-from typing import List
+from sqlalchemy import or_
+from typing import List, Optional
 from pathlib import Path
 from app.database import get_db
 from app.schemas.job import (
     JobStart, JobPause, JobFinish, JobCreate, JobUpdate, JobResponse,
-    JobStartWithOTP, JobFinishWithOTP, OTPResponse
+    JobStartWithOTP, JobFinishWithOTP, OTPResponse, CustomerOptionResponse, JobRateResponse
 )
 from app.schemas.job_status_log import JobStatusLogResponse
 from app.schemas.checklist import JobChecklistItemStatusUpdate, JobChecklistItemStatusResponse
@@ -20,8 +21,16 @@ from app.services.customer_otp_service import CustomerOTPService
 from app.services.s3_service import upload_file_to_s3
 from app.config import settings
 import app.model as models
+from app.model.media_document import MediaDocument
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
+
+@router.get("/lookup-so/{so_number}", response_model=dict)
+def lookup_sales_order(so_number: str, current_user: models.User = Depends(get_current_user)):
+    """Fetch customer and project details from Odoo by Sales Order number.
+    Used to auto-populate job creation forms."""
+    from app.services.odoo_service import OdooService
+    return OdooService.get_sales_order_details(so_number)
 
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 def create_new_job(job: JobCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
@@ -39,6 +48,36 @@ def read_jobs(skip: int = 0, limit: int = 100, status: str = None, type: str = N
     is_superadmin = getattr(current_user, 'is_superadmin', False)
     user_id = None if is_superadmin else current_user.id
     return get_all_jobs(db, skip=skip, limit=limit, status=status, type=type, search=search, user_id=user_id)
+
+@router.get("/customers", response_model=List[CustomerOptionResponse])
+def get_customers(
+    search: Optional[str] = Query(None, description="Search by customer name, phone or city"),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Get customers for job creation dropdown."""
+    query = db.query(models.Customer)
+    if search:
+        q = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                models.Customer.name.ilike(q),
+                models.Customer.phone_number.ilike(q),
+                models.Customer.city.ilike(q),
+            )
+        )
+    return query.order_by(models.Customer.created_at.desc(), models.Customer.id.desc()).limit(limit).all()
+
+
+@router.get("/job-rates", response_model=List[JobRateResponse])
+def get_job_rates(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Get job type/rate catalog for job creation."""
+    return db.query(models.JobRate).order_by(models.JobRate.job_type_name.asc()).all()
+
 
 @router.get("/{job_id}", response_model=JobResponse)
 def read_job(job_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
@@ -171,6 +210,7 @@ def approve_checklist_item(
 @router.post("/upload-file", response_model=dict)
 async def upload_job_file(
     file: UploadFile = File(...),
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
     """Upload a file (e.g. Final Drawing) and return the S3 URL"""
@@ -200,5 +240,16 @@ async def upload_job_file(
         filename=file.filename,
         content_type=file.content_type
     )
+
+    db.add(
+        MediaDocument(
+            owner_type="admin",
+            owner_id=current_user.id,
+            status="uploaded",
+            doc_link=file_url,
+            uploaded_by_admin_id=current_user.id,
+        )
+    )
+    db.commit()
     
     return {"url": file_url}

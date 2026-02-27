@@ -30,6 +30,30 @@ class AssignAdminRequest(BaseModel):
     admin_ids: List[int]
 
 
+def _serialize_ip_user(ip_user: ip) -> dict:
+    return {
+        "id": ip_user.id,
+        "phone_number": ip_user.phone_number,
+        "first_name": ip_user.first_name,
+        "last_name": ip_user.last_name,
+        "city": ip_user.city,
+        "pincode": ip_user.pincode,
+        "is_assigned": ip_user.is_assigned,
+        "is_verified": ip_user.is_verified,
+        "is_pan_verified": ip_user.is_pan_verified,
+        "is_bank_details_verified": ip_user.is_bank_details_verified,
+        "is_id_verified": ip_user.is_id_verified,
+        "pan_number": ip_user.pan_number,
+        "pan_name": ip_user.pan_name,
+        "account_number": ip_user.account_number,
+        "ifsc_code": ip_user.ifsc_code,
+        "account_holder_name": ip_user.account_holder_name,
+        "registered_at": ip_user.registered_at,
+        "verified_at": ip_user.verified_at,
+        "assigned_admin_ids": [a.admin_id for a in ip_user.admin_assignments],
+    }
+
+
 @router.post("/verify-ip/{phone_number}")
 def verify_ip(
     phone_number: str,
@@ -86,31 +110,7 @@ def get_ips(db: Session = Depends(get_db), current_user: User = Depends(get_curr
     else:
         ips = get_all_ips(db, admin_id=current_user.id)
     
-    result = []
-    for ip_user in ips:
-        ip_dict = {
-            "id": ip_user.id,
-            "phone_number": ip_user.phone_number,
-            "first_name": ip_user.first_name,
-            "last_name": ip_user.last_name,
-            "city": ip_user.city,
-            "pincode": ip_user.pincode,
-            "is_assigned": ip_user.is_assigned,
-            "is_verified": ip_user.is_verified,
-            "is_pan_verified": ip_user.is_pan_verified,
-            "is_bank_details_verified": ip_user.is_bank_details_verified,
-            "is_id_verified": ip_user.is_id_verified,
-            "pan_number": ip_user.pan_number,
-            "pan_name": ip_user.pan_name,
-            "account_number": ip_user.account_number,
-            "ifsc_code": ip_user.ifsc_code,
-            "account_holder_name": ip_user.account_holder_name,
-            "registered_at": ip_user.registered_at,
-            "verified_at": ip_user.verified_at,
-            "assigned_admin_ids": [a.admin_id for a in ip_user.admin_assignments]
-        }
-        result.append(ip_dict)
-    return result
+    return [_serialize_ip_user(ip_user) for ip_user in ips]
 
 
 @router.get("/ips/approved")
@@ -122,10 +122,12 @@ def get_approved_ips_list(db: Session = Depends(get_db), current_user: User = De
     
     if is_superadmin:
         # Superadmins see all approved IPs
-        return db.query(ip).filter(ip.is_id_verified == True).all()
+        approved_ips = db.query(ip).filter(ip.is_id_verified == True).all()
     else:
         # Regular admins only see IPs assigned to them that are approved
-        return get_approved_ips(db, admin_id=current_user.id)
+        approved_ips = get_approved_ips(db, admin_id=current_user.id)
+
+    return [_serialize_ip_user(ip_user) for ip_user in approved_ips]
 
 
 @router.get("/admin-users", response_model=List[AdminUserResponse])

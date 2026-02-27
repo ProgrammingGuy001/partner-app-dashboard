@@ -89,13 +89,15 @@ const JobHistory: React.FC = () => {
                   </TableHeader>
                   <TableBody>
                      {history.map((log, index) => {
+                        const currentTs = log.timestamp || log.created_at;
+                        const prevTs = history[index - 1]?.timestamp || history[index - 1]?.created_at;
                         let duration = null;
-                        if (index === 0) {
+                        if (index === 0 && currentTs) {
                           if (log.status === 'in_progress' || log.status === 'paused') {
-                            duration = new Date().getTime() - new Date(log.timestamp).getTime();
+                            duration = new Date().getTime() - new Date(currentTs).getTime();
                           }
-                        } else {
-                          duration = new Date(history[index - 1].timestamp).getTime() - new Date(log.timestamp).getTime();
+                        } else if (currentTs && prevTs) {
+                          duration = new Date(prevTs).getTime() - new Date(currentTs).getTime();
                         }
                         
                         return (
@@ -106,7 +108,7 @@ const JobHistory: React.FC = () => {
                                 </Badge>
                              </TableCell>
                              <TableCell>{log.notes}</TableCell>
-                             <TableCell>{formatDateTimeIST(log.timestamp)}</TableCell>
+                             <TableCell>{currentTs ? formatDateTimeIST(currentTs) : '-'}</TableCell>
                              <TableCell className="text-muted-foreground">
                                 {duration ? formatDuration(duration) : '-'}
                              </TableCell>

@@ -296,6 +296,113 @@ class OdooService:
         return processed_items
     
     @classmethod
+    def get_sales_order_details(cls, sales_order: str) -> Dict[str, Any]:
+        """
+        Fetch customer and project details from a Sales Order number.
+        Used to auto-populate job creation forms.
+        
+        Args:
+            sales_order: Sales order number (e.g. 'S00311')
+            
+        Returns:
+            Dictionary with customer_name, phone, address, city, pincode, 
+            state, project_name, client_order_ref
+            
+        Raises:
+            HTTPException: If sales order not found
+        """
+        # Fetch the sales order
+        orders = cls._execute_kw(
+            'sale.order',
+            'search_read',
+            [[('name', '=', sales_order)]],
+            {
+                'fields': [
+                    'name', 'partner_id', 'partner_shipping_id',
+                    'client_order_ref', 'x_studio_project_name',
+                    'amount_total', 'state',
+                ],
+                'limit': 1,
+            }
+        )
+        
+        if not orders:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Sales order '{sales_order}' not found in Odoo"
+            )
+        
+        order = orders[0]
+        
+        # Use shipping address (delivery address) if available, else billing partner
+        shipping_partner_id = cls.safe_extract_id(order.get('partner_shipping_id'))
+        billing_partner_id = cls.safe_extract_id(order.get('partner_id'))
+        partner_id = shipping_partner_id or billing_partner_id
+        
+        result = {
+            'sales_order': order.get('name'),
+            'client_order_ref': order.get('client_order_ref') or '',
+            'amount_total': order.get('amount_total', 0),
+            'order_state': order.get('state', ''),
+            'customer_name': '',
+            'phone': '',
+            'email': '',
+            'address': '',
+            'city': '',
+            'pincode': '',
+            'state': '',
+            'project_name': '',
+        }
+        
+        # Extract project name from custom Studio field
+        project_field = order.get('x_studio_project_name')
+        if project_field and isinstance(project_field, list) and len(project_field) >= 2:
+            result['project_name'] = project_field[1]
+        
+        # Fetch partner (customer) details
+        if partner_id:
+            partners = cls._execute_kw(
+                'res.partner',
+                'read',
+                [[partner_id]],
+                {
+                    'fields': [
+                        'name', 'phone', 'mobile', 'email',
+                        'street', 'street2', 'city', 'zip',
+                        'state_id', 'country_id',
+                    ]
+                }
+            )
+            
+            if partners:
+                partner = partners[0]
+                result['customer_name'] = partner.get('name') or ''
+                result['phone'] = partner.get('phone') or partner.get('mobile') or ''
+                result['email'] = partner.get('email') or ''
+                
+                # Build full address from street + street2
+                street_parts = []
+                if partner.get('street'):
+                    street_parts.append(partner['street'])
+                if partner.get('street2'):
+                    street_parts.append(partner['street2'])
+                result['address'] = ', '.join(street_parts)
+                
+                result['city'] = partner.get('city') or ''
+                result['pincode'] = partner.get('zip') or ''
+                
+                # Extract state name
+                state_field = partner.get('state_id')
+                if state_field and isinstance(state_field, list) and len(state_field) >= 2:
+                    # Remove country suffix like " (IN)"
+                    state_name = state_field[1]
+                    if ' (' in state_name:
+                        state_name = state_name.split(' (')[0]
+                    result['state'] = state_name
+        
+        return result
+    
+    @classmethod
     def validate_sales_order(cls, sales_order: str) -> bool:
         """
         Validate if a sales order exists in Odoo.

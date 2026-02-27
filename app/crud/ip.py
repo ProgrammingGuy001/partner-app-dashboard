@@ -3,6 +3,7 @@ from app.model.job import Job
 from app.model.ip import ip
 from fastapi import HTTPException
 from app.utils.ip_assignment import is_admin_allowed_for_ip
+from datetime import datetime, timezone
 
 def get_ip_by_id(db:Session,id:int):
     return db.query(ip).filter(ip.id==id).first()
@@ -28,6 +29,9 @@ def verify_ip_user(db: Session, phone_number: str):
         db_ip.is_verified = True
         db_ip.is_pan_verified = True
         db_ip.is_bank_details_verified = True
+        db_ip.verified_at = datetime.now(timezone.utc)
+        if db_ip.financial:
+            db_ip.financial.is_verified = True
         db.commit()
         db.refresh(db_ip)
         

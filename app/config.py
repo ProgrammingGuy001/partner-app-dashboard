@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ADMIN_AUTH_COOKIE_NAME: str = "admin_access_token"
+    IP_AUTH_COOKIE_NAME: str = "ip_access_token"
     
     # AWS
     AWS_ACCESS_KEY_ID: str
@@ -40,6 +42,7 @@ class Settings(BaseSettings):
     # OTP Settings
     OTP_EXPIRY_MINUTES: int = 10
     OTP_LENGTH: int = 6
+    OTP_DEBUG_LOG_ENABLED: bool = False
     
     # Trusted Proxy Hosts (comma-separated in .env)
     TRUSTED_PROXY_HOSTS: str = "127.0.0.1"

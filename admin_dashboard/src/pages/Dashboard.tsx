@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StatCard } from "@/components/StatCard";
 
 const Dashboard: React.FC = () => {
   const { data: jobsData, isLoading: jobsLoading } = useJobs();
@@ -54,51 +55,42 @@ const Dashboard: React.FC = () => {
   const isLoading = jobsLoading || ipsLoading;
 
   return (
-    <div className="flex flex-col gap-8 p-6 max-w-[1600px] mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="flex flex-col gap-8 p-6 lg:p-8 max-w-[1600px] mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
       <header className="flex flex-col gap-1">
-        <h1 className="text-3xl font-bold tracking-tight text-foreground font-display">Dashboard</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>
         <p className="text-muted-foreground text-lg">Overview of your operations and daily activities.</p>
       </header>
 
       {/* Quick Stats */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {isLoading ? (
-          Array.from({ length: 4 }).map((_, i) => (
-            <Card key={i} className="border shadow-none">
-              <CardContent className="p-6">
-                <Skeleton className="h-8 w-24 mb-2" />
-                <Skeleton className="h-4 w-32" />
-              </CardContent>
-            </Card>
-          ))
-        ) : (
-          <>
-            <StatCard
-              title="Total Jobs"
-              value={stats.totalJobs}
-              description="All time records"
-              icon={<Briefcase className="h-4 w-4" />}
-            />
-            <StatCard
-              title="In progress Jobs"
-              value={stats.activeJobs}
-              description="Currently in progress"
-              icon={<Activity className="h-4 w-4" />}
-            />
-            <StatCard
-              title="Completed Jobs"
-              value={stats.completedJobs}
-              description="Successfully finished"
-              icon={<CheckCircle2 className="h-4 w-4" />}
-            />
-            <StatCard
-              title="Total Personnel"
-              value={stats.totalIPs}
-              description={`${stats.availableIPs} available`}
-              icon={<Users className="h-4 w-4" />}
-            />
-          </>
-        )}
+        <StatCard
+          title="Total Jobs"
+          value={stats.totalJobs}
+          description="All time records"
+          icon={<Briefcase className="h-4 w-4" />}
+          loading={isLoading}
+        />
+        <StatCard
+          title="In Progress Jobs"
+          value={stats.activeJobs}
+          description="Currently in progress"
+          icon={<Activity className="h-4 w-4" />}
+          loading={isLoading}
+        />
+        <StatCard
+          title="Completed Jobs"
+          value={stats.completedJobs}
+          description="Successfully finished"
+          icon={<CheckCircle2 className="h-4 w-4" />}
+          loading={isLoading}
+        />
+        <StatCard
+          title="Total Personnel"
+          value={stats.totalIPs}
+          description={`${stats.availableIPs} available`}
+          icon={<Users className="h-4 w-4" />}
+          loading={isLoading}
+        />
       </section>
 
       {/* Quick Actions */}
@@ -139,27 +131,6 @@ const Dashboard: React.FC = () => {
 };
 
 // Helper Components
-const StatCard: React.FC<{
-  title: string;
-  value: number;
-  description: string;
-  icon?: React.ReactNode;
-}> = ({ title, value, description, icon }) => (
-  <Card className="overflow-hidden border shadow-none hover:bg-muted/30 transition-colors">
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-      <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
-      {/* Render icon in monochrome */}
-      {icon && React.isValidElement(icon) && React.cloneElement(icon as React.ReactElement<{ className?: string }>, { className: "h-4 w-4 text-muted-foreground" })}
-    </CardHeader>
-    <CardContent>
-      <div className="text-2xl font-bold tabular-nums text-foreground">{value.toLocaleString()}</div>
-      <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-        {description}
-      </p>
-    </CardContent>
-  </Card>
-);
-
 const QuickActionCard: React.FC<{
   title: string;
   description: string;

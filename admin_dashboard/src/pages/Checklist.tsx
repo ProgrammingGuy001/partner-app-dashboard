@@ -11,8 +11,17 @@ const Checklists: React.FC = () => {
   useEffect(() => {
     const fetchChecklists = async () => {
       try {
-        const data = await checklistAPI.getAll();
-        setChecklists(data);
+        const summaries = await checklistAPI.getAll();
+        const details = await Promise.all(
+          summaries.map(async (c) => {
+            try {
+              return await checklistAPI.getById(c.id);
+            } catch {
+              return c;
+            }
+          })
+        );
+        setChecklists(details);
       } catch (err) {
         setError((err as Error).message || 'Failed to fetch checklists');
       } finally {
@@ -41,12 +50,15 @@ const Checklists: React.FC = () => {
             </CardHeader>
             <CardContent>
               <ul className="space-y-2">
-                {checklist.items?.map((item) => (
+                {(checklist.checklist_items ?? checklist.items ?? []).map((item) => (
                   <li key={item.id} className="flex items-center space-x-2">
-                    <Checkbox checked={item.is_completed} disabled />
-                    <span>{item.name}</span>
+                    <Checkbox checked={Boolean(item.status?.checked ?? item.checked ?? item.is_completed)} disabled />
+                    <span>{item.text ?? item.name ?? `Item ${item.id}`}</span>
                   </li>
                 ))}
+                {(checklist.checklist_items ?? checklist.items ?? []).length === 0 && (
+                  <li className="text-sm text-muted-foreground">No checklist items</li>
+                )}
               </ul>
             </CardContent>
           </Card>

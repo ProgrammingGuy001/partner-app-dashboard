@@ -71,7 +71,7 @@ class UserResponse(BaseModel):
     first_name: str
     last_name: str
     city: str
-    pincode: str
+    pincode: Optional[int] = None
     is_verified: bool
     is_pan_verified: bool
     is_bank_details_verified: bool

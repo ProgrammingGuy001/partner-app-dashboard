@@ -4,6 +4,7 @@ import { useJobs } from '@/hooks/useJobs';
 import { jobAPI, type Job } from '@/api/services';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { DollarSign, Briefcase, RefreshCw, Edit2, Save, X } from 'lucide-react';
+import { StatCard } from '@/components/StatCard';
 import {
   Card,
   CardContent,
@@ -33,7 +34,7 @@ const Analytics: React.FC = () => {
       const size = Number(job.size) || 0;
       return sum + (rate * size);
     }, 0);
-    
+
     const totalExpenses = jobs.reduce((sum: number, job: Job) => sum + (Number(job.additional_expense) || 0), 0);
     const totalSize = jobs.reduce((sum: number, job: Job) => sum + (Number(job.size) || 0), 0);
     const totalCost = totalPayout + totalExpenses;
@@ -71,7 +72,7 @@ const Analytics: React.FC = () => {
       refetch();
       setEditingJobId(null);
       setEditExpense('');
-    } catch  {
+    } catch {
       toast.error("Failed to update expense");
     }
   };
@@ -99,7 +100,7 @@ const Analytics: React.FC = () => {
   const { totalJobs, totalExpenses, avgRatePerUnit } = totals();
 
   return (
-    <div className="flex flex-col gap-6 p-6 max-w-[1600px] mx-auto">
+    <div className="flex flex-col gap-6 p-6 lg:p-8 max-w-[1600px] mx-auto">
       {/* Header */}
       <header className="flex flex-col md:flex-row md:justify-between md:items-start gap-4">
         <div>
@@ -137,20 +138,23 @@ const Analytics: React.FC = () => {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        <KPICard
+        <StatCard
           title="Total Jobs"
           value={totalJobs}
           description="All jobs"
+          icon={<Briefcase className="h-4 w-4" />}
         />
-        <KPICard
+        <StatCard
           title="Additional Expenses"
           value={`₹${totalExpenses.toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
           description="Total misc costs"
+          icon={<DollarSign className="h-4 w-4" />}
         />
-        <KPICard
+        <StatCard
           title="Avg Rate per Unit"
           value={`₹${avgRatePerUnit.toFixed(2)}`}
           description="Price/area"
+          icon={<DollarSign className="h-4 w-4" />}
         />
       </div>
 
@@ -185,34 +189,18 @@ const AnalyticsSkeleton: React.FC = () => (
   </div>
 );
 
-const KPICard: React.FC<{
-  title: string;
-  value: string | number;
-  description: string;
-}> = ({ title, value, description }) => (
-  <Card className="@container/card">
-    <CardContent className="p-6">
-      <div>
-        <p className="text-sm font-medium text-muted-foreground">{title}</p>
-        <p className="text-2xl font-bold mt-2 tabular-nums @[200px]/card:text-3xl @[300px]/card:text-4xl transition-all duration-300">
-          {value}
-        </p>
-        <p className="text-xs text-muted-foreground mt-1">{description}</p>
-      </div>
-    </CardContent>
-  </Card>
-);
+// Removed: KPICard moved to shared @/components/StatCard
 
-const CostChart: React.FC<{ jobs: Array<{ id?: number; name: string; rate: number; size?: number; additional_expense?: number }> }> = ({ jobs }) => {
+const CostChart: React.FC<{ jobs: Array<{ id?: number; name?: string | null; rate?: number | null; size?: number | null; additional_expense?: number | null }> }> = ({ jobs }) => {
   const chartData = jobs.slice(0, 20).map(job => {
     const rate = Number(job.rate) || 0;
     const size = Number(job.size) || 0;
     const expense = Number(job.additional_expense) || 0;
     const totalCost = rate * size + expense;
-    
+
     return {
-      name: (job.name || 'Untitled').length > 15 
-        ? (job.name || 'Untitled').substring(0, 15) + '...' 
+      name: (job.name || 'Untitled').length > 15
+        ? (job.name || 'Untitled').substring(0, 15) + '...'
         : (job.name || 'Untitled'),
       totalCost,
       expense,
@@ -230,29 +218,29 @@ const CostChart: React.FC<{ jobs: Array<{ id?: number; name: string; rate: numbe
         {jobs.length > 0 ? (
           <div className="h-[400px]" role="img" aria-label="Job cost comparison chart">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart 
+              <BarChart
                 data={chartData}
                 margin={{ top: 10, right: 10, left: 10, bottom: 60 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis 
-                  dataKey="name" 
+                <XAxis
+                  dataKey="name"
                   tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
                   angle={-45}
                   textAnchor="end"
                   height={100}
                   stroke="var(--muted-foreground)"
                 />
-                <YAxis 
+                <YAxis
                   tick={{ fontSize: 12, fill: 'var(--muted-foreground)' }}
                   tickFormatter={(value) => `₹${(value / 1000).toFixed(1)}k`}
                   stroke="var(--muted-foreground)"
                 />
-                <Tooltip 
+                <Tooltip
                   formatter={(value: number) => [
                     `₹${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
                   ]}
-                  contentStyle={{ 
+                  contentStyle={{
                     backgroundColor: 'var(--background)',
                     border: '1px solid var(--border)',
                     borderRadius: '8px',
@@ -260,16 +248,16 @@ const CostChart: React.FC<{ jobs: Array<{ id?: number; name: string; rate: numbe
                   cursor={{ fill: 'var(--muted)' }}
                 />
                 <Legend />
-                <Bar 
-                  dataKey="totalCost" 
-                  fill="#18181b" 
+                <Bar
+                  dataKey="totalCost"
+                  fill="var(--chart-1)"
                   radius={[4, 4, 0, 0]}
                   name="Total Cost"
                   maxBarSize={40}
                 />
-                <Bar 
-                  dataKey="expense" 
-                  fill="#a1a1aa" 
+                <Bar
+                  dataKey="expense"
+                  fill="var(--chart-2)"
                   radius={[4, 4, 0, 0]}
                   name="Additional Expense"
                   maxBarSize={40}

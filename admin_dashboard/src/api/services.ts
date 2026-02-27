@@ -34,13 +34,15 @@ export interface PaginatedResponse<T = unknown> {
 export interface Job {
   id?: number;
   name: string;
-  customer_name: string;
-  customer_phone?: string;
-  address?: string;
-  city: string;
-  pincode: number;
-  type: string;
-  rate: number;
+  customer_id?: number | null;
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  address?: string | null;
+  city?: string | null;
+  pincode?: number | null;
+  job_rate_id?: number | null;
+  type?: string | null;
+  rate?: number | null;
   size?: number;
   assigned_ip_id?: number;
   assigned_ip_name?: string;
@@ -66,7 +68,8 @@ export interface JobStatusLog {
   job_id: number;
   status: string;
   notes?: string;
-  timestamp: string;
+  timestamp?: string;
+  created_at?: string;
 }
 
 export interface JobStageCount {
@@ -76,13 +79,12 @@ export interface JobStageCount {
   total_additional_expense: number;
 }
 
-export interface PayoutByIPUser {
-  ip_user_id: number;
-  ip_user_name: string;
+export interface PayoutByIP {
+  ip_id: number;
+  ip_name: string;
   job_count: number;
   total_payout: number;
   total_additional_expense: number;
-  avg_rate_per_unit: number;
 }
 
 export interface PayoutSummary {
@@ -92,17 +94,14 @@ export interface PayoutSummary {
   total_jobs: number;
   total_payout: number;
   total_additional_expense: number;
-  avg_rate_per_unit: number;
   job_stages: JobStageCount[];
-  payout_by_ip_user: PayoutByIPUser[];
-  payout_by_project?: Array<{
-    project_id: number;
-    project_name: string;
-    job_count: number;
-    total_payout: number;
-    total_additional_expense: number;
-  }>;
+  payout_by_ip: PayoutByIP[];
+  // Backward-compatible alias used by older frontend code.
+  payout_by_ip_user?: PayoutByIP[];
 }
+
+// Backward-compatible type alias.
+export type PayoutByIPUser = PayoutByIP;
 
 export interface IPUser {
   id: number;
@@ -110,7 +109,7 @@ export interface IPUser {
   last_name: string;
   phone_number: string;
   city: string;
-  pincode: string;
+  pincode: number | string;
   is_assigned: boolean;
   is_verified: boolean;
   is_pan_verified: boolean;
@@ -124,6 +123,22 @@ export interface IPUser {
   registered_at: string;
   verified_at?: string;
   assigned_admin_ids?: number[];
+}
+
+export interface Customer {
+  id: number;
+  name: string;
+  phone_number?: string | null;
+  address?: string | null;
+  city?: string | null;
+  pincode?: number | null;
+  created_at?: string;
+}
+
+export interface JobRate {
+  id: number;
+  job_type_name: string;
+  base_rate: number;
 }
 
 export interface AdminUser {
@@ -147,16 +162,57 @@ export interface OTPResponse {
   message: string;
 }
 
+export interface SOLookupResult {
+  sales_order: string;
+  client_order_ref: string;
+  amount_total: number;
+  order_state: string;
+  customer_name: string;
+  phone: string;
+  email: string;
+  address: string;
+  city: string;
+  pincode: string;
+  state: string;
+  project_name: string;
+}
+
 export interface Checklist {
   id: number;
   name: string;
-  items: ChecklistItem[];
+  description?: string;
+  created_at?: string;
+  updated_at?: string;
+  checklist_items?: ChecklistItem[];
+  items?: ChecklistItem[]; // compatibility for existing UI code
 }
 
 export interface ChecklistItem {
   id: number;
+  text: string;
+  position: number;
+  checked?: boolean;
+  is_completed?: boolean; // compatibility
+  name?: string; // compatibility
+  status?: ChecklistItemStatus;
+}
+
+export interface ChecklistItemStatus {
+  id: number;
+  checked: boolean;
+  is_approved: boolean;
+  comment?: string;
+  admin_comment?: string;
+  document_link?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ChecklistWithStatus {
+  id: number;
   name: string;
-  is_completed: boolean;
+  description?: string;
+  items: ChecklistItem[];
 }
 
 // ============ API Response Helpers ============
@@ -208,6 +264,12 @@ export const jobAPI = {
   getById: (id: number): Promise<Job> =>
     axiosInstance.get(`/jobs/${id}`).then(res => handleResponse(res)),
 
+  getCustomers: (params?: { search?: string; limit?: number }): Promise<Customer[]> =>
+    axiosInstance.get('/jobs/customers', { params }).then(res => handleResponse(res)),
+
+  getJobRates: (): Promise<JobRate[]> =>
+    axiosInstance.get('/jobs/job-rates').then(res => handleResponse(res)),
+
   create: (data: Omit<Job, 'id'>): Promise<Job> =>
     axiosInstance.post('/jobs', data).then(res => handleResponse(res)),
 
@@ -249,6 +311,9 @@ export const jobAPI = {
       headers: { "Content-Type": "multipart/form-data" },
     }).then(res => handleResponse(res));
   },
+
+  lookupSalesOrder: (soNumber: string): Promise<SOLookupResult> =>
+    axiosInstance.get(`/jobs/lookup-so/${encodeURIComponent(soNumber)}`).then(res => handleResponse(res)),
 };
 
 // Admin APIs
@@ -280,7 +345,17 @@ export const analyticsAPI = {
     month?: number;
     quarter?: number;
   }): Promise<PayoutSummary> =>
-    axiosInstance.get('/analytics/payout', { params }).then(res => handleResponse(res)),
+    axiosInstance.get('/analytics/payout', { params }).then(res => {
+      const data = handleResponse<PayoutSummary>(res);
+      // Normalize legacy/new shapes for callers.
+      if (!data.payout_by_ip && data.payout_by_ip_user) {
+        data.payout_by_ip = data.payout_by_ip_user;
+      }
+      if (!data.payout_by_ip_user && data.payout_by_ip) {
+        data.payout_by_ip_user = data.payout_by_ip;
+      }
+      return data;
+    }),
 
   getJobStages: (): Promise<JobStageCount[]> =>
     axiosInstance.get('/analytics/job-stages').then(res => handleResponse(res)),
@@ -300,10 +375,10 @@ export const checklistAPI = {
   getById: (id: number): Promise<Checklist> =>
     axiosInstance.get(`/checklists/${id}`).then(res => handleResponse(res)),
 
-  createItem: (checklistId: number, data: { name: string }): Promise<ApiResponse> =>
+  createItem: (checklistId: number, data: { text: string }): Promise<ApiResponse> =>
     axiosInstance.post('/checklists/items', { ...data, checklist_id: checklistId }).then(res => handleResponse(res)),
 
-  getJobChecklistsStatus: (jobId: number): Promise<ApiResponse> =>
+  getJobChecklistsStatus: (jobId: number): Promise<ChecklistWithStatus[]> =>
     axiosInstance.get(`/checklists/jobs/${jobId}/status`).then(res => handleResponse(res)),
 
   updateJobChecklistItemStatus: (

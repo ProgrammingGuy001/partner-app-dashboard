@@ -7,6 +7,7 @@ import {
   Users, CheckCircle, XCircle, Search, MapPin, Phone, Calendar,
   CreditCard, Building2, Award, Briefcase, RefreshCw, Eye, AlertCircle, UserPlus
 } from 'lucide-react';
+import { StatCard } from '@/components/StatCard';
 import {
   Table,
   TableBody,
@@ -164,7 +165,7 @@ const Workers: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col gap-8 p-6 max-w-[1600px] mx-auto">
+    <div className="flex flex-col gap-8 p-6 lg:p-8 max-w-[1600px] mx-auto">
       <header className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-primary">Personnel</h1>
@@ -176,29 +177,29 @@ const Workers: React.FC = () => {
       </header>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Total Personnel"
           value={stats.total}
-          icon={<Users className="h-4 w-4 text-muted-foreground" />}
+          icon={<Users className="h-4 w-4" />}
           loading={isLoading}
         />
         <StatCard
           title="Verified"
           value={stats.verified}
-          icon={<CheckCircle className="h-4 w-4 text-muted-foreground" />}
+          icon={<CheckCircle className="h-4 w-4" />}
           loading={isLoading}
         />
         <StatCard
           title="Pending"
           value={stats.pending}
-          icon={<AlertCircle className="h-4 w-4 text-muted-foreground" />}
+          icon={<AlertCircle className="h-4 w-4" />}
           loading={isLoading}
         />
         <StatCard
           title="Unassigned"
           value={stats.unassigned}
-          icon={<Briefcase className="h-4 w-4 text-muted-foreground" />}
+          icon={<Briefcase className="h-4 w-4" />}
           loading={isLoading}
         />
       </div>
@@ -293,27 +294,7 @@ const Workers: React.FC = () => {
   );
 };
 
-// Sub-components
-const StatCard: React.FC<{
-  title: string;
-  value: number;
-  icon: React.ReactNode;
-  loading: boolean;
-}> = ({ title, value, icon, loading }) => (
-  <Card>
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-      <CardTitle className="text-sm font-medium">{title}</CardTitle>
-      {icon}
-    </CardHeader>
-    <CardContent>
-      {loading ? (
-        <Skeleton className="h-8 w-16" />
-      ) : (
-        <div className="text-2xl font-bold">{value}</div>
-      )}
-    </CardContent>
-  </Card>
-);
+// Removed: inline StatCard moved to shared @/components/StatCard
 
 const TableSkeleton: React.FC = () => (
   <div className="space-y-4">

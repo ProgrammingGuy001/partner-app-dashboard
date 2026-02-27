@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from model.ip_user import IPUser
+from app.model.ip import ip as IPUser
 from fastapi import HTTPException
 
 def get_ip_user_by_id(db:Session,id:int):
@@ -14,7 +14,7 @@ def get_all_ip_users(db: Session):
 def verify_ip_user(db: Session, phone_number: str):
     db_ip_user = get_ip_user_by_phone(db, phone_number)
     if db_ip_user:
-        db_ip_user.is_idverified = True
+        db_ip_user.is_id_verified = True
         db.commit()
         db.refresh(db_ip_user)
     return db_ip_user

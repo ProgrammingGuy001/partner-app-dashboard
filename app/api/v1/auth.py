@@ -23,6 +23,13 @@ from app.api.deps import get_current_user
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
+def _cookie_security_settings() -> tuple[bool, str]:
+    """Use secure cross-site cookies in prod/staging; relaxed local cookies in dev."""
+    is_secure = settings.ENVIRONMENT.lower() in {"production", "staging"}
+    samesite = "none" if is_secure else "lax"
+    return is_secure, samesite
+
+
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def register_user(user_data: UserRegistration, db: Session = Depends(get_db)):
     """Register a new user"""
@@ -41,8 +48,8 @@ def register_user(user_data: UserRegistration, db: Session = Depends(get_db)):
         first_name=user_data.first_name,
         last_name=user_data.last_name,
         city=user_data.city,
-        pincode=user_data.pincode,
-        is_verified=False
+        pincode=int(user_data.pincode),
+        is_phone_verified=False
     )
     
     db.add(new_user)
@@ -124,14 +131,15 @@ def verify_otp(request: Request, otp_data: OTPVerification, response: Response, 
     
     # Generate access token
     access_token = create_access_token(data={"sub": str(user.id)})
+    secure_cookie, same_site = _cookie_security_settings()
     
     # Set cookie
     response.set_cookie(
-        key="access_token",
+        key=settings.IP_AUTH_COOKIE_NAME,
         value=f"Bearer {access_token}",
         httponly=True,
-        samesite="none",
-        secure=True # Only True in production
+        samesite=same_site,
+        secure=secure_cookie,
     )
     
     return user
@@ -185,7 +193,20 @@ def logout(
 ):
     
     # Clear cookie first
-    response.delete_cookie(key="access_token")
+    secure_cookie, same_site = _cookie_security_settings()
+    response.delete_cookie(
+        key=settings.IP_AUTH_COOKIE_NAME,
+        httponly=True,
+        secure=secure_cookie,
+        samesite=same_site,
+    )
+    # Legacy cleanup for older cookie name.
+    response.delete_cookie(
+        key="access_token",
+        httponly=True,
+        secure=secure_cookie,
+        samesite=same_site,
+    )
     
     if isinstance(current_user, ip):
         current_user.is_verified = False

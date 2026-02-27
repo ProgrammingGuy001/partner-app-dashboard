@@ -27,7 +27,11 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     return encoded_jwt
 
 def verify_token(request: Request, credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
-    token = request.cookies.get("access_token")
+    token = request.cookies.get(settings.ADMIN_AUTH_COOKIE_NAME)
+
+    # Legacy fallback for existing sessions before cookie split.
+    if not token:
+        token = request.cookies.get("access_token")
     
     # Fallback to header if cookie is missing (e.g. mobile app or Swagger)
     if not token and credentials:

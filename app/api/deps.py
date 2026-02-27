@@ -90,3 +90,23 @@ def get_verified_user(current_user: Union[ip, User] = Depends(get_current_user))
             detail="Phone number not verified. Please verify your OTP first."
         )
     return current_user
+
+
+def get_fully_verified_user(current_user: ip = Depends(get_verified_user)) -> ip:
+    """Dependency to ensure user has completed ALL verifications including admin ID approval"""
+    if not current_user.is_pan_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="PAN not verified. Please complete PAN verification."
+        )
+    if not current_user.is_bank_details_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bank details not verified. Please complete bank verification."
+        )
+    if not current_user.is_id_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="ID not verified. Please wait for admin approval."
+        )
+    return current_user

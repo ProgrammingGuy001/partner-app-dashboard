@@ -13,11 +13,12 @@ from app.schemas.checklist import (
     JobChecklistItemStatusResponse
 )
 from app.schemas.job_status_log import JobStatusLogResponse
-from app.api.deps import get_verified_user
+from app.api.deps import get_fully_verified_user
 from app.services.s3_service import upload_file_to_s3
 from app.crud.checklist import update_job_checklist_item_status
 from app.crud.job import get_job_status_history
 from typing import List
+from app.model.media_document import MediaDocument
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ router = APIRouter(prefix="/dashboard/jobs", tags=["Dashboard"])
 # ✅ Get all jobs (only if verified)
 @router.get("", response_model=dict)
 def get_all_jobs(
-    current_user: ip = Depends(get_verified_user),
+    current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
     """Get all jobs assigned to current user"""
@@ -45,7 +46,7 @@ def get_all_jobs(
 @router.get("/{job_id}", response_model=dict)
 def get_single_job(
     job_id: int,
-    current_user: ip = Depends(get_verified_user),
+    current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
     """Get a single job - only if assigned to current user"""
@@ -69,7 +70,7 @@ def get_single_job(
 @router.get("/{job_id}/history", response_model=List[JobStatusLogResponse])
 def get_job_history(
     job_id: int,
-    current_user: ip = Depends(get_verified_user),
+    current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
     """Get job status history for a specific job"""
@@ -86,7 +87,7 @@ def get_job_history(
 @router.get("/{job_id}/progress", response_model=dict)
 def get_job_progress(
     job_id: int,
-    current_user: ip = Depends(get_verified_user),
+    current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
     """Get job progress uploads (placeholder - no progress table yet)"""
@@ -112,7 +113,7 @@ def get_job_progress(
 async def upload_progress_update(
     job_id: int,
     file: UploadFile = File(...),
-    current_user: ip = Depends(get_verified_user),
+    current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
     """Upload a file for job progress - with validation"""
@@ -151,6 +152,16 @@ async def upload_progress_update(
         content_type=file.content_type
     )
 
+    db.add(
+        MediaDocument(
+            owner_type="job",
+            owner_id=job_id,
+            status="progress_upload",
+            doc_link=file_url,
+        )
+    )
+    db.commit()
+
     return {
         "message": "File uploaded successfully",
         "file_url": file_url
@@ -160,7 +171,7 @@ async def upload_progress_update(
 @router.get("/{job_id}/completed", response_model=dict)
 def complete_job(
     job_id: int,
-    current_user: ip = Depends(get_verified_user),
+    current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
     """Mark a job as completed - only if assigned to current user"""
@@ -189,7 +200,7 @@ def complete_job(
 @router.get("/{job_id}/checklists", response_model=dict)
 def get_job_checklists(
     job_id: int,
-    current_user: ip = Depends(get_verified_user),
+    current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
     """Get list of checklists assigned to a job (without items)"""
@@ -231,7 +242,7 @@ def get_job_checklists(
 def get_job_checklist_items(
     job_id: int,
     checklist_id: int,
-    current_user: ip = Depends(get_verified_user),
+    current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
     """Get items and status for a specific checklist within a job"""
@@ -321,7 +332,7 @@ def update_checklist_item_status(
     job_id: int,
     item_id: int,
     status_update: JobChecklistItemStatusUpdate,
-    current_user: ip = Depends(get_verified_user),
+    current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
     """Update checklist item status - IP users can mark as checked and add comments"""

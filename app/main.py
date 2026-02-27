@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from slowapi.errors import RateLimitExceeded
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from app.api.v1 import auth, jobs, verification,bom
+from app.api.v1 import auth, bom, jobs, verification
 from app.config import settings
+from app.core.scheduler import shutdown_scheduler, start_scheduler
 from app.database import Base, engine
 from app.routes.analytics import router as analytics_router
 from app.routes.approval import router as approval_router
@@ -14,7 +16,6 @@ from app.routes.bom import router as bom_router
 from app.routes.checklist import router as checklist_router
 from app.routes.job import router as job_router
 from app.utils.rate_limiter import limiter, rate_limit_exceeded_handler
-from app.core.scheduler import start_scheduler, shutdown_scheduler
 
 
 @asynccontextmanager
@@ -37,8 +38,6 @@ app = FastAPI(
 # Configure rate limiter
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
-
-
 
 
 origins = [
@@ -64,6 +63,9 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(verification.router, prefix="/api/v1")
 app.include_router(jobs.router, prefix="/api/v1")
 app.include_router(bom.router, prefix="/api/v1")
+
+# Backward-compatible alias for older clients that still call /api/v1/auth/verification/*
+app.include_router(verification.router, prefix="/api/v1/auth")
 
 # Additional routers
 app.include_router(auth_router)
