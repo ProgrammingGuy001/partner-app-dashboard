@@ -2,7 +2,7 @@ import axios from "axios";
 import axiosRetry from "axios-retry";
 import Cookies from "js-cookie";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://adminapi.modula.in';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://adminapi.modula.in/api/v1';
 
 const CSRF_COOKIE_NAMES = ['csrf_token', 'csrftoken', 'XSRF-TOKEN'];
 const MUTATING_METHODS = ['post', 'put', 'patch', 'delete'];
