@@ -42,7 +42,8 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 origins = [
     "http://localhost",
-    "https://partner-app-dashboard-navy.vercel.app",
+    "https://partner-app-dashboard-navy.vercel.app"
+    "https://partner.modula.in",
 ]
 
 

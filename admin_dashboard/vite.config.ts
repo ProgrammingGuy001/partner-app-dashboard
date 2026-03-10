@@ -4,10 +4,16 @@ import path from "node:path"
 import tailwindcss from "@tailwindcss/vite"
 
 export default defineConfig({
-    plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+    },
+  },
+  server: {
+    headers: {
+      'X-Frame-Options': 'DENY',
+      'Content-Security-Policy': "frame-ancestors 'none'",
     },
   },
 })
