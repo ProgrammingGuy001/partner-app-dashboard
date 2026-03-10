@@ -18,7 +18,7 @@ def start_scheduler():
         name='Execute polling job every 2 minutes',
         replace_existing=True
     )
-    
+
     scheduler.start()
     logger.info("Scheduler started - polling job will run every 2 minutes")
 

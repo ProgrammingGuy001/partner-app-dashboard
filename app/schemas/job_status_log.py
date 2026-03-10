@@ -13,6 +13,6 @@ class JobStatusLogCreate(BaseModel):
 class JobStatusLogResponse(JobStatusLogBase):
     id: int
     timestamp: datetime
-    
+
     class Config:
         from_attributes = True

@@ -27,7 +27,7 @@ class SiteRequisiteResponse(BaseModel):
     issue_description: Optional[str]
     responsible_department: Optional[str]
     created_date: datetime
-    
+
     class Config:
         from_attributes = True
 
@@ -39,6 +39,6 @@ class SODetailResponse(BaseModel):
     status: str
     sr_poc: Optional[str]
     site_requisites: List[SiteRequisiteResponse] = []
-    
+
     class Config:
         from_attributes = True

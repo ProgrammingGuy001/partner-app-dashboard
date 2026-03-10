@@ -20,7 +20,7 @@ def get_payout_report(
 ):
     """
     Get comprehensive payout analytics for a specific period.
-    
+
     Examples:
     - Current week: ?period=week
     - Current month: ?period=month
@@ -30,7 +30,7 @@ def get_payout_report(
     - Specific quarter: ?period=quarter&year=2024&quarter=2
     - Specific week: ?period=week&year=2024&week=10
     - Specific year: ?period=year&year=2023
-    
+
     Returns:
     - Total jobs in the period
     - Total payout

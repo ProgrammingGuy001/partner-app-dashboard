@@ -14,7 +14,7 @@ def get_real_ip(request: Request) -> str:
     if forwarded:
         # Get the first IP from the comma-separated list
         return forwarded.split(",")[0].strip()
-    
+
     # Fall back to direct client IP
     return get_remote_address(request)
 

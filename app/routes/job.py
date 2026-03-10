@@ -110,7 +110,7 @@ def request_start_otp(job_id: int, db: Session = Depends(get_db), current_user: 
     job = get_job_by_id(db, job_id)
     if not job.customer_phone:
         raise HTTPException(status_code=400, detail="Customer phone not set for this job")
-    
+
     result = CustomerOTPService.send_start_otp(db, job_id, job.customer_phone, job.customer_name)
     return OTPResponse(success=result["success"], message=result["message"])
 
@@ -118,12 +118,12 @@ def request_start_otp(job_id: int, db: Session = Depends(get_db), current_user: 
 def verify_start_otp_and_start(job_id: int, otp_data: JobStartWithOTP, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     """Verify start OTP and start the job"""
     job = get_job_by_id(db, job_id)
-    
+
     # Skip OTP verification if no customer phone set (backward compatibility)
     if job.customer_phone:
         if not CustomerOTPService.verify_start_otp(db, job_id, otp_data.otp):
             raise HTTPException(status_code=400, detail="Invalid or expired OTP")
-    
+
     is_superadmin = getattr(current_user, 'is_superadmin', False)
     return start_job(db, job_id, admin_id=current_user.id, is_superadmin=is_superadmin, notes=otp_data.notes)
 
@@ -133,7 +133,7 @@ def request_end_otp(job_id: int, db: Session = Depends(get_db), current_user: mo
     job = get_job_by_id(db, job_id)
     if not job.customer_phone:
         raise HTTPException(status_code=400, detail="Customer phone not set for this job")
-    
+
     result = CustomerOTPService.send_end_otp(db, job_id, job.customer_phone, job.customer_name)
     return OTPResponse(success=result["success"], message=result["message"])
 
@@ -141,12 +141,12 @@ def request_end_otp(job_id: int, db: Session = Depends(get_db), current_user: mo
 def verify_end_otp_and_finish(job_id: int, otp_data: JobFinishWithOTP, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     """Verify end OTP and complete the job"""
     job = get_job_by_id(db, job_id)
-    
+
     # Skip OTP verification if no customer phone set (backward compatibility)
     if job.customer_phone:
         if not CustomerOTPService.verify_end_otp(db, job_id, otp_data.otp):
             raise HTTPException(status_code=400, detail="Invalid or expired OTP")
-    
+
     is_superadmin = getattr(current_user, 'is_superadmin', False)
     return finish_job(db, job_id, admin_id=current_user.id, is_superadmin=is_superadmin, notes=otp_data.notes)
 
@@ -159,7 +159,7 @@ def start_existing_job(job_id: int, job_start: JobStart = JobStart(), db: Sessio
     # If customer phone is set, require OTP flow
     if job.customer_phone:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail="This job requires OTP verification. Use /request-start-otp then /verify-start-otp"
         )
     is_superadmin = getattr(current_user, 'is_superadmin', False)
@@ -179,7 +179,7 @@ def finish_existing_job(job_id: int, job_finish: JobFinish = JobFinish(), db: Se
     # If customer phone is set, require OTP flow
     if job.customer_phone:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail="This job requires OTP verification. Use /request-end-otp then /verify-end-otp"
         )
     is_superadmin = getattr(current_user, 'is_superadmin', False)
@@ -200,9 +200,9 @@ def approve_checklist_item(
     current_user: models.User = Depends(get_current_user)
 ):
     """Admin endpoint to approve/reject checklist items and add admin comments"""
-    # Verify job exists
-    job = get_job_by_id(db, job_id)
-    
+    # Verify job exists before updating checklist item
+    get_job_by_id(db, job_id)
+
     # Admin can update is_approved and admin_comment
     return update_job_checklist_item_status(db, job_id, item_id, status_update)
 
@@ -222,10 +222,10 @@ async def upload_job_file(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid file type. Allowed: {', '.join(allowed)}"
         )
-    
+
     # Read content
     file_content = await file.read()
-    
+
     # Validate size
     max_size = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
     if len(file_content) > max_size:
@@ -233,7 +233,7 @@ async def upload_job_file(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"File too large. Maximum size: {settings.MAX_UPLOAD_SIZE_MB}MB"
         )
-        
+
     # Upload
     file_url = upload_file_to_s3(
         file_content=file_content,
@@ -251,5 +251,5 @@ async def upload_job_file(
         )
     )
     db.commit()
-    
+
     return {"url": file_url}

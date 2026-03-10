@@ -27,17 +27,17 @@ async def submit_site_requisite(
     """
     try:
         logger.info(f"[BOM Submit] User: {current_user.phone_number}, SO: {data.sales_order}, Items: {len(data.items)}")
-        
+
         # Auto-populate POC from logged in partner
         data.sr_poc = f"{current_user.first_name} {current_user.last_name or ''}".strip()
-        
+
         result = RequisiteService.submit_site_requisite(db, data)
         logger.info(f"[BOM Submit] Success - SO ID: {result.id}")
         return result
     except Exception as e:
         logger.error(f"[BOM Submit] Error: {str(e)}", exc_info=True)
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error submitting requisite: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error submitting requisite: {str(e)}") from e
 
 @router.get("/history", response_model=List[SODetailResponse])
 async def get_requisite_history(
@@ -56,7 +56,7 @@ async def get_requisite_history(
         return history
     except Exception as e:
         logger.error(f"[BOM History] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error fetching history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching history: {str(e)}") from e
 
 @router.get("/history/{sales_order}", response_model=SODetailResponse)
 async def get_requisite_by_sales_order(
@@ -75,7 +75,7 @@ async def get_requisite_by_sales_order(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}") from e
 
 @router.patch("/history/{so_id}/status")
 async def update_requisite_status(
@@ -85,11 +85,11 @@ async def update_requisite_status(
     current_user: ip = Depends(get_fully_verified_user)
 ):
     """
-    Update site requisite status 
+    Update site requisite status
     """
     if status not in ["pending", "completed"]:
         raise HTTPException(status_code=400, detail="Invalid status")
-    
+
     try:
         result = RequisiteService.update_status(db, so_id, status)
         if not result:
@@ -98,17 +98,17 @@ async def update_requisite_status(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}") from e
 
 @router.get("/{sales_order}/{cabinet_position}", response_model=List[BOMItemResponse])
 async def get_bom_items(
-    sales_order: str, 
+    sales_order: str,
     cabinet_position: str,
     db: Session = Depends(get_db),
     current_user: ip = Depends(get_fully_verified_user)
 ):
     """
-    Fetch complete BOM hierarchy from Odoo 
+    Fetch complete BOM hierarchy from Odoo
     """
     try:
         logger.info(f"[BOM API - IP] Fetching BOM for SO: {sales_order}, Cabinet: {cabinet_position}, User: {current_user.phone_number}")
@@ -120,4 +120,4 @@ async def get_bom_items(
         raise
     except Exception as e:
         logger.error(f"[BOM API] Unexpected error fetching BOM: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error fetching BOM: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching BOM: {str(e)}") from e

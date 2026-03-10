@@ -33,3 +33,5 @@ slowapi==0.1.9
 
 # Scheduler
 APScheduler==3.11.2
+# XML security
+defusedxml==0.7.1

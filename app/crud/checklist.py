@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException
 from app.model.job import (
     Job,
@@ -137,17 +137,17 @@ def update_job_checklist_item_status(
     status: JobChecklistItemStatusUpdate,
 ):
     db_status = get_job_checklist_item_status(db, job_id, checklist_item_id)
-    
+
     if not db_status:
         # Create new if not exists (Upsert)
         job = db.query(Job).filter(Job.id == job_id).first()
         if not job:
             raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-            
+
         create_data = status.model_dump(exclude_unset=True)
         create_data['job_id'] = job_id
         create_data['checklist_item_id'] = checklist_item_id
-        
+
         db_status = JobChecklistItemStatus(**create_data)
         db.add(db_status)
         db.commit()
@@ -163,34 +163,50 @@ def update_job_checklist_item_status(
 
 
 def get_job_checklists_status(db: Session, job_id: int):
-    # 1. Get all checklists assigned to the job
-    job_checklists = db.query(JobChecklist).filter(JobChecklist.job_id == job_id).all()
+    # Single query: load JobChecklist → Checklist → ChecklistItems in one shot
+    job_checklists = (
+        db.query(JobChecklist)
+        .filter(JobChecklist.job_id == job_id)
+        .options(
+            joinedload(JobChecklist.checklist).joinedload(Checklist.checklist_items)
+        )
+        .all()
+    )
     if not job_checklists:
         return []
+
+    # Collect all checklist item IDs across every checklist for this job
+    all_item_ids = [
+        item.id
+        for jc in job_checklists
+        for item in jc.checklist.checklist_items
+    ]
+
+    # Single query: fetch every status row for this job + those items
+    statuses = (
+        db.query(JobChecklistItemStatus)
+        .filter(
+            JobChecklistItemStatus.job_id == job_id,
+            JobChecklistItemStatus.checklist_item_id.in_(all_item_ids),
+        )
+        .all()
+    )
+    # Build an O(1) lookup: item_id → status row
+    status_by_item: dict[int, JobChecklistItemStatus] = {
+        s.checklist_item_id: s for s in statuses
+    }
 
     result = []
     for jc in job_checklists:
         checklist = jc.checklist
-        
-        # 2. Get all items for the checklist
-        items = db.query(ChecklistItem).filter(ChecklistItem.checklist_id == checklist.id).order_by(ChecklistItem.position).all()
-        
         items_with_status = []
-        for item in items:
-            # 3. Get status for each item for this job
-            status = db.query(JobChecklistItemStatus).filter(
-                JobChecklistItemStatus.job_id == job_id,
-                JobChecklistItemStatus.checklist_item_id == item.id
-            ).first()
-            
-            # Create schema-compatible dict
+        for item in sorted(checklist.checklist_items, key=lambda i: i.position):
             item_dict = item.__dict__.copy()
-            item_dict['status'] = status
+            item_dict["status"] = status_by_item.get(item.id)
             items_with_status.append(item_dict)
 
-        # Create schema-compatible dict for checklist
         checklist_dict = checklist.__dict__.copy()
-        checklist_dict['items'] = items_with_status
+        checklist_dict["items"] = items_with_status
         result.append(checklist_dict)
-    
+
     return result

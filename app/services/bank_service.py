@@ -1,32 +1,36 @@
+import logging
+
 import requests
+
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class BankService:
-    
+
     @staticmethod
     def verify_bank_account(account_number: str, ifsc_code: str, fetch_ifsc: bool = False) -> dict:
         """Verify Bank Account using Attestr API"""
         try:
             url = 'https://api.attestr.com/api/v2/public/finanx/acc'
-            
+
             headers = {
                 'Content-Type': 'application/json',
                 'Authorization': settings.ATTESTR_API_KEY
             }
-            
+
             payload = {
                 'acc': account_number,
                 'ifsc': ifsc_code.upper(),
                 'fetchIfsc': fetch_ifsc
             }
-            
+
             response = requests.post(url, json=payload, headers=headers, timeout=30)
             response.raise_for_status()
-            
+
             data = response.json()
-            
-            print("data for bank details is:", data)
+            logger.info("Bank verification completed: valid=%s", data.get("valid"))
 
             # Bank verification logic based on updated API response format
             if data.get('valid') is True:
@@ -49,18 +53,18 @@ class BankService:
                     "message": data.get('message', 'Bank account verification failed'),
                     "raw_response": data
                 }
-            
+
         except requests.exceptions.RequestException as e:
-            print("❌ Error verifying bank account:", str(e))
+            logger.error("Error verifying bank account: %s", e)
             return {
                 "success": False,
                 "verified": False,
-                "message": f"API Error: {str(e)}"
+                "message": "Bank verification service unavailable",
             }
         except Exception as e:
-            print("❌ Unexpected error:", str(e))
+            logger.error("Unexpected error verifying bank account: %s", e)
             return {
                 "success": False,
                 "verified": False,
-                "message": f"Error: {str(e)}"
+                "message": "An unexpected error occurred",
             }

@@ -10,12 +10,12 @@ class UserRegistration(BaseModel):
     last_name: str = Field(..., min_length=2, max_length=100)
     city: str = Field(..., min_length=2, max_length=100)
     pincode: str = Field(..., pattern=r'^\d{6}$')
-    
+
     @validator('phone_number')
     def validate_phone_number(cls, v):
         # Remove any non-digit characters
         digits = ''.join(filter(str.isdigit, v))
-        
+
         # If it starts with 91, ensure it's 12 digits
         if digits.startswith('91'):
             if len(digits) != 12:
@@ -24,29 +24,29 @@ class UserRegistration(BaseModel):
             digits = '91' + digits
         else:
             raise ValueError('phone_number number must be 10 digits (or 12 with country code)')
-        
+
         return digits
 
 
 class LoginRequest(BaseModel):
     phone_number: str
-    
+
     @validator('phone_number')
     def validate_phone_number(cls, v):
         """Validate and normalize phone number"""
         digits = ''.join(filter(str.isdigit, v))
-        
+
         if digits.startswith('91'):
             if len(digits) != 12:
                 raise ValueError('Phone number with country code must be 12 digits')
         elif len(digits) == 10:
             # Validate Indian mobile number format (starts with 6-9)
-            if not digits[0] in '6789':
+            if digits[0] not in '6789':
                 raise ValueError('Invalid Indian mobile number')
             digits = '91' + digits
         else:
             raise ValueError('Phone number must be 10 digits (or 12 with country code)')
-        
+
         return digits
 
 
@@ -77,7 +77,7 @@ class UserResponse(BaseModel):
     is_bank_details_verified: bool
     is_id_verified: bool
     registered_at: datetime
-    
+
     class Config:
         from_attributes = True
 
@@ -89,7 +89,7 @@ class UserDetailResponse(UserResponse):
     ifsc_code: Optional[str] = None
     account_holder_name: Optional[str] = None
     verified_at: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
 
@@ -101,10 +101,10 @@ class TokenResponse(BaseModel):
 
 
 class ipuser(BaseModel):
-    first_name:str 
+    first_name:str
     last_name:str
     phone_number:str
     is_verified:bool
-    
+
 class approveipuser(ipuser):
     is_idverified:bool

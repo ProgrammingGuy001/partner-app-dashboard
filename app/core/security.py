@@ -22,7 +22,14 @@ def verify_hashed_password(password:str,hashed_password:str)->bool:
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "type": "access"})
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return encoded_jwt
+
+def create_refresh_token(data: dict, expires_delta: timedelta | None = None):
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS))
+    to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
@@ -32,24 +39,30 @@ def verify_token(request: Request, credentials: Optional[HTTPAuthorizationCreden
     # Legacy fallback for existing sessions before cookie split.
     if not token:
         token = request.cookies.get("access_token")
-    
+
     # Fallback to header if cookie is missing (e.g. mobile app or Swagger)
     if not token and credentials:
         token = credentials.credentials
-        
+
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
-        
+
     # Remove 'Bearer ' prefix if present in cookie
     if token.startswith("Bearer "):
         token = token.replace("Bearer ", "")
-        
+
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        if payload.get("type") == "refresh":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token type",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         email: str = payload.get("sub")
         if email is None:
             raise HTTPException(
@@ -63,7 +76,37 @@ def verify_token(request: Request, credentials: Optional[HTTPAuthorizationCreden
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
+        ) from None
+
+def verify_refresh_token_cookie(request: Request):
+    token = request.cookies.get(settings.ADMIN_REFRESH_COOKIE_NAME)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No refresh token provided",
         )
+    if token.startswith("Bearer "):
+        token = token.replace("Bearer ", "")
+
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        if payload.get("type") != "refresh":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token type",
+            )
+        email: str = payload.get("sub")
+        if email is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication credentials",
+            )
+        return email
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        ) from None
 
 def get_current_user(email: str = Depends(verify_token), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == email).first()
@@ -83,4 +126,4 @@ def get_current_user(email: str = Depends(verify_token), db: Session = Depends(g
             detail="User is not approved"
         )
     return user
-    
+

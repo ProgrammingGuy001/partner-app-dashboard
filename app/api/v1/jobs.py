@@ -8,7 +8,6 @@ from app.model.ip import ip
 from app.model.job import Job, JobChecklist, ChecklistItem, JobChecklistItemStatus
 from app.schemas.job import JobResponse
 from app.schemas.checklist import (
-    ChecklistWithItemsAndStatusResponse,
     JobChecklistItemStatusUpdate,
     JobChecklistItemStatusResponse
 )
@@ -39,7 +38,7 @@ def get_all_jobs(
         "message": "Jobs fetched successfully",
         "total": len(serialized_jobs),
         "jobs": serialized_jobs
-    } 
+    }
 
 
 # ✅ Get single job by ID
@@ -80,7 +79,7 @@ def get_job_history(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found or not assigned to you"
         )
-    
+
     return get_job_status_history(db, job_id)
 
 
@@ -97,7 +96,7 @@ def get_job_progress(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found or not assigned to you"
         )
-    
+
     # TODO: Implement progress upload tracking table
     # For now, return empty uploads list
     return {
@@ -128,7 +127,7 @@ async def upload_progress_update(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found or not assigned to you"
         )
-    
+
     # Validate file extension
     file_ext = Path(file.filename).suffix.lower() if file.filename else ""
     if file_ext not in settings.allowed_extensions_list:
@@ -136,7 +135,7 @@ async def upload_progress_update(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid file type. Allowed: {', '.join(settings.allowed_extensions_list)}"
         )
-    
+
     # Read file content and validate size
     file_content = await file.read()
     max_size_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
@@ -145,7 +144,7 @@ async def upload_progress_update(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"File too large. Maximum size: {settings.MAX_UPLOAD_SIZE_MB}MB"
         )
-    
+
     file_url = upload_file_to_s3(
         file_content=file_content,
         filename=file.filename,
@@ -218,7 +217,7 @@ def get_job_checklists(
 
     # Get all checklists assigned to the job
     job_checklists = db.query(JobChecklist).filter(JobChecklist.job_id == job_id).all()
-    
+
     result = []
     for jc in job_checklists:
         checklist = jc.checklist
@@ -229,7 +228,7 @@ def get_job_checklists(
             "created_at": checklist.created_at,
             "updated_at": checklist.updated_at,
         })
-    
+
     return {
         "message": "Checklists fetched successfully",
         "job_id": job_id,
@@ -277,22 +276,22 @@ def get_job_checklist_items(
     items = db.query(ChecklistItem).filter(
         ChecklistItem.checklist_id == checklist_id
     ).order_by(ChecklistItem.position).all()
-    
+
     # Fetch all item statuses for this job in a single query (N+1 fix)
     item_ids = [item.id for item in items]
     all_statuses = db.query(JobChecklistItemStatus).filter(
         JobChecklistItemStatus.job_id == job_id,
         JobChecklistItemStatus.checklist_item_id.in_(item_ids)
     ).all()
-    
+
     # Create a lookup dictionary for O(1) status access
     status_map = {s.checklist_item_id: s for s in all_statuses}
-    
+
     items_with_status = []
     for item in items:
         # Get status from lookup instead of querying DB
         item_status = status_map.get(item.id)
-        
+
         items_with_status.append({
             "id": item.id,
             "checklist_id": item.checklist_id,
@@ -359,14 +358,14 @@ def update_checklist_item_status(
     # IP users can only update checked, comment, and document_link
     # They cannot approve (is_approved) or add admin_comment
     update_data = status_update.model_dump(
-        include={'checked', 'comment', 'document_link'}, 
+        include={'checked', 'comment', 'document_link'},
         exclude_unset=True
     )
-    
+
     filtered_update = JobChecklistItemStatusUpdate(**update_data)
 
     updated_status = update_job_checklist_item_status(db, job_id, item_id, filtered_update)
-    
+
     return {
         "message": "Checklist item status updated successfully",
         "status": JobChecklistItemStatusResponse.model_validate(updated_status)

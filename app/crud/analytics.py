@@ -81,6 +81,7 @@ def get_payout_analytics(
 
         total_payout = (
             db.query(func.sum(_payout_expression()))
+            .select_from(Job)
             .outerjoin(JobRate, Job.job_rate_id == JobRate.id)
             .filter(*base_filter, Job.status == "completed")
             .scalar()
@@ -101,6 +102,7 @@ def get_payout_analytics(
                 func.sum(_payout_expression()).label("total_payout"),
                 func.sum(func.coalesce(Job.additional_expense, 0)).label("total_additional_expense"),
             )
+            .select_from(Job)
             .outerjoin(JobRate, Job.job_rate_id == JobRate.id)
             .filter(*base_filter)
             .group_by(Job.status)
@@ -125,6 +127,7 @@ def get_payout_analytics(
                 func.sum(_payout_expression()).label("total_payout"),
                 func.sum(func.coalesce(Job.additional_expense, 0)).label("total_additional_expense"),
             )
+            .select_from(ip)
             .join(Job, Job.assigned_ip_id == ip.id)
             .outerjoin(JobRate, Job.job_rate_id == JobRate.id)
             .filter(*base_filter, Job.status == "completed")
@@ -156,7 +159,7 @@ def get_payout_analytics(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching analytics: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching analytics: {str(e)}") from e
 
 
 def get_job_stage_summary(db: Session):
@@ -169,6 +172,7 @@ def get_job_stage_summary(db: Session):
                 func.sum(_payout_expression()).label("total_payout"),
                 func.sum(func.coalesce(Job.additional_expense, 0)).label("total_additional_expense"),
             )
+            .select_from(Job)
             .outerjoin(JobRate, Job.job_rate_id == JobRate.id)
             .group_by(Job.status)
             .all()
@@ -184,7 +188,7 @@ def get_job_stage_summary(db: Session):
             for stage in job_stages
         ]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching job stage summary: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching job stage summary: {str(e)}") from e
 
 
 def get_ip_performance(db: Session):
@@ -198,6 +202,7 @@ def get_ip_performance(db: Session):
                 func.sum(_payout_expression()).label("total_payout"),
                 func.sum(func.coalesce(Job.additional_expense, 0)).label("total_additional_expense"),
             )
+            .select_from(ip)
             .outerjoin(Job, and_(Job.assigned_ip_id == ip.id, Job.status == "completed"))
             .outerjoin(JobRate, Job.job_rate_id == JobRate.id)
             .group_by(ip.id, ip.first_name, ip.last_name)
@@ -215,4 +220,4 @@ def get_ip_performance(db: Session):
             for item in ip_stats
         ]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching IP performance: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching IP performance: {str(e)}") from e

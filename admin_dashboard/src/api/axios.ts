@@ -1,8 +1,8 @@
 import axios from "axios";
 import axiosRetry from "axios-retry";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://adminapi.modula.in';
-//const API_BASE_URL = "http://localhost:8000";
+//const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://adminapi.modula.in';
+const API_BASE_URL = "http://localhost:8000";
 
 // Add request timeout
 const REQUEST_TIMEOUT = 30000;
@@ -31,11 +31,26 @@ axiosRetry(axiosInstance, {
 
 axiosInstance.interceptors.response.use(
   (response) => response,
-  (error) => {
-    const { response } = error;
+  async (error) => {
+    const { response, config: originalRequest } = error;
 
     // Handle 401 Unauthorized
-    if (response?.status === 401) {
+    if (response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/login') && !originalRequest.url?.includes('/auth/refresh-token')) {
+      originalRequest._retry = true;
+      try {
+        await axios.post(`${API_BASE_URL}/auth/refresh-token`, {}, { withCredentials: true });
+        return axiosInstance(originalRequest);
+      } catch (refreshError) {
+        try {
+          if (!globalThis.location.pathname.includes("/login")) {
+            globalThis.location.assign("/login");
+          }
+        } catch (e) {
+          console.error("Error during logout:", e);
+        }
+        return Promise.reject(refreshError);
+      }
+    } else if (response?.status === 401) {
       try {
         // Redirect to login if unauthorized
         if (!globalThis.location.pathname.includes("/login")) {

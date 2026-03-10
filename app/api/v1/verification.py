@@ -1,54 +1,53 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
+
+from app.api.deps import get_verified_user
 from app.database import get_db
 from app.model.ip import ip
 from app.model.job import Job
+from app.schemas.ip import BankVerification, PANVerification, UserDetailResponse
 from app.schemas.job import JobResponse
-
-from app.schemas.ip import (
-    PANVerification, 
-    BankVerification,
-    UserDetailResponse
-)
-from app.services.pan_service import PANService
 from app.services.bank_service import BankService
-from app.api.deps import get_verified_user
+from app.services.pan_service import PANService
+from app.utils.rate_limiter import limiter
 
 router = APIRouter(prefix="/verification", tags=["Verification"])
 
 
 @router.post("/pan")
+@limiter.limit("5/hour")
 def verify_pan(
+    request: Request,
     pan_data: PANVerification,
     current_user: ip = Depends(get_verified_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Verify PAN card details"""
-    
+
     # Check if already verified
     if current_user.is_pan_verified:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="PAN already verified for this user"
         )
-    
+
     # Verify PAN using external API
     result = PANService.verify_pan(pan_data.pan)
-    
+
     if not result["verified"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=result.get("message", "PAN verification failed")
         )
-    
+
     # Update user record
     current_user.is_pan_verified = True
     current_user.pan_number = result["pan_number"]
     current_user.pan_name = result.get("name")
-    
+
     db.commit()
     db.refresh(current_user)
-    
+
     return {
         "message": "PAN verified successfully",
         "pan_number": result["pan_number"],
@@ -57,42 +56,44 @@ def verify_pan(
 
 
 @router.post("/bank")
+@limiter.limit("5/hour")
 def verify_bank(
+    request: Request,
     bank_data: BankVerification,
     current_user: ip = Depends(get_verified_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Verify bank account details"""
-    
+
     # Check if already verified
     if current_user.is_bank_details_verified:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Bank account already verified for this user"
         )
-    
+
     # Verify bank account using external API
     result = BankService.verify_bank_account(
         bank_data.account_number,
         bank_data.ifsc,
         bank_data.fetch_ifsc
     )
-    
+
     if not result["verified"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=result.get("message", "Bank account verification failed")
         )
-    
+
     # Update user record
     current_user.is_bank_details_verified = True
     current_user.account_number = result["account_number"]
     current_user.ifsc_code = result["ifsc_code"]
     current_user.account_holder_name = result.get("account_holder_name")
-    
+
     db.commit()
     db.refresh(current_user)
-    
+
     return {
         "message": "Bank account verified successfully",
         "account_number": result["account_number"],
@@ -109,7 +110,7 @@ def get_verification_status(
     db: Session = Depends(get_db)
 ):
     """Get current verification status of the user"""
-    
+
     return current_user
 
 
@@ -132,7 +133,7 @@ def check_panel_access(
     # ✅ If verified, fetch jobs assigned to this user only
     if all_verified:
         jobs = db.query(Job).filter(Job.assigned_ip_id == current_user.id).all()
-        
+
         # Convert SQLAlchemy objects to dict using JobResponse for safety and completeness
         job_data = [JobResponse.model_validate(job).model_dump() for job in jobs]
 

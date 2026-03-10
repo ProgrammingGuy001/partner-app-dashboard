@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from typing import Optional, List
 
@@ -5,24 +6,27 @@ from typing import Optional, List
 class Settings(BaseSettings):
     # Environment
     ENVIRONMENT: str = "development"  # "development", "staging", "production"
-    
+
     # Database
     DB_HOST: str
     DB_NAME: str
     DB_USER: str
     DB_PASS: str
     DATABASE_URL: str
-    
+
     # Project
     PROJECT_NAME: str = "Modula Admin Dashboard"
-    
+
     # JWT
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     ADMIN_AUTH_COOKIE_NAME: str = "admin_access_token"
     IP_AUTH_COOKIE_NAME: str = "ip_access_token"
-    
+    ADMIN_REFRESH_COOKIE_NAME: str = "admin_refresh_token"
+    IP_REFRESH_COOKIE_NAME: str = "ip_refresh_token"
+
     # AWS
     AWS_ACCESS_KEY_ID: str
     AWS_SECRET_ACCESS_KEY: str
@@ -35,36 +39,45 @@ class Settings(BaseSettings):
     RML_SMS_SENDER_ID: str
     RML_SMS_ENTITY_ID: str
     RML_SMS_TEMPLATE_ID: str
-    
+
     # Attestr API
     ATTESTR_API_KEY: str
-    
+
     # OTP Settings
     OTP_EXPIRY_MINUTES: int = 10
     OTP_LENGTH: int = 6
     OTP_DEBUG_LOG_ENABLED: bool = False
-    
+
     # Trusted Proxy Hosts (comma-separated in .env)
     TRUSTED_PROXY_HOSTS: str = "127.0.0.1"
-    
+
     # File Upload Settings
     MAX_UPLOAD_SIZE_MB: int = 10
     ALLOWED_FILE_EXTENSIONS: str = ".jpg,.jpeg,.png,.pdf,.doc,.docx"
-    
+
     # Odoo Settings (optional - only needed if Odoo integration is used)
     ODOO_URL: Optional[str] = None
     ODOO_DB: Optional[str] = None
     ODOO_USERNAME: Optional[str] = None
     ODOO_PASSWORD: Optional[str] = None
-    
+    # Set to "false" to disable SSL verification for Odoo (dev only, never in prod)
+    ODOO_SSL_VERIFY: str = "true"
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, v: str) -> str:
+        if not v or len(v) < 32:
+            raise ValueError("SECRET_KEY must be at least 32 characters long")
+        return v
+
     @property
     def trusted_hosts_list(self) -> List[str]:
         return [h.strip() for h in self.TRUSTED_PROXY_HOSTS.split(",")]
-    
+
     @property
     def allowed_extensions_list(self) -> List[str]:
         return [e.strip().lower() for e in self.ALLOWED_FILE_EXTENSIONS.split(",")]
-    
+
     class Config:
         env_file = ".env"
         case_sensitive = True

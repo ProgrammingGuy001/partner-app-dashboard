@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import Request, HTTPException, status
+from fastapi import Request
 from fastapi.security import HTTPBearer
 from app.config import settings
 

@@ -68,14 +68,14 @@ def verify_ip(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="IP user not found"
         )
-    
+
     verified_ip = verify_ip_user(db, phone_number)
-    
+
     # Assign admins if provided
     if request.admin_ids:
         # Clear existing assignments
         db.query(IPAdminAssignment).filter(IPAdminAssignment.ip_id == verified_ip.id).delete()
-        
+
         # Add new assignments
         for admin_id in request.admin_ids:
             admin = db.query(User).filter(User.id == admin_id).first()
@@ -84,11 +84,11 @@ def verify_ip(
             assignment = IPAdminAssignment(ip_id=verified_ip.id, admin_id=admin_id)
             db.add(assignment)
         db.commit()
-    
+
     # Get assigned admin IDs
     assigned_admins = db.query(IPAdminAssignment).filter(IPAdminAssignment.ip_id == verified_ip.id).all()
     assigned_admin_ids = [a.admin_id for a in assigned_admins]
-    
+
     return {
         "message": "IP user verified successfully",
         "phone_number": verified_ip.phone_number,
@@ -109,7 +109,7 @@ def get_ips(db: Session = Depends(get_db), current_user: User = Depends(get_curr
         ips = db.query(ip).all()
     else:
         ips = get_all_ips(db, admin_id=current_user.id)
-    
+
     return [_serialize_ip_user(ip_user) for ip_user in ips]
 
 
@@ -119,7 +119,7 @@ def get_approved_ips_list(db: Session = Depends(get_db), current_user: User = De
     Superadmins see all approved IPs, regular admins only see IPs assigned to them.
     """
     is_superadmin = getattr(current_user, 'is_superadmin', False)
-    
+
     if is_superadmin:
         # Superadmins see all approved IPs
         approved_ips = db.query(ip).filter(ip.is_id_verified == True).all()
@@ -148,14 +148,14 @@ def assign_admins_to_ip(
     ip_user = db.query(ip).filter(ip.id == ip_id).first()
     if not ip_user:
         raise HTTPException(status_code=404, detail="IP not found")
-    
+
     # Check if current user is superadmin
     if not current_user.is_superadmin:
         raise HTTPException(status_code=403, detail="Only superadmins can assign admins to IPs")
-    
+
     # Clear existing assignments
     db.query(IPAdminAssignment).filter(IPAdminAssignment.ip_id == ip_id).delete()
-    
+
     # Add new assignments
     for admin_id in request.admin_ids:
         admin = db.query(User).filter(User.id == admin_id).first()
@@ -163,9 +163,9 @@ def assign_admins_to_ip(
             raise HTTPException(status_code=404, detail=f"Admin with ID {admin_id} not found")
         assignment = IPAdminAssignment(ip_id=ip_id, admin_id=admin_id)
         db.add(assignment)
-    
+
     db.commit()
-    
+
     return {"message": "Admins assigned successfully", "ip_id": ip_id, "admin_ids": request.admin_ids}
 
 
@@ -175,10 +175,10 @@ def get_ip_admins(ip_id: int, db: Session = Depends(get_db), current_user: User 
     ip_user = db.query(ip).filter(ip.id == ip_id).first()
     if not ip_user:
         raise HTTPException(status_code=404, detail="IP not found")
-    
+
     assignments = db.query(IPAdminAssignment).filter(IPAdminAssignment.ip_id == ip_id).all()
     admin_ids = [a.admin_id for a in assignments]
-    
+
     admins = db.query(User).filter(User.id.in_(admin_ids)).all() if admin_ids else []
-    
+
     return [AdminUserResponse.model_validate(admin) for admin in admins]

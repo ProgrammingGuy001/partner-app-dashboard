@@ -1,4 +1,6 @@
-import boto3, uuid, os
+import boto3
+import uuid
+import os
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -20,7 +22,7 @@ def upload_file_to_s3(file_content, filename, content_type):
         Key=unique_filename,
         Body=file_content,
         ContentType=content_type,
-        
+
     )
 
     file_url = f"https://{AWS_S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{unique_filename}"

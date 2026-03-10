@@ -10,13 +10,13 @@ from app.config import settings
 from app.model.ip import ip
 
 from app.schemas.ip import (
-    UserRegistration, 
-    LoginRequest, 
+    UserRegistration,
+    LoginRequest,
     OTPVerification,
     UserResponse,
 )
 from app.services.otp_service import OTPService
-from app.utils.helpers import create_access_token
+from app.utils.helpers import create_access_token, create_refresh_token, verify_token, verify_refresh_token
 from app.utils.rate_limiter import limiter
 from app.api.deps import get_current_user
 
@@ -33,7 +33,7 @@ def _cookie_security_settings() -> tuple[bool, str]:
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def register_user(user_data: UserRegistration, db: Session = Depends(get_db)):
     """Register a new user"""
-    
+
     # Check if user already exists
     existing_user = db.query(ip).filter(ip.phone_number == user_data.phone_number).first()
     if existing_user:
@@ -41,7 +41,7 @@ def register_user(user_data: UserRegistration, db: Session = Depends(get_db)):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User with this phone_number number already exists"
         )
-    
+
     # Create new ip
     new_user = ip(
         phone_number=user_data.phone_number,
@@ -51,11 +51,11 @@ def register_user(user_data: UserRegistration, db: Session = Depends(get_db)):
         pincode=int(user_data.pincode),
         is_phone_verified=False
     )
-    
+
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    
+
     return new_user
 
 
@@ -63,12 +63,12 @@ def register_user(user_data: UserRegistration, db: Session = Depends(get_db)):
 @limiter.limit("5/minute")  # Max 5 login attempts per minute per IP
 def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_db)):
     """Login user and send OTP"""
-    
+
     # Normalize phone_number number
     phone_number = login_data.phone_number
     if not phone_number.startswith('91') and len(phone_number) == 10:
         phone_number = '91' + phone_number
-    
+
     # Check if user exists
     user = db.query(ip).filter(ip.phone_number == phone_number).first()
     if not user:
@@ -76,7 +76,7 @@ def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found. Please register first."
         )
-    
+
     # Generate and send OTP
     # Extract first name from phone number or use default
     first_name = user.first_name.split()[0] if user.phone_number else "User"
@@ -89,7 +89,7 @@ def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to send OTP. Please try again."
         )
-    
+
     return {
         "message": "OTP sent successfully to your phone_number",
         "phone_number": phone_number
@@ -100,12 +100,12 @@ def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_
 @limiter.limit("10/minute")  # Max 10 OTP verification attempts per minute per IP
 def verify_otp(request: Request, otp_data: OTPVerification, response: Response, db: Session = Depends(get_db)):
     """Verify OTP and authenticate user"""
-    
+
     # Normalize phone_number number
     phone_number = otp_data.phone_number
     if not phone_number.startswith('91') and len(phone_number) == 10:
         phone_number = '91' + phone_number
-    
+
     # Check if user exists
     user = db.query(ip).filter(ip.phone_number == phone_number).first()
     if not user:
@@ -113,26 +113,27 @@ def verify_otp(request: Request, otp_data: OTPVerification, response: Response, 
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    
+
     # Verify OTP
     is_valid = OTPService.verify_otp(db, phone_number, otp_data.otp)
-    
+
     if not is_valid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired OTP"
         )
-    
+
     # Update user verification status
     user.is_verified = True
     user.verified_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(user)
-    
+
     # Generate access token
     access_token = create_access_token(data={"sub": str(user.id)})
+    refresh_token = create_refresh_token(data={"sub": str(user.id)})
     secure_cookie, same_site = _cookie_security_settings()
-    
+
     # Set cookie
     response.set_cookie(
         key=settings.IP_AUTH_COOKIE_NAME,
@@ -141,7 +142,16 @@ def verify_otp(request: Request, otp_data: OTPVerification, response: Response, 
         samesite=same_site,
         secure=secure_cookie,
     )
-    
+
+    response.set_cookie(
+        key=settings.IP_REFRESH_COOKIE_NAME,
+        value=f"Bearer {refresh_token}",
+        httponly=True,
+        samesite=same_site,
+        secure=secure_cookie,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+    )
+
     return user
 
 
@@ -149,12 +159,12 @@ def verify_otp(request: Request, otp_data: OTPVerification, response: Response, 
 @limiter.limit("3/minute")  # Max 3 resend attempts per minute per IP (stricter to prevent SMS bombing)
 def resend_otp(request: Request, login_data: LoginRequest, db: Session = Depends(get_db)):
     """Resend OTP to user"""
-    
+
     # Normalize phone_number number
     phone_number = login_data.phone_number
     if not phone_number.startswith('91') and len(phone_number) == 10:
         phone_number = '91' + phone_number
-    
+
     # Check if user exists
     user = db.query(ip).filter(ip.phone_number == phone_number).first()
     if not user:
@@ -162,36 +172,83 @@ def resend_otp(request: Request, login_data: LoginRequest, db: Session = Depends
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    
+
     # Generate and send OTP
     first_name = user.first_name.split()[0] if user.phone_number else "User"
     otp_result = OTPService.send_otp(db, phone_number, first_name)
-    
+
     if not otp_result["success"]:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to send OTP. Please try again."
         )
-    
+
     return {
         "message": "OTP resent successfully",
         "phone_number": phone_number
     }
 
 
+@router.get("/verify-token")
+def verify_access_token(request: Request):
+    token = request.cookies.get(settings.IP_AUTH_COOKIE_NAME)
+    if not token:
+        token = request.cookies.get("access_token")
+
+    if not token:
+        raise HTTPException(status_code=401, detail="No token provided")
+
+    if token.startswith("Bearer "):
+        token = token.replace("Bearer ", "")
+
+    payload = verify_token(token)
+    if not payload or "sub" not in payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    return {"valid": True, "user_id": payload["sub"]}
+
+
+@router.post("/refresh-token")
+def refresh_token(request: Request, response: Response):
+    refresh_token_cookie = request.cookies.get(settings.IP_REFRESH_COOKIE_NAME)
+
+    if not refresh_token_cookie:
+        raise HTTPException(status_code=401, detail="No refresh token provided")
+
+    if refresh_token_cookie.startswith("Bearer "):
+        refresh_token_cookie = refresh_token_cookie.replace("Bearer ", "")
+
+    payload = verify_refresh_token(refresh_token_cookie)
+    if not payload or "sub" not in payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    sub = payload["sub"]
+    access_token = create_access_token(data={"sub": sub})
+    secure_cookie, same_site = _cookie_security_settings()
+
+    response.set_cookie(
+        key=settings.IP_AUTH_COOKIE_NAME,
+        value=f"Bearer {access_token}",
+        httponly=True,
+        samesite=same_site,
+        secure=secure_cookie,
+    )
+
+    return {"refreshed": True}
+
+
 @router.get("/me", response_model=Union[IPUserResponse, AdminUserResponse])
 def read_users_me(current_user: Union[ip, User] = Depends(get_current_user)):
     """Get current user"""
     return current_user
-    
+
 
 @router.post("/logout")
 def logout(
     response: Response,
     current_user: Union[ip, User] = Depends(get_current_user),
-    db: Session = Depends(get_db)
 ):
-    
+
     # Clear cookie first
     secure_cookie, same_site = _cookie_security_settings()
     response.delete_cookie(
@@ -207,10 +264,17 @@ def logout(
         secure=secure_cookie,
         samesite=same_site,
     )
-    
+    response.delete_cookie(
+        key=settings.IP_REFRESH_COOKIE_NAME,
+        httponly=True,
+        secure=secure_cookie,
+        samesite=same_site,
+    )
+
     if isinstance(current_user, ip):
-        current_user.is_verified = False
-        db.commit()
+        # Do NOT reset is_phone_verified — that flag records a permanent one-time
+        # verification of the phone number. Session termination is handled entirely
+        # by the deleted cookies and JWT expiry above.
         message = f"User with phone number {current_user.phone_number} logged out successfully."
     elif isinstance(current_user, User):
         message = f"User with email {current_user.email} logged out successfully."

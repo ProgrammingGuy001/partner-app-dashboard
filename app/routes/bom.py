@@ -33,7 +33,7 @@ async def submit_site_requisite(
         return result
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error submitting requisite: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error submitting requisite: {str(e)}") from e
 
 @router.get("/history", response_model=List[SODetailResponse])
 async def get_requisite_history(
@@ -51,7 +51,7 @@ async def get_requisite_history(
         logger.info(f"[BOM History] Admin Returned {len(history)} records")
         return history
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching history: {str(e)}") from e
 
 @router.get("/history/{sales_order}", response_model=SODetailResponse)
 async def get_requisite_by_sales_order(
@@ -70,7 +70,7 @@ async def get_requisite_by_sales_order(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}") from e
 
 @router.patch("/history/{so_id}/status")
 async def update_requisite_status(
@@ -84,7 +84,7 @@ async def update_requisite_status(
     """
     if status not in ["pending", "completed"]:
         raise HTTPException(status_code=400, detail="Invalid status")
-    
+
     try:
         result = RequisiteService.update_status(db, so_id, status)
         if not result:
@@ -93,11 +93,11 @@ async def update_requisite_status(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}") from e
 
 @router.get("/{sales_order}/{cabinet_position}", response_model=List[BOMItemResponse])
 async def get_bom_items(
-    sales_order: str, 
+    sales_order: str,
     cabinet_position: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -114,4 +114,4 @@ async def get_bom_items(
         raise
     except Exception as e:
         logger.error(f"[Admin] Error fetching BOM: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error fetching BOM: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching BOM: {str(e)}") from e

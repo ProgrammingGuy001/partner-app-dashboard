@@ -17,7 +17,7 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated"
         )
-        
+
     # The token is in the format "Bearer <token>"
     parts = token.split()
     if len(parts) != 2 or parts[0].lower() != "bearer":
@@ -25,23 +25,23 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token format"
         )
-    
+
     token = parts[1]
-    
+
     payload = verify_token(token)
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token"
         )
-    
+
     sub = payload.get("sub")
     if sub is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload"
         )
-    
+
     # Try to parse as integer (IP user ID)
     # If sub is email (e.g. "a@gmail.com"), int() will raise ValueError
     try:
@@ -52,7 +52,7 @@ def get_current_user(
     except (ValueError, TypeError):
         # Not an integer ID, continue to check as email
         pass
-    
+
     # Try as email (Admin user)
     admin_user = db.query(User).filter(User.email == sub).first()
     if admin_user is not None:
@@ -67,7 +67,7 @@ def get_current_user(
                 detail="User is not approved"
             )
         return admin_user
-    
+
     # Neither IP nor Admin user found
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
@@ -82,7 +82,7 @@ def get_verified_user(current_user: Union[ip, User] = Depends(get_current_user))
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin users cannot access this resource"
         )
-        
+
     # Now we know it's an IP user
     if not current_user.is_verified:
         raise HTTPException(

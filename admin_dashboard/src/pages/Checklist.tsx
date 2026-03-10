@@ -1,42 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { checklistAPI, type Checklist } from '@/api/services';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 
 const Checklists: React.FC = () => {
-  const [checklists, setChecklists] = useState<Checklist[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { data: checklists = [], isLoading, error } = useQuery<Checklist[]>({
+    queryKey: ['checklists-detail'],
+    queryFn: async () => {
+      const summaries = await checklistAPI.getAll();
+      const details = await Promise.all(
+        summaries.map(async (c) => {
+          try {
+            return await checklistAPI.getById(c.id);
+          } catch {
+            return c;
+          }
+        })
+      );
+      return details;
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
 
-  useEffect(() => {
-    const fetchChecklists = async () => {
-      try {
-        const summaries = await checklistAPI.getAll();
-        const details = await Promise.all(
-          summaries.map(async (c) => {
-            try {
-              return await checklistAPI.getById(c.id);
-            } catch {
-              return c;
-            }
-          })
-        );
-        setChecklists(details);
-      } catch (err) {
-        setError((err as Error).message || 'Failed to fetch checklists');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchChecklists();
-  }, []);
-
-  if (loading) {
+  if (isLoading) {
     return <div className="p-6">Loading checklists...</div>;
   }
 
   if (error) {
-    return <div className="p-6 text-red-500">Error: {error}</div>;
+    return <div className="p-6 text-red-500">Error: {(error as Error).message}</div>;
   }
 
   return (

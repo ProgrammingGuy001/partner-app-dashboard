@@ -11,7 +11,7 @@ def execute_polling_job():
     try:
         logger.info(f"[POLLING] Job polling started at {datetime.now()}")
         logger.info(f"[POLLING] Job polling completed successfully at {datetime.now()}")
-        
+
     except Exception as e:
         logger.error(f"[POLLING] Error during polling: {str(e)}")
     finally:

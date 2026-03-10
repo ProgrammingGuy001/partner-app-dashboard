@@ -114,7 +114,7 @@ def get_job_by_id(db: Session, job_id: int, user_id: int = None):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}") from e
 
 
 def get_all_jobs(
@@ -150,7 +150,7 @@ def get_all_jobs(
             )
         return query.distinct().offset(skip).limit(limit).all()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}") from e
 
 
 def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = False):
@@ -242,7 +242,7 @@ def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = 
         raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error creating job: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating job: {str(e)}") from e
 
 
 def update_job(db: Session, job_id: int, job_update: JobUpdate, admin_id: int = None, is_superadmin: bool = False):
@@ -337,7 +337,7 @@ def update_job(db: Session, job_id: int, job_update: JobUpdate, admin_id: int = 
         raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error updating job: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error updating job: {str(e)}") from e
 
 
 def delete_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bool = False):
@@ -360,7 +360,7 @@ def delete_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bo
         raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error deleting job: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error deleting job: {str(e)}") from e
 
 
 def start_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bool = False, notes: str = None):
@@ -398,7 +398,7 @@ def start_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: boo
         raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error starting job: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error starting job: {str(e)}") from e
 
 
 def pause_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bool = False, notes: str = None):
@@ -433,7 +433,7 @@ def pause_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: boo
         raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error pausing job: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error pausing job: {str(e)}") from e
 
 
 def finish_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bool = False, notes: str = None):
@@ -468,7 +468,7 @@ def finish_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bo
         raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error finishing job: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error finishing job: {str(e)}") from e
 
 
 def get_job_status_history(db: Session, job_id: int):
@@ -487,4 +487,4 @@ def get_job_status_history(db: Session, job_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching job status history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching job status history: {str(e)}") from e

@@ -4,7 +4,7 @@ from datetime import timedelta
 from pydantic import BaseModel
 from app.database import get_db
 from app.schemas.user import UserCreate,UserResponse
-from app.core.security import verify_hashed_password, create_access_token, get_current_user
+from app.core.security import verify_hashed_password, create_access_token, create_refresh_token, get_current_user, verify_token as security_verify_token, verify_refresh_token_cookie
 from app.crud.user import get_user_by_email, create_user
 from app.config import settings
 
@@ -33,19 +33,55 @@ def login(request: Request, response: Response, login_data: LoginRequest, db: Se
         raise HTTPException(status_code=401, detail="User not approved or inactive")
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(data={"sub": user.email}, expires_delta=access_token_expires)
-    
+    refresh_token = create_refresh_token(data={"sub": user.email})
+
     # Set HttpOnly cookie - secure only in production (HTTPS)
     is_production = settings.ENVIRONMENT == "production"
+
     response.set_cookie(
-        key="access_token",
+        key=settings.ADMIN_AUTH_COOKIE_NAME,
         value=f"Bearer {access_token}",
         httponly=True,
         secure=is_production,
         samesite="none" if is_production else "lax",
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
     )
-    
+
+    response.set_cookie(
+        key=settings.ADMIN_REFRESH_COOKIE_NAME,
+        value=f"Bearer {refresh_token}",
+        httponly=True,
+        secure=is_production,
+        samesite="none" if is_production else "lax",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+    )
+
     return {"message": "Login successful"}
+
+
+@router.get("/verify-token")
+def verify_access_token(email: str = Depends(security_verify_token)):
+    return {"valid": True, "email": email}
+
+
+@router.post("/refresh-token")
+def refresh_token(request: Request, response: Response):
+    email = verify_refresh_token_cookie(request)
+
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(data={"sub": email}, expires_delta=access_token_expires)
+
+    is_production = settings.ENVIRONMENT == "production"
+    response.set_cookie(
+        key=settings.ADMIN_AUTH_COOKIE_NAME,
+        value=f"Bearer {access_token}",
+        httponly=True,
+        secure=is_production,
+        samesite="none" if is_production else "lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    )
+
+    return {"message": "Token refreshed successfully"}
 
 
 @router.get("/me", response_model=UserResponse)
@@ -55,10 +91,22 @@ def read_users_me(current_user: UserResponse = Depends(get_current_user)):
 
 @router.post("/logout")
 def logout(response: Response):
-    """Clear the access_token cookie to log user out"""
+    """Clear the access_token and refresh_token cookies to log user out"""
     is_production = settings.ENVIRONMENT == "production"
     response.delete_cookie(
-        key="access_token",
+        key=settings.ADMIN_AUTH_COOKIE_NAME,
+        httponly=True,
+        secure=is_production,
+        samesite="none" if is_production else "lax"
+    )
+    response.delete_cookie(
+        key="access_token", # Legacy
+        httponly=True,
+        secure=is_production,
+        samesite="none" if is_production else "lax"
+    )
+    response.delete_cookie(
+        key=settings.ADMIN_REFRESH_COOKIE_NAME,
         httponly=True,
         secure=is_production,
         samesite="none" if is_production else "lax"

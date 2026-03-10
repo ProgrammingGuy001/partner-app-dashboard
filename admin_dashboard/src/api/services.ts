@@ -238,6 +238,12 @@ export const authAPI = {
   getCurrentUser: (): Promise<any> =>
     axiosInstance.get('/auth/me').then(res => handleResponse(res)),
 
+  verifyToken: (): Promise<any> =>
+    axiosInstance.get('/auth/verify-token').then(res => handleResponse(res)),
+
+  refreshToken: (): Promise<any> =>
+    axiosInstance.post('/auth/refresh-token').then(res => handleResponse(res)),
+
   logout: (): Promise<any> =>
     axiosInstance.post('/auth/logout').then(res => {
       localStorage.removeItem('access_token');

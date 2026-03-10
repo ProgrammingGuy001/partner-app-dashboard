@@ -42,8 +42,6 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 origins = [
     "http://localhost",
-    "http://localhost:3000",
-    "http://localhost:5173",
     "https://partner-app-dashboard-navy.vercel.app",
 ]
 
@@ -54,8 +52,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+    max_age=600,
 )
 
 # API v1 routers

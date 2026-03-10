@@ -6,7 +6,7 @@ from app.database import Base
 
 class JobStatusLog(Base):
     __tablename__ = "job_status_logs"
-    
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
     job_id: Mapped[int] = mapped_column(Integer, ForeignKey("jobs.id"), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String, nullable=False)
