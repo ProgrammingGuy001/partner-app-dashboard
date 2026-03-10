@@ -34,9 +34,10 @@ const PageLoader = () => (
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { data: user, isLoading, isError } = useQuery({
     queryKey: ['auth', 'user'],
-    queryFn: () => authAPI.getCurrentUser(), // Use existing getCurrentUser
+    queryFn: () => authAPI.getCurrentUser(),
     retry: false,
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    staleTime: 1000 * 60 * 5, // 5 minutes for successful responses
+    gcTime: 0,                 // Never cache error responses
   });
 
   if (isLoading) {

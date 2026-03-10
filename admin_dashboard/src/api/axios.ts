@@ -2,10 +2,11 @@ import axios from "axios";
 import axiosRetry from "axios-retry";
 import Cookies from "js-cookie";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://adminapi.modula.in/api/v1';
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "https://adminapi.modula.in/api/v1";
 
-const CSRF_COOKIE_NAMES = ['csrf_token', 'csrftoken', 'XSRF-TOKEN'];
-const MUTATING_METHODS = ['post', 'put', 'patch', 'delete'];
+const CSRF_COOKIE_NAMES = ["csrf_token", "csrftoken", "XSRF-TOKEN"];
+const MUTATING_METHODS = ["post", "put", "patch", "delete"];
 
 const getCsrfToken = (): string | undefined => {
   for (const name of CSRF_COOKIE_NAMES) {
@@ -43,15 +44,15 @@ axiosRetry(axiosInstance, {
 // Request interceptor - Attach CSRF token to state-changing requests
 axiosInstance.interceptors.request.use(
   (config) => {
-    if (MUTATING_METHODS.includes(config.method?.toLowerCase() ?? '')) {
+    if (MUTATING_METHODS.includes(config.method?.toLowerCase() ?? "")) {
       const csrfToken = getCsrfToken();
       if (csrfToken) {
-        config.headers['X-CSRF-Token'] = csrfToken;
+        config.headers["X-CSRF-Token"] = csrfToken;
       }
     }
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => Promise.reject(error),
 );
 
 axiosInstance.interceptors.response.use(
@@ -60,10 +61,19 @@ axiosInstance.interceptors.response.use(
     const { response, config: originalRequest } = error;
 
     // Handle 401 Unauthorized
-    if (response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/login') && !originalRequest.url?.includes('/auth/refresh-token')) {
+    if (
+      response?.status === 401 &&
+      !originalRequest._retry &&
+      !originalRequest.url?.includes("/auth/login") &&
+      !originalRequest.url?.includes("/auth/refresh-token")
+    ) {
       originalRequest._retry = true;
       try {
-        await axios.post(`${API_BASE_URL}/auth/refresh-token`, {}, { withCredentials: true });
+        await axios.post(
+          `${API_BASE_URL}/auth/refresh-token`,
+          {},
+          { withCredentials: true },
+        );
         return axiosInstance(originalRequest);
       } catch (refreshError) {
         try {

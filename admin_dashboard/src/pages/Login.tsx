@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { authAPI } from '@/api/services';
 import { LoginForm } from '@/components/login-form';
 import { toast } from 'sonner';
@@ -8,6 +9,7 @@ const Login: React.FC = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const handleLogin = async (data: { email: string; password: string }) => {
     setError('');
@@ -15,7 +17,8 @@ const Login: React.FC = () => {
 
     try {
       await authAPI.login(data);
-      // Cookie is set by backend
+      // Invalidate the cached auth/me error so ProtectedRoute re-fetches with the new cookie
+      await queryClient.invalidateQueries({ queryKey: ['auth', 'user'] });
       toast.success('Logged in successfully');
       navigate('/dashboard');
     } catch (err: unknown) {
