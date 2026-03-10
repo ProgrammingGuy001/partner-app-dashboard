@@ -14,7 +14,25 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "./ui/input"
-import React from "react"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { z } from "zod"
+
+const signupSchema = z
+  .object({
+    email: z.string().min(1, "Email is required").email("Enter a valid email address"),
+    password: z
+      .string()
+      .min(1, "Password is required")
+      .min(8, "Password must be at least 8 characters"),
+    confirmPassword: z.string().min(1, "Please confirm your password"),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  })
+
+type SignupValues = z.infer<typeof signupSchema>
 
 export function SignupForm({
   className,
@@ -22,30 +40,20 @@ export function SignupForm({
   loading,
   error,
 }: {
-  onSubmit: (data: { email: string; password: string;}) => void
+  onSubmit: (data: { email: string; password: string }) => void
   loading?: boolean
   error?: string
   className?: string
 }) {
-  const [email, setEmail] = React.useState("")
-  const [password, setPassword] = React.useState("")
-  const [confirmPassword, setConfirmPassword] = React.useState("")
-  const [localError, setLocalError] = React.useState<string | undefined>()
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<SignupValues>({
+    resolver: zodResolver(signupSchema),
+  })
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    setLocalError(undefined)
-
-    if (password !== confirmPassword) {
-      setLocalError("Passwords do not match")
-      return
-    }
-
-    if (password.length < 8) {
-        setLocalError("Password must be at least 8 characters long")
-        return
-    }
-
+  const onFormSubmit = ({ email, password }: SignupValues) => {
     onSubmit({ email, password })
   }
 
@@ -59,7 +67,7 @@ export function SignupForm({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit(onFormSubmit)} noValidate>
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor="email">Email</FieldLabel>
@@ -67,53 +75,67 @@ export function SignupForm({
                   id="email"
                   type="email"
                   placeholder="m@example.com"
-                  required
                   className="bg-white"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  aria-invalid={!!errors.email}
+                  aria-describedby={errors.email ? "email-error" : undefined}
+                  {...register("email")}
                 />
+                {errors.email && (
+                  <p id="email-error" role="alert" className="text-xs text-red-600 mt-1">
+                    {errors.email.message}
+                  </p>
+                )}
               </Field>
+
               <Field>
                 <div className="grid grid-cols-2 gap-4">
                   <Field>
                     <FieldLabel htmlFor="password">Password</FieldLabel>
-                    <Input 
-                        id="password" 
-                        type="password" 
-                        required 
-                        className="bg-white" 
-                        placeholder="********"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                    <Input
+                      id="password"
+                      type="password"
+                      className="bg-white"
+                      placeholder="••••••••"
+                      aria-invalid={!!errors.password}
+                      aria-describedby={errors.password ? "password-error" : undefined}
+                      {...register("password")}
                     />
+                    {errors.password && (
+                      <p id="password-error" role="alert" className="text-xs text-red-600 mt-1">
+                        {errors.password.message}
+                      </p>
+                    )}
                   </Field>
                   <Field>
-                    <FieldLabel htmlFor="confirm-password">
-                      Confirm Password
-                    </FieldLabel>
-                    <Input 
-                        id="confirm-password" 
-                        type="password" 
-                        required 
-                        className="bg-white" 
-                        placeholder="********"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
+                    <FieldLabel htmlFor="confirm-password">Confirm Password</FieldLabel>
+                    <Input
+                      id="confirm-password"
+                      type="password"
+                      className="bg-white"
+                      placeholder="••••••••"
+                      aria-invalid={!!errors.confirmPassword}
+                      aria-describedby={errors.confirmPassword ? "confirm-password-error" : undefined}
+                      {...register("confirmPassword")}
                     />
+                    {errors.confirmPassword && (
+                      <p id="confirm-password-error" role="alert" className="text-xs text-red-600 mt-1">
+                        {errors.confirmPassword.message}
+                      </p>
+                    )}
                   </Field>
                 </div>
-                <FieldDescription>
-                  Must be at least 8 characters long.
-                </FieldDescription>
+                <FieldDescription>Must be at least 8 characters long.</FieldDescription>
               </Field>
-              
-              {(error || localError) && (
-                  <p className="text-sm text-red-600 text-center">{error || localError}</p>
+
+              {error && (
+                <p role="alert" className="text-sm text-red-600 text-center">
+                  {error}
+                </p>
               )}
 
               <Field>
                 <Button type="submit" disabled={loading}>
-                    {loading ? "Creating Account..." : "Create Account"}
+                  {loading ? "Creating Account..." : "Create Account"}
                 </Button>
                 <FieldDescription className="text-center">
                   Already have an account? <a href="/login">Sign in</a>

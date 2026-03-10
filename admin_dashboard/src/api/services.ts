@@ -245,10 +245,7 @@ export const authAPI = {
     axiosInstance.post('/auth/refresh-token').then(res => handleResponse(res)),
 
   logout: (): Promise<any> =>
-    axiosInstance.post('/auth/logout').then(res => {
-      localStorage.removeItem('access_token');
-      return handleResponse(res);
-    }),
+    axiosInstance.post('/auth/logout').then(res => handleResponse(res)),
 };
 
 // Job APIs with pagination support

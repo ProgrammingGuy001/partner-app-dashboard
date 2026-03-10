@@ -635,6 +635,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
                     onChange={handleFileUpload}
                     disabled={isUploading}
                     className="cursor-pointer"
+                    aria-label="Upload final drawing (PDF, JPG, PNG or DOCX)"
+                    accept=".pdf,.jpg,.jpeg,.png,.docx"
                   />
                   {isUploading && <span className="text-sm text-muted-foreground animate-pulse">Uploading...</span>}
                 </div>

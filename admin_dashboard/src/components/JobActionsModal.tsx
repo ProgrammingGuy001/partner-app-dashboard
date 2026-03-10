@@ -255,6 +255,9 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                       onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                       className="flex-1"
                       maxLength={6}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      aria-label="Enter 6-digit OTP"
                     />
                     <Button
                       onClick={handleVerifyOTP}
@@ -278,8 +281,9 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
               {/* Notes Section */}
               {!otpSent && (
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Notes (Optional)</label>
+                  <label htmlFor="action-notes" className="text-sm font-medium text-gray-700">Notes (Optional)</label>
                   <Textarea
+                    id="action-notes"
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     placeholder="Add notes for this action..."
