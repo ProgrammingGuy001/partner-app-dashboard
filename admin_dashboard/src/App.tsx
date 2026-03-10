@@ -36,8 +36,9 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     queryKey: ['auth', 'user'],
     queryFn: () => authAPI.getCurrentUser(),
     retry: false,
-    staleTime: 1000 * 60 * 5, // 5 minutes for successful responses
-    gcTime: 0,                 // Never cache error responses
+    staleTime: 1000 * 60 * 5,   // keep successful responses fresh for 5 min
+    gcTime: 0,                   // don't persist failed/stale entries in cache
+    refetchOnMount: 'always',    // always re-verify on navigation to a protected page
   });
 
   if (isLoading) {

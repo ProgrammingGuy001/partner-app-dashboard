@@ -60,7 +60,7 @@ axiosInstance.interceptors.response.use(
   async (error) => {
     const { response, config: originalRequest } = error;
 
-    // Handle 401 Unauthorized
+    // Attempt a silent token refresh on the first 401, except for auth endpoints
     if (
       response?.status === 401 &&
       !originalRequest._retry &&
@@ -74,25 +74,11 @@ axiosInstance.interceptors.response.use(
           {},
           { withCredentials: true },
         );
+        // Retry the original request with the new cookie
         return axiosInstance(originalRequest);
-      } catch (refreshError) {
-        try {
-          if (!globalThis.location.pathname.includes("/login")) {
-            globalThis.location.assign("/login");
-          }
-        } catch (e) {
-          console.error("Error during logout:", e);
-        }
-        return Promise.reject(refreshError);
-      }
-    } else if (response?.status === 401) {
-      try {
-        // Redirect to login if unauthorized
-        if (!globalThis.location.pathname.includes("/login")) {
-          globalThis.location.assign("/login");
-        }
-      } catch (e) {
-        console.error("Error during logout:", e);
+      } catch {
+        // Refresh failed — reject so React Query / ProtectedRoute handles the redirect
+        return Promise.reject(error);
       }
     }
 
