@@ -42,8 +42,11 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 origins = [
     "http://localhost",
-    "https://partner-app-dashboard-navy.vercel.app"
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "https://partner-app-dashboard-navy.vercel.app",
     "https://partner.modula.in",
+    "https://admin.modula.in",
 ]
 
 
@@ -54,7 +57,7 @@ app.add_middleware(
     allow_origins=origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "X-CSRF-Token"],
     max_age=600,
 )
 
