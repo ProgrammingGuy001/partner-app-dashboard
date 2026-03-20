@@ -1,0 +1,39 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "http://10.0.2.2:8000/api/v1",
+        "EXPO_PUBLIC_APP_NAME": "Modula Partner (Dev)"
+      },
+      "node": "20.x",
+      "npm": "10.x"
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://adminapi.modula.in",
+        "EXPO_PUBLIC_APP_NAME": "Modula Partner (Preview)"
+      },
+      "node": "20.x",
+      "npm": "10.x"
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://adminapi.modula.in",
+        "EXPO_PUBLIC_APP_NAME": "Modula Partner"
+      },
+      "node": "20.x",
+      "npm": "10.x"
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

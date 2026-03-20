@@ -1,5 +1,13 @@
 flutter_partner_app/*
 flutter_partner_app.zip
 .idea/*
-expo-mobile/*
+# Expo mobile app - include important config files
+expo-mobile/node_modules/
+expo-mobile/.expo/
+expo-mobile/dist/
+expo-mobile/web-build/
+expo-mobile/.env
+expo-mobile/.env*.local
+expo-mobile/ios/
+expo-mobile/android/
 
