@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { useJobs } from '@/hooks/useJobs';
-import { adminAPI, type Job } from '@/api/services';
+import { useIPUsers } from '@/hooks/useIPUsers';
+import { type Job } from '@/api/services';
 import { Briefcase, ArrowRight, Shield, TrendingUp, Users, CheckCircle2, Activity } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,11 +13,7 @@ import { StatCard } from "@/components/StatCard";
 const Dashboard: React.FC = () => {
   const { data: jobsData, isLoading: jobsLoading } = useJobs();
 
-  const { data: ipsData, isLoading: ipsLoading } = useQuery({
-    queryKey: ['ips', 'dashboard'],
-    queryFn: () => adminAPI.getIPUsers(),
-    staleTime: 1000 * 60 * 5, // 5 minutes
-  });
+  const { data: ipsData, isLoading: ipsLoading } = useIPUsers();
 
   const stats = useMemo(() => {
     const jobs = (jobsData as Job[]) || [];

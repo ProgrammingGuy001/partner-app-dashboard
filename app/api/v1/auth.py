@@ -13,7 +13,10 @@ from app.schemas.ip import (
     UserRegistration,
     LoginRequest,
     OTPVerification,
+    RefreshTokenRequest,
     UserResponse,
+    MobileAuthResponse,
+    RefreshTokenResponse,
 )
 from app.services.otp_service import OTPService
 from app.utils.helpers import create_access_token, create_refresh_token, verify_token, verify_refresh_token
@@ -28,6 +31,14 @@ def _cookie_security_settings() -> tuple[bool, str]:
     is_secure = settings.ENVIRONMENT.lower() in {"production", "staging"}
     samesite = "none" if is_secure else "lax"
     return is_secure, samesite
+
+
+def _strip_bearer_prefix(token: str | None) -> str | None:
+    if not token:
+        return None
+    if token.startswith("Bearer "):
+        return token.replace("Bearer ", "", 1)
+    return token
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -49,7 +60,8 @@ def register_user(user_data: UserRegistration, db: Session = Depends(get_db)):
         last_name=user_data.last_name,
         city=user_data.city,
         pincode=int(user_data.pincode),
-        is_phone_verified=False
+        is_phone_verified=False,
+        is_internal=user_data.is_internal
     )
 
     db.add(new_user)
@@ -96,7 +108,7 @@ def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_
     }
 
 
-@router.post("/verify-otp", response_model=UserResponse)
+@router.post("/verify-otp", response_model=MobileAuthResponse)
 @limiter.limit("10/minute")  # Max 10 OTP verification attempts per minute per IP
 def verify_otp(request: Request, otp_data: OTPVerification, response: Response, db: Session = Depends(get_db)):
     """Verify OTP and authenticate user"""
@@ -152,7 +164,12 @@ def verify_otp(request: Request, otp_data: OTPVerification, response: Response, 
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
     )
 
-    return user
+    # Return user with tokens for mobile app (cookies don't work well on mobile)
+    return {
+        **UserResponse.model_validate(user).model_dump(),
+        "access_token": access_token,
+        "refresh_token": refresh_token
+    }
 
 
 @router.post("/resend-otp")
@@ -208,22 +225,28 @@ def verify_access_token(request: Request):
     return {"valid": True, "user_id": payload["sub"]}
 
 
-@router.post("/refresh-token")
-def refresh_token(request: Request, response: Response):
+@router.post("/refresh-token", response_model=RefreshTokenResponse)
+def refresh_token(
+    request: Request,
+    response: Response,
+    refresh_data: RefreshTokenRequest | None = None,
+):
     refresh_token_cookie = request.cookies.get(settings.IP_REFRESH_COOKIE_NAME)
+    provided_refresh_token = refresh_data.refresh_token if refresh_data else None
+    refresh_token_value = refresh_token_cookie or provided_refresh_token
 
-    if not refresh_token_cookie:
+    if not refresh_token_value:
         raise HTTPException(status_code=401, detail="No refresh token provided")
 
-    if refresh_token_cookie.startswith("Bearer "):
-        refresh_token_cookie = refresh_token_cookie.replace("Bearer ", "")
+    refresh_token_value = _strip_bearer_prefix(refresh_token_value)
 
-    payload = verify_refresh_token(refresh_token_cookie)
+    payload = verify_refresh_token(refresh_token_value)
     if not payload or "sub" not in payload:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
     sub = payload["sub"]
     access_token = create_access_token(data={"sub": sub})
+    new_refresh_token = create_refresh_token(data={"sub": sub})
     secure_cookie, same_site = _cookie_security_settings()
 
     response.set_cookie(
@@ -234,7 +257,20 @@ def refresh_token(request: Request, response: Response):
         secure=secure_cookie,
     )
 
-    return {"refreshed": True}
+    response.set_cookie(
+        key=settings.IP_REFRESH_COOKIE_NAME,
+        value=f"Bearer {new_refresh_token}",
+        httponly=True,
+        samesite=same_site,
+        secure=secure_cookie,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+    )
+
+    return {
+        "access_token": access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+    }
 
 
 @router.get("/me", response_model=Union[IPUserResponse, AdminUserResponse])

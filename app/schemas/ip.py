@@ -10,6 +10,7 @@ class UserRegistration(BaseModel):
     last_name: str = Field(..., min_length=2, max_length=100)
     city: str = Field(..., min_length=2, max_length=100)
     pincode: str = Field(..., pattern=r'^\d{6}$')
+    is_internal: bool = Field(default=False, description="Whether the IP is an internal Modula employee")
 
     @validator('phone_number')
     def validate_phone_number(cls, v):
@@ -55,6 +56,10 @@ class OTPVerification(BaseModel):
     otp: str = Field(..., min_length=6, max_length=6)
 
 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
 class PANVerification(BaseModel):
     pan: str = Field(..., pattern=r'^[A-Z]{5}[0-9]{4}[A-Z]{1}$')
 
@@ -76,6 +81,7 @@ class UserResponse(BaseModel):
     is_pan_verified: bool
     is_bank_details_verified: bool
     is_id_verified: bool
+    is_internal: bool
     registered_at: datetime
 
     class Config:
@@ -98,6 +104,17 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class MobileAuthResponse(UserResponse):
+    access_token: str
+    refresh_token: str
+
+
+class RefreshTokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
 
 
 class ipuser(BaseModel):

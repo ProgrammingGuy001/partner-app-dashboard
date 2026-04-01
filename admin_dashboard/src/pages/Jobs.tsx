@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { adminAPI, type Job, type IPUser } from '@/api/services';
+import { type Job, type IPUser } from '@/api/services';
 import { useJobs, useDeleteJob } from '@/hooks/useJobs';
+import { useIPUsers } from '@/hooks/useIPUsers';
 import { Plus, Search, Filter, RefreshCw, History, User, MoreVertical } from 'lucide-react';
 import JobFormModal from '@/components/JobFormModal';
 import JobActionsModal from '@/components/JobActionsModal';
@@ -78,11 +78,7 @@ const Jobs: React.FC = () => {
 
   const deleteJobMutation = useDeleteJob();
 
-  const { data: workersData, isLoading: workersLoading } = useQuery({
-    queryKey: ['workers'],
-    queryFn: () => adminAPI.getIPUsers(),
-    staleTime: 1000 * 60 * 10, // 10 minutes
-  });
+  const { data: workersData, isLoading: workersLoading } = useIPUsers();
 
   const jobs = jobsData || [];
   const workers = workersData || [];

@@ -57,6 +57,7 @@ class ip(Base):
     is_assigned: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_phone_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_id_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_internal: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Optional legacy column present in DB.

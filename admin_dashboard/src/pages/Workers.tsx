@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
 import debounce from 'lodash.debounce';
 import { adminAPI, type IPUser, type AdminUser } from '@/api/services';
+import { useIPUsers, IP_USERS_QUERY_KEY } from '@/hooks/useIPUsers';
 import {
   Users, CheckCircle, XCircle, Search, MapPin, Phone, Calendar,
   CreditCard, Building2, Award, Briefcase, RefreshCw, Eye, AlertCircle, UserPlus
@@ -49,11 +50,7 @@ const Workers: React.FC = () => {
   const [selectedAdminIds, setSelectedAdminIds] = useState<number[]>([]);
   const queryClient = useQueryClient();
 
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['workers'],
-    queryFn: () => adminAPI.getIPUsers(),
-    staleTime: 1000 * 60 * 5, // 5 minutes
-  });
+  const { data, isLoading, error, refetch } = useIPUsers();
 
   // Fetch admin users for assignment dropdown
   const { data: adminUsers = [] } = useQuery({
@@ -66,7 +63,7 @@ const Workers: React.FC = () => {
     mutationFn: ({ phoneNumber, adminIds }: { phoneNumber: string, adminIds?: number[] }) =>
       adminAPI.verifyIPUser(phoneNumber, adminIds),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['workers'] });
+      queryClient.invalidateQueries({ queryKey: IP_USERS_QUERY_KEY });
       toast.success("Worker verified successfully");
       setShowDetails(false);
       setSelectedAdminIds([]);

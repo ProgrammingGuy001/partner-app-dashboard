@@ -60,8 +60,12 @@ export const useUpdateJob = () => {
     onSuccess: (data, variables) => {
       // Update cache for specific job
       queryClient.setQueryData(['jobs', variables.id], data);
-      // Invalidate all jobs queries
-      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      // Only invalidate the jobs list queries - the specific job is already updated above
+      // Using refetchType: 'none' to only mark as stale without immediate refetch
+      queryClient.invalidateQueries({ 
+        queryKey: ['jobs'],
+        refetchType: 'active'  // Only refetch if actively being rendered
+      });
 
       toast.success("Job updated successfully");
     },

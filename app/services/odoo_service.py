@@ -13,6 +13,24 @@ defusedxml.xmlrpc.monkey_patch()
 
 logger = logging.getLogger(__name__)
 
+
+def _build_odoo_ssl_context() -> ssl.SSLContext:
+    """Build SSL context for Odoo XML-RPC requests."""
+    if getattr(settings, "ODOO_SSL_VERIFY", "true").lower() == "false":
+        return ssl._create_unverified_context()  # noqa: S323
+
+    try:
+        import certifi
+
+        # Use certifi CA bundle for consistent TLS validation across environments.
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        logger.warning(
+            "certifi CA bundle unavailable; falling back to system trust store for Odoo SSL"
+        )
+        return ssl.create_default_context()
+
+
 class OdooService:
     """Service class for interacting with Odoo XML-RPC API"""
 
@@ -27,12 +45,8 @@ class OdooService:
     _uid = None
     _models = None
 
-    # Use a verified SSL context. Set ODOO_SSL_VERIFY=false only in dev.
-    _ssl_context = (
-        ssl._create_unverified_context()  # noqa: S323
-        if getattr(settings, "ODOO_SSL_VERIFY", "true").lower() == "false"
-        else ssl.create_default_context()
-    )
+    # Use verified SSL by default. Set ODOO_SSL_VERIFY=false only in dev.
+    _ssl_context = _build_odoo_ssl_context()
 
     @classmethod
     def _initialize_connection(cls):
@@ -55,6 +69,14 @@ class OdooService:
                         detail="Failed to authenticate with Odoo"
                     )
             except Exception as e:
+                logger.error(
+                    "Failed to initialize Odoo connection (url=%s db=%s user=%s): %s",
+                    cls.URL,
+                    cls.DB,
+                    cls.USERNAME,
+                    e,
+                    exc_info=True,
+                )
                 raise HTTPException(
                     status_code=500,
                     detail="Failed to connect to Odoo service",

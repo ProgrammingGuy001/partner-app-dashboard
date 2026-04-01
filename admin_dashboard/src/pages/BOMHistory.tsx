@@ -206,7 +206,6 @@ const BOMHistory: React.FC = () => {
                                         <TableRow>
                                             <TableHead>Product</TableHead>
                                             <TableHead>Qty</TableHead>
-                                            <TableHead>Department</TableHead>
                                             <TableHead>Issue</TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -215,7 +214,6 @@ const BOMHistory: React.FC = () => {
                                             <TableRow key={req.id}>
                                                 <TableCell className="font-medium">{req.product_name}</TableCell>
                                                 <TableCell>{req.quantity}</TableCell>
-                                                <TableCell>{req.responsible_department || '-'}</TableCell>
                                                 <TableCell className="text-muted-foreground text-sm">
                                                     {req.issue_description || '-'}
                                                 </TableCell>

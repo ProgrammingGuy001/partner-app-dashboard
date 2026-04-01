@@ -41,7 +41,6 @@ class RequisiteService:
                 product_name=item.product_name,
                 quantity=item.quantity,
                 issue_description=item.issue_description,
-                responsible_department=item.responsible_department
             )
             db.add(site_req)
 

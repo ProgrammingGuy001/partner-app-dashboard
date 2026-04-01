@@ -13,7 +13,6 @@ export interface SiteRequisiteItem {
     product_name: string;
     quantity: number;
     issue_description?: string;
-    responsible_department?: string;
 }
 
 export interface SODetail {

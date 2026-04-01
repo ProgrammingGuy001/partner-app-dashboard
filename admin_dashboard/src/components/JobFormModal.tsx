@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { type Job, type JobUpdate, type Customer, type JobRate, type SOLookupResult, adminAPI, checklistAPI, jobAPI } from '@/api/services';
+import { type Job, type JobUpdate, type SOLookupResult, jobAPI } from '@/api/services';
 import { useCreateJob, useUpdateJob } from '@/hooks/useJobs';
+import { useApprovedIPUsers } from '@/hooks/useIPUsers';
+import { useChecklists } from '@/hooks/useChecklists';
+import { useCustomers, useJobRates } from '@/hooks/useCustomers';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -62,20 +65,6 @@ const jobSchema = z.object({
 
 type JobFormValues = z.infer<typeof jobSchema>;
 
-interface IPUser {
-  id: number;
-  phone_number: string;
-  first_name: string;
-  last_name: string;
-  is_assigned: boolean;
-}
-
-interface Checklist {
-  id: number;
-  name: string;
-  description?: string;
-}
-
 interface JobFormModalProps {
   job?: Job;
   onClose: () => void;
@@ -83,10 +72,6 @@ interface JobFormModalProps {
 }
 
 const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) => {
-  const [ipUsers, setIpUsers] = useState<IPUser[]>([]);
-  const [checklists, setChecklists] = useState<Checklist[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [jobRates, setJobRates] = useState<JobRate[]>([]);
   const [selectedChecklistIds, setSelectedChecklistIds] = useState<number[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [submitError, setSubmitError] = useState('');
@@ -98,6 +83,12 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
 
   const createJobMutation = useCreateJob();
   const updateJobMutation = useUpdateJob();
+  
+  // Use React Query hooks instead of direct API calls - enables caching and deduplication
+  const { data: ipUsers = [] } = useApprovedIPUsers();
+  const { data: checklists = [] } = useChecklists();
+  const { data: customers = [] } = useCustomers();
+  const { data: jobRates = [] } = useJobRates();
 
   const { register, handleSubmit, setValue, formState: { errors }, reset, watch } = useForm<JobFormValues>({
     resolver: zodResolver(jobSchema),
@@ -160,46 +151,6 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
       setSelectedChecklistIds(ids);
     }
   }, [job, reset]);
-
-  useEffect(() => {
-    const fetchIPUsers = async () => {
-      try {
-        const data = await adminAPI.getApprovedIPUsers();
-        setIpUsers(data);
-      } catch (error) {
-        console.error('Error fetching IPUsers:', error);
-      }
-    };
-    fetchIPUsers();
-  }, []);
-
-  useEffect(() => {
-    const fetchChecklists = async () => {
-      try {
-        const data = await checklistAPI.getAll();
-        setChecklists(data);
-      } catch (error) {
-        console.error('Error fetching checklists:', error);
-      }
-    };
-    fetchChecklists();
-  }, []);
-
-  useEffect(() => {
-    const fetchCustomersAndRates = async () => {
-      try {
-        const [customersData, jobRatesData] = await Promise.all([
-          jobAPI.getCustomers({ limit: 500 }),
-          jobAPI.getJobRates(),
-        ]);
-        setCustomers(customersData || []);
-        setJobRates(jobRatesData || []);
-      } catch (error) {
-        console.error('Error fetching customers/job rates:', error);
-      }
-    };
-    fetchCustomersAndRates();
-  }, []);
 
   const handleChecklistToggle = (id: number) => {
     setSelectedChecklistIds(prev =>

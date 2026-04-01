@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { type Job, jobAPI, checklistAPI } from '@/api/services';
 import { useJobAction } from '@/hooks/useJobs';
+import { useJobChecklists } from '@/hooks/useChecklists';
 import { Play, Pause, CheckCircle, AlertCircle, ListChecks, FileText, CheckSquare, Square, Phone, Key, Loader2 } from 'lucide-react';
 import {
   Dialog,
@@ -52,8 +53,6 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
   const [activeTab, setActiveTab] = useState<string>(initialTab);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
-  const [checklists, setChecklists] = useState<ChecklistWithStatus[]>([]);
-  const [loadingChecklists, setLoadingChecklists] = useState(false);
 
   // OTP flow state
   const [otpFlow, setOtpFlow] = useState<OTPFlow>('none');
@@ -61,24 +60,11 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
 
-  const fetchChecklists = useCallback(async () => {
-    if (!job.id) return;
-    setLoadingChecklists(true);
-    try {
-      const data = await checklistAPI.getJobChecklistsStatus(job.id);
-      setChecklists(data as unknown as ChecklistWithStatus[]);
-    } catch (err) {
-      console.error('Error fetching checklists:', err);
-    } finally {
-      setLoadingChecklists(false);
-    }
-  }, [job.id]);
-
-  useEffect(() => {
-    if (activeTab === 'checklists') {
-      fetchChecklists();
-    }
-  }, [activeTab, fetchChecklists]);
+  // Use React Query hook for checklists - enabled only when checklist tab is active
+  const { data: checklistsData, isLoading: loadingChecklists, refetch: refetchChecklists } = useJobChecklists(
+    activeTab === 'checklists' ? job.id : undefined
+  );
+  const checklists = (checklistsData as unknown as ChecklistWithStatus[]) || [];
 
   const { mutateAsync: performAction, isPending: isActionLoading } = useJobAction();
 
@@ -180,7 +166,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
     if (!job.id) return;
     try {
       await checklistAPI.updateJobChecklistItemStatus(job.id, itemId, { is_approved: isApproved });
-      fetchChecklists();
+      refetchChecklists();
     } catch (err) {
       console.error('Error updating approval status:', err);
     }

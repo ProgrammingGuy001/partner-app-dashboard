@@ -12,7 +12,6 @@ class BucketItemCreate(BaseModel):
     product_name: str
     quantity: Optional[float] = Field(1.0, gt=0)
     issue_description: Optional[str] = None
-    responsible_department: Optional[str] = None
 
 class SiteRequisiteSubmit(BaseModel):
     sales_order: str
@@ -25,7 +24,6 @@ class SiteRequisiteResponse(BaseModel):
     product_name: str
     quantity: float
     issue_description: Optional[str]
-    responsible_department: Optional[str]
     created_date: datetime
 
     class Config:

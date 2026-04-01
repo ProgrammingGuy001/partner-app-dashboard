@@ -8,7 +8,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "http://10.0.2.2:8000/api/v1",
+        "EXPO_PUBLIC_API_BASE_URL": "https://adminapi.modula.in/api/v1",
         "EXPO_PUBLIC_APP_NAME": "Modula Partner (Dev)"
       }
     },
@@ -23,7 +23,14 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://adminapi.modula.in",
-        "EXPO_PUBLIC_APP_NAME": "Modula Partner"
+        "EXPO_PUBLIC_APP_NAME": "Modula Partner",
+        "EXPO_NO_SOURCEMAPS": "1"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "cache": {
+        "disabled": false
       }
     }
   },

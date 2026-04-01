@@ -24,7 +24,7 @@ export default function SignupPage() {
       await authAPI.signup({ email, password })
       navigate("/login")
     } catch (err: any) {
-      if (err.response && err.response.data && err.response.data.detail) {
+      if (err.response?.data?.detail) {
         setError(err.response.data.detail);
       } else if (err.message) {
         setError(err.message);

@@ -1,27 +1,10 @@
 import React from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { checklistAPI, type Checklist } from '@/api/services';
+import { useChecklists } from '@/hooks/useChecklists';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 
 const Checklists: React.FC = () => {
-  const { data: checklists = [], isLoading, error } = useQuery<Checklist[]>({
-    queryKey: ['checklists-detail'],
-    queryFn: async () => {
-      const summaries = await checklistAPI.getAll();
-      const details = await Promise.all(
-        summaries.map(async (c) => {
-          try {
-            return await checklistAPI.getById(c.id);
-          } catch {
-            return c;
-          }
-        })
-      );
-      return details;
-    },
-    staleTime: 5 * 60 * 1000, // 5 minutes
-  });
+  const { data: checklists = [], isLoading, error } = useChecklists();
 
   if (isLoading) {
     return <div className="p-6">Loading checklists...</div>;

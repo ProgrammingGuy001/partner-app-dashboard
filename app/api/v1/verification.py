@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_verified_user
@@ -14,7 +14,7 @@ from app.utils.rate_limiter import limiter
 router = APIRouter(prefix="/verification", tags=["Verification"])
 
 
-@router.post("/pan")
+@router.post("/pan", response_model=UserDetailResponse)
 @limiter.limit("5/hour")
 def verify_pan(
     request: Request,
@@ -48,14 +48,10 @@ def verify_pan(
     db.commit()
     db.refresh(current_user)
 
-    return {
-        "message": "PAN verified successfully",
-        "pan_number": result["pan_number"],
-        "name": result.get("name")
-    }
+    return current_user
 
 
-@router.post("/bank")
+@router.post("/bank", response_model=UserDetailResponse)
 @limiter.limit("5/hour")
 def verify_bank(
     request: Request,
@@ -94,14 +90,7 @@ def verify_bank(
     db.commit()
     db.refresh(current_user)
 
-    return {
-        "message": "Bank account verified successfully",
-        "account_number": result["account_number"],
-        "ifsc_code": result["ifsc_code"],
-        "account_holder_name": result.get("account_holder_name"),
-        "bank_name": result.get("bank_name"),
-        "branch": result.get("branch")
-    }
+    return current_user
 
 
 @router.get("/status", response_model=UserDetailResponse)
@@ -111,6 +100,46 @@ def get_verification_status(
 ):
     """Get current verification status of the user"""
 
+    return current_user
+
+
+@router.post("/verify_document", response_model=UserDetailResponse)
+@limiter.limit("5/hour")
+def upload_id_document(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: ip = Depends(get_verified_user),
+    db: Session = Depends(get_db)
+):
+    """Upload ID document for verification (requires admin approval)"""
+    
+    # Validate file type
+    allowed_types = ["image/jpeg", "image/jpg", "image/png", "application/pdf"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file type. Only JPEG, PNG, and PDF files are allowed"
+        )
+    
+    # Validate file size (max 5MB)
+    max_size = 5 * 1024 * 1024  # 5MB in bytes
+    file.file.seek(0, 2)  # Seek to end of file
+    file_size = file.file.tell()
+    file.file.seek(0)  # Reset to beginning
+    
+    if file_size > max_size:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File size exceeds 5MB limit"
+        )
+    
+    # TODO: Upload file to S3 or local storage
+    # TODO: Save document reference to database
+    # Note: is_id_verified remains False until admin manually verifies
+    
+    db.commit()
+    db.refresh(current_user)
+    
     return current_user
 
 
@@ -127,7 +156,8 @@ def check_panel_access(
     all_verified = (
         current_user.is_verified and
         current_user.is_pan_verified and
-        current_user.is_bank_details_verified
+        current_user.is_bank_details_verified and
+        current_user.is_id_verified
     )
 
     # ✅ If verified, fetch jobs assigned to this user only
