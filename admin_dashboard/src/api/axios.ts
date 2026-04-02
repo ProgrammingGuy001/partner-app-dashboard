@@ -2,10 +2,11 @@ import axios from "axios";
 import axiosRetry from "axios-retry";
 import Cookies from "js-cookie";
 
-const API_BASE_URL ="http://localhost:8000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+
 
 const CSRF_COOKIE_NAMES = ["csrf_token", "csrftoken", "XSRF-TOKEN"];
-const MUTATING_METHODS = ["post", "put", "patch", "delete"];
+const MUTATING_METHODS = new Set(["post", "put", "patch", "delete"]);
 
 const getCsrfToken = (): string | undefined => {
   for (const name of CSRF_COOKIE_NAMES) {
@@ -43,7 +44,7 @@ axiosRetry(axiosInstance, {
 // Request interceptor - Attach CSRF token to state-changing requests
 axiosInstance.interceptors.request.use(
   (config) => {
-    if (MUTATING_METHODS.includes(config.method?.toLowerCase() ?? "")) {
+    if (MUTATING_METHODS.has(config.method?.toLowerCase() ?? "")) {
       const csrfToken = getCsrfToken();
       if (csrfToken) {
         config.headers["X-CSRF-Token"] = csrfToken;
@@ -86,7 +87,7 @@ axiosInstance.interceptors.response.use(
       console.error("Network error:", error.message);
     }
 
-    return Promise.reject(error);
+    throw error;
   },
 );
 
