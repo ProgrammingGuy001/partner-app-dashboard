@@ -51,8 +51,25 @@ class OdooService:
     @classmethod
     def _initialize_connection(cls, force: bool = False):
         """Initialize Odoo connection if not already initialized or if forced"""
+        # Define invalid or missing values
+        invalid_values = (None, "", "None", "none", "null")
+        
+        # Check if Odoo configuration is available
+        if any(val in invalid_values for val in [cls.URL, cls.DB, cls.USERNAME, cls.PASSWORD]):
+            missing = []
+            if cls.URL in invalid_values: missing.append("ODOO_URL")
+            if cls.DB in invalid_values: missing.append("ODOO_DB")
+            if cls.USERNAME in invalid_values: missing.append("ODOO_USERNAME")
+            if cls.PASSWORD in invalid_values: missing.append("ODOO_PASSWORD")
+            logger.error("Odoo configuration incomplete. Missing: %s", ", ".join(missing))
+            raise HTTPException(
+                status_code=503,
+                detail=f"Odoo service not configured. Missing: {', '.join(missing)}"
+            )
+
         if force or cls._uid is None:
             try:
+                logger.info("Connecting to Odoo: %s (db=%s, user=%s)", cls.URL, cls.DB, cls.USERNAME)
                 cls._common = xmlrpc.client.ServerProxy(
                     f'{cls.URL}/xmlrpc/2/common',
                     context=cls._ssl_context
@@ -64,10 +81,14 @@ class OdooService:
                 )
 
                 if not cls._uid:
+                    logger.error("Odoo authentication failed - invalid credentials")
                     raise HTTPException(
                         status_code=401,
-                        detail="Failed to authenticate with Odoo"
+                        detail="Failed to authenticate with Odoo - check credentials"
                     )
+                logger.info("Odoo connection successful (uid=%s)", cls._uid)
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(
                     "Failed to initialize Odoo connection (url=%s db=%s user=%s): %s",
@@ -79,7 +100,7 @@ class OdooService:
                 )
                 raise HTTPException(
                     status_code=500,
-                    detail="Failed to connect to Odoo service",
+                    detail=f"Failed to connect to Odoo service: {str(e)}",
                 ) from e
 
     @classmethod
