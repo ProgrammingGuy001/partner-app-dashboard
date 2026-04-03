@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { type Job, jobAPI, checklistAPI } from '@/api/services';
 import { useJobAction } from '@/hooks/useJobs';
 import { useJobChecklists } from '@/hooks/useChecklists';
-import { Play, Pause, CheckCircle, AlertCircle, ListChecks, FileText, CheckSquare, Square, Phone, Key, Loader2 } from 'lucide-react';
+import { Play, Pause, CheckCircle, AlertCircle, ListChecks, FileText, CheckSquare, Square, Phone, Key, Loader2, XCircle } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -59,6 +59,8 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
   const [otp, setOtp] = useState('');
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
+  const [adminComments, setAdminComments] = useState<Record<number, string>>({});
+  const [itemActionLoading, setItemActionLoading] = useState<Record<number, 'approve' | 'reject'>>({});
 
   // Use React Query hook for checklists - enabled only when checklist tab is active
   const { data: checklistsData, isLoading: loadingChecklists, refetch: refetchChecklists } = useJobChecklists(
@@ -67,6 +69,16 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
   const checklists = (checklistsData as unknown as ChecklistWithStatus[]) || [];
 
   const { mutateAsync: performAction, isPending: isActionLoading } = useJobAction();
+
+  useEffect(() => {
+    const nextComments: Record<number, string> = {};
+    checklists.forEach((checklist) => {
+      checklist.items.forEach((item) => {
+        nextComments[item.id] = item.status?.admin_comment || '';
+      });
+    });
+    setAdminComments(nextComments);
+  }, [checklistsData]);
 
   // Handle legacy start/pause/finish without OTP (for jobs without customer phone)
   const handleAction = async (action: 'start' | 'pause' | 'finish') => {
@@ -162,14 +174,70 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
     setError('');
   };
 
-  const handleApprove = async (itemId: number, isApproved: boolean) => {
+  const handleReviewAction = async (item: ChecklistItem, action: 'approve' | 'reject') => {
     if (!job.id) return;
-    try {
-      await checklistAPI.updateJobChecklistItemStatus(job.id, itemId, { is_approved: isApproved });
-      refetchChecklists();
-    } catch (err) {
-      console.error('Error updating approval status:', err);
+
+    const adminComment = (adminComments[item.id] ?? item.status?.admin_comment ?? '').trim();
+    if (action === 'reject' && !adminComment) {
+      toast.error('Add an admin comment before rejecting this item');
+      return;
     }
+
+    setItemActionLoading((prev) => ({ ...prev, [item.id]: action }));
+    try {
+      await checklistAPI.updateJobChecklistItemStatus(job.id, item.id, {
+        checked: action === 'approve',
+        is_approved: action === 'approve',
+        admin_comment: adminComment || null,
+      });
+      await refetchChecklists();
+      toast.success(action === 'approve' ? 'Checklist item approved' : 'Checklist item rejected');
+    } catch (err: any) {
+      console.error('Error updating approval status:', err);
+      toast.error(err?.response?.data?.detail || 'Failed to update checklist item');
+    } finally {
+      setItemActionLoading((prev) => {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+    }
+  };
+
+  const getItemStatusMeta = (item: ChecklistItem) => {
+    if (item.status?.is_approved) {
+      return {
+        label: 'Approved',
+        variant: 'secondary' as const,
+        className: 'bg-green-100 text-green-800 hover:bg-green-100 gap-1',
+        icon: <CheckCircle size={10} />,
+      };
+    }
+
+    if (item.status?.checked) {
+      return {
+        label: 'Under Review',
+        variant: 'outline' as const,
+        className: 'border-amber-200 text-amber-700 bg-amber-50 gap-1',
+        icon: null,
+      };
+    }
+
+    if (item.status?.admin_comment) {
+      return {
+        label: 'Rejected',
+        variant: 'destructive' as const,
+        className: 'gap-1',
+        icon: <XCircle size={10} />,
+      };
+    }
+
+    return {
+      label: 'Pending',
+      variant: 'outline' as const,
+      className: 'text-muted-foreground',
+      icon: null,
+    };
   };
 
   const requiresOTP = !!job.customer_phone;
@@ -350,7 +418,18 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                           )}
                         </div>
                         <div className="divide-y">
-                          {checklist.items.map((item) => (
+                          {checklist.items.map((item) => {
+                            const statusMeta = getItemStatusMeta(item);
+                            const hasSubmission = Boolean(
+                              item.status?.checked ||
+                              item.status?.comment ||
+                              item.status?.document_link ||
+                              item.status?.admin_comment
+                            );
+                            const adminComment = adminComments[item.id] ?? item.status?.admin_comment ?? '';
+                            const currentAction = itemActionLoading[item.id];
+
+                            return (
                             <div key={item.id} className="px-4 py-3 hover:bg-gray-50/50 transition">
                               <div className="flex items-start gap-3">
                                 <div className="mt-0.5 text-gray-400 shrink-0">
@@ -367,28 +446,16 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                                     </p>
 
                                     <div className="flex items-center gap-2 shrink-0 ml-2">
-                                      {item.status?.is_approved ? (
-                                        <Badge variant="secondary" className="bg-green-100 text-green-800 hover:bg-green-100 gap-1">
-                                          <CheckCircle size={10} /> Approved
-                                        </Badge>
-                                      ) : (
-                                        item.status?.checked && (
-                                          <Button
-                                            onClick={() => handleApprove(item.id, true)}
-                                            size="sm"
-                                            variant="outline"
-                                            className="h-7 text-xs border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700"
-                                          >
-                                            Approve
-                                          </Button>
-                                        )
-                                      )}
+                                      <Badge variant={statusMeta.variant} className={statusMeta.className}>
+                                        {statusMeta.icon}
+                                        {statusMeta.label}
+                                      </Badge>
                                     </div>
                                   </div>
 
                                   {item.status?.comment && (
                                     <div className="text-xs text-gray-600 bg-yellow-50/50 p-2 rounded border border-yellow-100/50">
-                                      <span className="font-medium text-yellow-700">Worker Note:</span> {item.status.comment}
+                                      <span className="font-medium text-yellow-700">IP Note:</span> {item.status.comment}
                                     </div>
                                   )}
                                   {item.status?.document_link && (
@@ -403,15 +470,64 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                                       </a>
                                     </div>
                                   )}
-                                  {item.status?.admin_comment && (
-                                    <div className="text-xs text-gray-500 bg-gray-100 p-2 rounded">
-                                      <span className="font-semibold">Admin Note:</span> {item.status.admin_comment}
+                                  {hasSubmission && (
+                                    <div className="space-y-3 rounded-md border border-dashed border-gray-200 bg-gray-50 p-3">
+                                      <div className="space-y-1">
+                                        <label
+                                          htmlFor={`admin-comment-${item.id}`}
+                                          className="text-xs font-semibold uppercase tracking-wide text-gray-500"
+                                        >
+                                          Admin Comment
+                                        </label>
+                                        <Textarea
+                                          id={`admin-comment-${item.id}`}
+                                          value={adminComment}
+                                          onChange={(event) =>
+                                            setAdminComments((prev) => ({
+                                              ...prev,
+                                              [item.id]: event.target.value,
+                                            }))
+                                          }
+                                          placeholder="Tell the IP what to fix before resubmitting."
+                                          className="min-h-[84px] bg-white"
+                                        />
+                                      </div>
+
+                                      <div className="flex flex-wrap gap-2">
+                                        <Button
+                                          onClick={() => handleReviewAction(item, 'approve')}
+                                          size="sm"
+                                          className="bg-green-600 hover:bg-green-700"
+                                          disabled={!!currentAction}
+                                        >
+                                          {currentAction === 'approve' ? (
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                          ) : (
+                                            <CheckCircle className="mr-2 h-4 w-4" />
+                                          )}
+                                          Approve
+                                        </Button>
+                                        <Button
+                                          onClick={() => handleReviewAction(item, 'reject')}
+                                          size="sm"
+                                          variant="destructive"
+                                          disabled={!!currentAction}
+                                        >
+                                          {currentAction === 'reject' ? (
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                          ) : (
+                                            <XCircle className="mr-2 h-4 w-4" />
+                                          )}
+                                          Reject
+                                        </Button>
+                                      </div>
                                     </div>
                                   )}
                                 </div>
                               </div>
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     ))}

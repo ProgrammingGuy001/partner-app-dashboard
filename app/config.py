@@ -1,17 +1,53 @@
+import os
+from pathlib import Path
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from typing import Optional, List
 
 
+def get_env_file() -> str:
+    """
+    Read env.mode file to determine which environment file to load.
+    Returns path to .env or .env.test based on env.mode content.
+    """
+    mode_file = Path(__file__).parent / "env.mode"
+    
+    # Default to test if env.mode doesn't exist
+    if not mode_file.exists():
+        print("env.mode not found, defaulting to test mode")
+        return ".env.test"
+    
+    # Read mode from env.mode file
+    try:
+        content = mode_file.read_text().strip()
+        # Parse ENVIRONMENT=prod or ENVIRONMENT=test
+        for line in content.split('\n'):
+            line = line.strip()
+            if line.startswith('ENVIRONMENT='):
+                mode = line.split('=')[1].strip().lower()
+                if mode == 'prod':
+                    print("Mode: PRODUCTION - Loading .env")
+                    return ".env"
+                elif mode == 'test':
+                    print("Mode: TEST - Loading .env.test")
+                    return ".env.test"
+                else:
+                    print(f"Unknown mode '{mode}' in env.mode, defaulting to test")
+                    return ".env.test"
+    except Exception as e:
+        print(f"Error reading env.mode: {e}, defaulting to test")
+        return ".env.test"
+    
+    # If no ENVIRONMENT found in file
+    print("No ENVIRONMENT found in env.mode, defaulting to test")
+    return ".env.test"
+
+
 class Settings(BaseSettings):
     # Environment
-    ENVIRONMENT: str = "development"  # "development", "staging", "production"
+    ENVIRONMENT: str = "test"  # "test" or "prod"
 
     # Database
-    DB_HOST: str
-    DB_NAME: str
-    DB_USER: str
-    DB_PASS: str
     DATABASE_URL: str
 
     # Project
@@ -79,8 +115,9 @@ class Settings(BaseSettings):
         return [e.strip().lower() for e in self.ALLOWED_FILE_EXTENSIONS.split(",")]
 
     class Config:
-        env_file = ".env"
+        env_file = get_env_file()
         case_sensitive = True
+        extra = 'ignore'  # Allow extra fields in .env files without validation errors
 
 
 settings = Settings()

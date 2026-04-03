@@ -49,9 +49,9 @@ class OdooService:
     _ssl_context = _build_odoo_ssl_context()
 
     @classmethod
-    def _initialize_connection(cls):
-        """Initialize Odoo connection if not already initialized"""
-        if cls._uid is None:
+    def _initialize_connection(cls, force: bool = False):
+        """Initialize Odoo connection if not already initialized or if forced"""
+        if force or cls._uid is None:
             try:
                 cls._common = xmlrpc.client.ServerProxy(
                     f'{cls.URL}/xmlrpc/2/common',
@@ -84,16 +84,31 @@ class OdooService:
 
     @classmethod
     def _execute_kw(cls, model: str, method: str, args: List, kwargs: Dict = None) -> Any:
-        """Execute Odoo XML-RPC method with error handling"""
+        """Execute Odoo XML-RPC method with error handling and retry mechanism"""
         cls._initialize_connection()
+        if kwargs is None:
+            kwargs = {}
 
         try:
-            if kwargs is None:
-                kwargs = {}
             return cls._models.execute_kw(
                 cls.DB, cls._uid, cls.PASSWORD,
                 model, method, args, kwargs
             )
+        except (xmlrpc.client.ProtocolError, OSError, ConnectionError) as net_err:
+            # Network or protocol failures (e.g., dropped connection, session timeout)
+            logger.warning("Odoo connection dropped, attempting reconnect... Error: %s", net_err)
+            try:
+                cls._initialize_connection(force=True)
+                return cls._models.execute_kw(
+                    cls.DB, cls._uid, cls.PASSWORD,
+                    model, method, args, kwargs
+                )
+            except Exception as retry_err:
+                logger.error("Odoo execute_kw retry failed: %s", retry_err)
+                raise HTTPException(
+                    status_code=500,
+                    detail="Error executing Odoo method after reconnect attempt",
+                ) from retry_err
         except xmlrpc.client.Fault as e:
             logger.error("Odoo XML-RPC fault: %s", e.faultString)
             raise HTTPException(
@@ -101,7 +116,7 @@ class OdooService:
                 detail="Odoo service error",
             ) from e
         except Exception as e:
-            logger.error("Odoo execute_kw error: %s", e)
+            logger.error("Odoo execute_kw generic error: %s", e)
             raise HTTPException(
                 status_code=500,
                 detail="Error executing Odoo method",

@@ -17,6 +17,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 
+const getJobIncentive = (job: Job) => Number(job.incentive ?? job.additional_expense) || 0;
+
 const Analytics: React.FC = () => {
   const [editingJobId, setEditingJobId] = useState<number | null>(null);
   const [editExpense, setEditExpense] = useState<string>('');
@@ -35,7 +37,7 @@ const Analytics: React.FC = () => {
       return sum + (rate * size);
     }, 0);
 
-    const totalExpenses = jobs.reduce((sum: number, job: Job) => sum + (Number(job.additional_expense) || 0), 0);
+    const totalExpenses = jobs.reduce((sum: number, job: Job) => sum + getJobIncentive(job), 0);
     const totalSize = jobs.reduce((sum: number, job: Job) => sum + (Number(job.size) || 0), 0);
     const totalCost = totalPayout + totalExpenses;
     const avgRatePerUnit = totalSize > 0 ? totalCost / totalSize : 0;
@@ -64,10 +66,10 @@ const Analytics: React.FC = () => {
     try {
       const expenseValue = Number(editExpense) || 0;
       await jobAPI.update(jobId, {
-        additional_expense: expenseValue
+        incentive: expenseValue
       });
 
-      toast.success("Expense updated successfully");
+      toast.success("Incentive updated successfully");
 
       refetch();
       setEditingJobId(null);
@@ -145,9 +147,9 @@ const Analytics: React.FC = () => {
           icon={<Briefcase className="h-4 w-4" />}
         />
         <StatCard
-          title="Additional Expenses"
+          title="Incentives"
           value={`₹${totalExpenses.toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
-          description="Total misc costs"
+          description="Total incentive amount"
           icon={<DollarSign className="h-4 w-4" />}
         />
         <StatCard
@@ -191,11 +193,11 @@ const AnalyticsSkeleton: React.FC = () => (
 
 // Removed: KPICard moved to shared @/components/StatCard
 
-const CostChart: React.FC<{ jobs: Array<{ id?: number; name?: string | null; rate?: number | null; size?: number | null; additional_expense?: number | null }> }> = ({ jobs }) => {
+const CostChart: React.FC<{ jobs: Array<{ id?: number; name?: string | null; rate?: number | null; size?: number | null; incentive?: number | null; additional_expense?: number | null }> }> = ({ jobs }) => {
   const chartData = jobs.slice(0, 20).map(job => {
     const rate = Number(job.rate) || 0;
     const size = Number(job.size) || 0;
-    const expense = Number(job.additional_expense) || 0;
+    const expense = Number(job.incentive ?? job.additional_expense) || 0;
     const totalCost = rate * size + expense;
 
     return {
@@ -259,7 +261,7 @@ const CostChart: React.FC<{ jobs: Array<{ id?: number; name?: string | null; rat
                   dataKey="expense"
                   fill="var(--chart-2)"
                   radius={[4, 4, 0, 0]}
-                  name="Additional Expense"
+                  name="Incentive"
                   maxBarSize={40}
                 />
               </BarChart>
@@ -300,7 +302,7 @@ const JobDetailsTable: React.FC<{
                 <TableHead className="text-right">Area</TableHead>
                 <TableHead className="text-right">Rate/area</TableHead>
                 <TableHead className="text-right">Payout</TableHead>
-                <TableHead className="text-right">Expense</TableHead>
+                <TableHead className="text-right">Incentive</TableHead>
                 <TableHead className="text-right">Total Cost</TableHead>
                 <TableHead className="text-right">Rate/Unit</TableHead>
               </TableRow>
@@ -339,7 +341,7 @@ const JobTableRow: React.FC<{
 }> = ({ job, isEditing, editExpense, onEditExpense, onSaveExpense, onCancelEdit, setEditExpense }) => {
   const rate = Number(job.rate) || 0;
   const size = Number(job.size) || 0;
-  const expense = Number(job.additional_expense) || 0;
+  const expense = getJobIncentive(job);
   const payout = rate * size;
   const totalCost = payout + expense;
   const ratePerUnit = size > 0 ? totalCost / size : 0;
@@ -371,14 +373,14 @@ const JobTableRow: React.FC<{
               autoFocus
               min="0"
               step="0.01"
-              aria-label="Edit expense amount"
+              aria-label="Edit incentive amount"
             />
             <Button
               size="icon"
               variant="ghost"
               onClick={() => onSaveExpense(job.id!)}
               className="h-8 w-8 text-foreground hover:text-foreground/80"
-              aria-label="Save expense"
+              aria-label="Save incentive"
             >
               <Save size={16} />
             </Button>
@@ -402,7 +404,7 @@ const JobTableRow: React.FC<{
               variant="ghost"
               onClick={() => onEditExpense(job.id!, expense)}
               className="h-6 w-6 text-muted-foreground hover:text-foreground"
-              aria-label="Edit expense"
+              aria-label="Edit incentive"
             >
               <Edit2 size={12} />
             </Button>

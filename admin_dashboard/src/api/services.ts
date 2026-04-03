@@ -54,6 +54,7 @@ export interface Job {
   job_checklists?: { checklist_id: number }[];
   google_map_link?: string;
   status: string;
+  incentive?: number;
   additional_expense?: number;
   start_otp_verified?: boolean;
   end_otp_verified?: boolean;
@@ -225,6 +226,33 @@ const handleResponse = <T>(response: any): T => {
   return response;
 };
 
+const normalizeJob = (job: any): Job => {
+  if (!job || typeof job !== 'object') {
+    return job;
+  }
+
+  const rawIncentive = job.incentive ?? job.additional_expense ?? 0;
+  const incentive = Number(rawIncentive) || 0;
+
+  return {
+    ...job,
+    incentive,
+    additional_expense: incentive,
+  };
+};
+
+const normalizeJobPayload = (job: Partial<Job>) => {
+  const incentive = job.incentive ?? job.additional_expense;
+  const payload: Record<string, unknown> = { ...job };
+
+  if (incentive !== undefined) {
+    payload.incentive = incentive;
+  }
+
+  delete payload.additional_expense;
+  return payload;
+};
+
 // ============ API Functions ============
 
 // Auth APIs
@@ -261,11 +289,21 @@ export const jobAPI = {
     const skip = (page - 1) * limit;
     return axiosInstance.get('/jobs', {
       params: { ...rest, skip, limit }
-    }).then(res => handleResponse(res));
+    }).then(res => {
+      const data = handleResponse<Job[] | PaginatedResponse<Job>>(res);
+      if (Array.isArray(data)) {
+        return data.map(normalizeJob);
+      }
+      return {
+        ...data,
+        jobs: data.jobs?.map(normalizeJob),
+        data: data.data?.map(normalizeJob),
+      };
+    });
   },
 
   getById: (id: number): Promise<Job> =>
-    axiosInstance.get(`/jobs/${id}`).then(res => handleResponse(res)),
+    axiosInstance.get(`/jobs/${id}`).then(res => normalizeJob(handleResponse(res))),
 
   getCustomers: (params?: { search?: string; limit?: number }): Promise<Customer[]> =>
     axiosInstance.get('/jobs/customers', { params }).then(res => handleResponse(res)),
@@ -274,10 +312,10 @@ export const jobAPI = {
     axiosInstance.get('/jobs/job-rates').then(res => handleResponse(res)),
 
   create: (data: Omit<Job, 'id'>): Promise<Job> =>
-    axiosInstance.post('/jobs', data).then(res => handleResponse(res)),
+    axiosInstance.post('/jobs', normalizeJobPayload(data)).then(res => normalizeJob(handleResponse(res))),
 
   update: (id: number, data: JobUpdate): Promise<Job> =>
-    axiosInstance.put(`/jobs/${id}`, data).then(res => handleResponse(res)),
+    axiosInstance.put(`/jobs/${id}`, normalizeJobPayload(data)).then(res => normalizeJob(handleResponse(res))),
 
   delete: (id: number): Promise<ApiResponse> =>
     axiosInstance.delete(`/jobs/${id}`).then(res => handleResponse(res)),
@@ -296,13 +334,13 @@ export const jobAPI = {
     axiosInstance.post(`/jobs/${id}/request-start-otp`).then(res => handleResponse(res)),
 
   verifyStartOTP: (id: number, otp: string, notes?: string): Promise<Job> =>
-    axiosInstance.post(`/jobs/${id}/verify-start-otp`, { otp, notes }).then(res => handleResponse(res)),
+    axiosInstance.post(`/jobs/${id}/verify-start-otp`, { otp, notes }).then(res => normalizeJob(handleResponse(res))),
 
   requestEndOTP: (id: number): Promise<OTPResponse> =>
     axiosInstance.post(`/jobs/${id}/request-end-otp`).then(res => handleResponse(res)),
 
   verifyEndOTP: (id: number, otp: string, notes?: string): Promise<Job> =>
-    axiosInstance.post(`/jobs/${id}/verify-end-otp`, { otp, notes }).then(res => handleResponse(res)),
+    axiosInstance.post(`/jobs/${id}/verify-end-otp`, { otp, notes }).then(res => normalizeJob(handleResponse(res))),
 
   getHistory: (id: number): Promise<JobStatusLog[]> =>
     axiosInstance.get(`/jobs/${id}/history`).then(res => handleResponse(res)),
@@ -387,7 +425,7 @@ export const checklistAPI = {
   updateJobChecklistItemStatus: (
     jobId: number,
     itemId: number,
-    data: { is_approved?: boolean; admin_comment?: string }
+    data: { checked?: boolean; is_approved?: boolean; admin_comment?: string | null }
   ): Promise<ApiResponse> =>
     axiosInstance.put(`/checklists/jobs/${jobId}/items/${itemId}/status`, data).then(res => handleResponse(res)),
 };

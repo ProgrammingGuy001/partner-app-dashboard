@@ -11,13 +11,15 @@ from app.schemas.checklist import (
     JobChecklistItemStatusUpdate,
     JobChecklistItemStatusResponse
 )
-from app.schemas.job_status_log import JobStatusLogResponse
+from app.schemas.job_status_log import JobStatusLogResponse, JobStatusLogCreate
 from app.api.deps import get_fully_verified_user
 from app.services.s3_service import upload_file_to_s3
 from app.crud.checklist import update_job_checklist_item_status
 from app.crud.job import get_job_status_history
 from typing import List
 from app.model.media_document import MediaDocument
+from app.model.job_status_log import JobStatusLog
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +83,43 @@ def get_job_history(
         )
 
     return get_job_status_history(db, job_id)
+
+
+@router.post("/{job_id}/notes", response_model=dict)
+def add_job_note(
+    job_id: int,
+    note_data: JobStatusLogCreate,
+    current_user: ip = Depends(get_fully_verified_user),
+    db: Session = Depends(get_db)
+):
+    """Add a note to job history - IP users can add notes to track progress"""
+    job = db.query(Job).filter(Job.id == job_id, Job.assigned_ip_id == current_user.id).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found or not assigned to you"
+        )
+
+    if not note_data.notes or not note_data.notes.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Note cannot be empty"
+        )
+
+    job_status_log = JobStatusLog(
+        job_id=job_id,
+        status=job.status,
+        notes=note_data.notes.strip(),
+        created_at=datetime.utcnow()
+    )
+    db.add(job_status_log)
+    db.commit()
+    db.refresh(job_status_log)
+
+    return {
+        "message": "Note added successfully",
+        "note": JobStatusLogResponse.model_validate(job_status_log)
+    }
 
 
 @router.get("/{job_id}/progress", response_model=dict)

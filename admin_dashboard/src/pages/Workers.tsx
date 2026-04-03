@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
 import debounce from 'lodash.debounce';
-import { adminAPI, type IPUser, type AdminUser } from '@/api/services';
+import { adminAPI, authAPI, type IPUser, type AdminUser } from '@/api/services';
 import { useIPUsers, IP_USERS_QUERY_KEY } from '@/hooks/useIPUsers';
 import {
   Users, CheckCircle, XCircle, Search, MapPin, Phone, Calendar,
@@ -51,6 +51,12 @@ const Workers: React.FC = () => {
   const queryClient = useQueryClient();
 
   const { data, isLoading, error, refetch } = useIPUsers();
+  const { data: currentUser } = useQuery({
+    queryKey: ['auth', 'user'],
+    queryFn: () => authAPI.getCurrentUser(),
+    staleTime: 1000 * 60 * 5,
+  });
+  const canManageAssignments = Boolean(currentUser?.is_superadmin);
 
   // Fetch admin users for assignment dropdown
   const { data: adminUsers = [] } = useQuery({
@@ -70,6 +76,21 @@ const Workers: React.FC = () => {
     },
     onError: (error: AxiosError<{ message: string }>) => {
       toast.error(error.response?.data?.message || "Failed to verify worker");
+    },
+  });
+
+  const assignAdminsMutation = useMutation({
+    mutationFn: ({ ipId, adminIds }: { ipId: number; adminIds: number[] }) =>
+      adminAPI.assignAdminsToIP(ipId, adminIds),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: IP_USERS_QUERY_KEY });
+      setSelectedWorker((prev) => (
+        prev ? { ...prev, assigned_admin_ids: variables.adminIds } : prev
+      ));
+      toast.success("Admin assignments updated");
+    },
+    onError: (error: AxiosError<{ detail?: string; message?: string }>) => {
+      toast.error(error.response?.data?.detail || error.response?.data?.message || "Failed to update assignments");
     },
   });
 
@@ -132,8 +153,16 @@ const Workers: React.FC = () => {
 
   const handleVerify = (phoneNumber: string) => {
     if (window.confirm('Are you sure you want to verify this worker?')) {
-      verifyMutation.mutate({ phoneNumber, adminIds: selectedAdminIds.length > 0 ? selectedAdminIds : undefined });
+      verifyMutation.mutate({
+        phoneNumber,
+        adminIds: canManageAssignments && selectedAdminIds.length > 0 ? selectedAdminIds : undefined,
+      });
     }
+  };
+
+  const handleSaveAssignments = () => {
+    if (!selectedWorker?.id) return;
+    assignAdminsMutation.mutate({ ipId: selectedWorker.id, adminIds: selectedAdminIds });
   };
 
   const toggleAdminSelection = (adminId: number) => {
@@ -286,6 +315,9 @@ const Workers: React.FC = () => {
         adminUsers={adminUsers}
         selectedAdminIds={selectedAdminIds}
         toggleAdminSelection={toggleAdminSelection}
+        canManageAssignments={canManageAssignments}
+        onSaveAssignments={handleSaveAssignments}
+        isSavingAssignments={assignAdminsMutation.isPending}
       />
     </div>
   );
@@ -398,7 +430,22 @@ const DetailsModal: React.FC<{
   adminUsers: AdminUser[];
   selectedAdminIds: number[];
   toggleAdminSelection: (adminId: number) => void;
-}> = ({ worker, open, onOpenChange, onVerify, getVerificationScore, adminUsers, selectedAdminIds, toggleAdminSelection }) => {
+  canManageAssignments: boolean;
+  onSaveAssignments: () => void;
+  isSavingAssignments: boolean;
+}> = ({
+  worker,
+  open,
+  onOpenChange,
+  onVerify,
+  getVerificationScore,
+  adminUsers,
+  selectedAdminIds,
+  toggleAdminSelection,
+  canManageAssignments,
+  onSaveAssignments,
+  isSavingAssignments,
+}) => {
   if (!worker) return null;
 
   const score = getVerificationScore(worker);
@@ -473,24 +520,30 @@ const DetailsModal: React.FC<{
                     <UserPlus className="h-4 w-4" /> Assign Admins to this Personnel
                   </h4>
                   <p className="text-xs text-muted-foreground mb-3">
-                    Select which admins can manage jobs for this personnel
+                    {canManageAssignments
+                      ? 'Select which admins can manage jobs for this personnel'
+                      : 'Only superadmins can update these assignments'}
                   </p>
                   <div className="space-y-2 max-h-[200px] overflow-y-auto border rounded-lg p-3">
                     {adminUsers.map((admin) => (
                       <div
                         key={admin.id}
-                        className="flex items-center gap-3 p-2 rounded hover:bg-muted/50 cursor-pointer min-w-0"
-                        onClick={() => toggleAdminSelection(admin.id)}
+                        className={`flex items-center gap-3 p-2 rounded min-w-0 ${canManageAssignments ? 'hover:bg-muted/50' : 'opacity-70'}`}
                       >
                         <Checkbox
                           id={`admin-${admin.id}`}
                           checked={selectedAdminIds.includes(admin.id)}
-                          onCheckedChange={() => toggleAdminSelection(admin.id)}
+                          disabled={!canManageAssignments}
+                          onCheckedChange={() => {
+                            if (canManageAssignments) {
+                              toggleAdminSelection(admin.id);
+                            }
+                          }}
                           className="shrink-0"
                         />
                         <Label
                           htmlFor={`admin-${admin.id}`}
-                          className="flex-1 cursor-pointer flex items-center justify-between gap-2 min-w-0"
+                          className={`flex-1 flex items-center justify-between gap-2 min-w-0 ${canManageAssignments ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                         >
                           <span className="truncate text-sm">{admin.email}</span>
                           {admin.is_superadmin && (
@@ -545,6 +598,18 @@ const DetailsModal: React.FC<{
                   onClick={() => onVerify(worker.phone_number)}
                 >
                   Verify Personnel {selectedAdminIds.length > 0 && `& Assign ${selectedAdminIds.length} Admin(s)`}
+                </Button>
+              </div>
+            )}
+            {worker.is_id_verified && canManageAssignments && (
+              <div className="pt-4">
+                <Button
+                  className="w-full"
+                  size="lg"
+                  onClick={onSaveAssignments}
+                  disabled={isSavingAssignments}
+                >
+                  {isSavingAssignments ? 'Saving Assignments...' : 'Save Admin Assignments'}
                 </Button>
               </div>
             )}

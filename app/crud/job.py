@@ -211,7 +211,7 @@ def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = 
             assigned_ip_id=job_data.pop("assigned_ip_id", None),
             status=job_data.pop("status", "created"),
             delivery_date=job_data.pop("delivery_date", None),
-            additional_expense=job_data.pop("additional_expense", Decimal("0.00")),
+            incentive=job_data.pop("incentive", Decimal("0.00")),
             job_rate_id=job_rate.id if job_rate else None,
             area=job_data.pop("size", None),
             admin_assigned=user_id,
@@ -323,7 +323,7 @@ def update_job(db: Session, job_id: int, job_update: JobUpdate, admin_id: int = 
             "delivery_date": "delivery_date",
             "checklist_link": "checklist_link",
             "google_map_link": "google_map_link",
-            "additional_expense": "additional_expense",
+            "incentive": "incentive",
         }
         for source, target in field_map.items():
             if source in update_data:

@@ -24,7 +24,7 @@ class JobBase(BaseModel):
     delivery_date: date
     checklist_link: Optional[str] = None
     google_map_link: Optional[str] = None
-    additional_expense: Optional[Decimal] = Field(
+    incentive: Optional[Decimal] = Field(
         default=Decimal("0.00"), max_digits=10, decimal_places=2
     )
 
@@ -53,7 +53,7 @@ class JobUpdate(BaseModel):
     checklist_ids: Optional[list[int]] = None
     checklist_link: Optional[str] = None
     google_map_link: Optional[str] = None
-    additional_expense: Optional[condecimal(max_digits=10, decimal_places=2)] = None
+    incentive: Optional[condecimal(max_digits=10, decimal_places=2)] = None
 
 
 class JobStart(BaseModel):
@@ -137,7 +137,7 @@ class JobResponse(BaseModel):
     checklist_link: Optional[str] = None
     google_map_link: Optional[str] = None
     status: str = "created"
-    additional_expense: Optional[Decimal] = Field(default=Decimal("0.00"))
+    incentive: Optional[Decimal] = Field(default=Decimal("0.00"))
     start_otp_verified: bool = False
     end_otp_verified: bool = False
     job_checklists: List[JobChecklistResponse] = []

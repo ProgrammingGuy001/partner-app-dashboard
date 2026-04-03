@@ -35,6 +35,8 @@ interface JobTypeData {
    avg_rate_per_unit: number;
 }
 
+const getJobIncentive = (job: Job) => Number(job.incentive ?? job.additional_expense) || 0;
+
 const ProjectAnalytics: React.FC = () => {
    const [selectedPeriod, setSelectedPeriod] = useState<string>('month');
    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -105,7 +107,7 @@ const ProjectAnalytics: React.FC = () => {
          }, 0);
 
          const total_additional_expense = typeJobs.reduce((sum, job) =>
-            sum + (Number(job.additional_expense) || 0), 0
+            sum + getJobIncentive(job), 0
          );
 
          const total_size = typeJobs.reduce((sum, job) =>
@@ -132,12 +134,12 @@ const ProjectAnalytics: React.FC = () => {
       jobs.length > 0 ? jobs.reduce((max, job) => {
          const rate = Number(job.rate) || 0;
          const size = Number(job.size) || 0;
-         const expense = Number(job.additional_expense) || 0;
+         const expense = getJobIncentive(job);
          const totalCost = rate * size + expense;
 
          const maxRate = Number(max.rate) || 0;
          const maxSize = Number(max.size) || 0;
-         const maxExpense = Number(max.additional_expense) || 0;
+         const maxExpense = getJobIncentive(max);
          const maxTotalCost = maxRate * maxSize + maxExpense;
 
          return totalCost > maxTotalCost ? job : max;
@@ -149,13 +151,13 @@ const ProjectAnalytics: React.FC = () => {
       jobs.length > 0 ? jobs.reduce((max, job) => {
          const rate = Number(job.rate) || 0;
          const size = Number(job.size) || 0;
-         const expense = Number(job.additional_expense) || 0;
+         const expense = getJobIncentive(job);
          const totalCost = rate * size + expense;
          const perUnit = size > 0 ? totalCost / size : 0;
 
          const maxRate = Number(max.rate) || 0;
          const maxSize = Number(max.size) || 0;
-         const maxExpense = Number(max.additional_expense) || 0;
+         const maxExpense = getJobIncentive(max);
          const maxTotalCost = maxRate * maxSize + maxExpense;
          const maxPerUnit = maxSize > 0 ? maxTotalCost / maxSize : 0;
 
@@ -307,7 +309,7 @@ const ProjectAnalytics: React.FC = () => {
                         <div className="text-2xl font-bold tabular-nums @[200px]/card:text-3xl @[300px]/card:text-4xl transition-all duration-300">
                            ₹{largestProjectByCost ? (
                               (Number(largestProjectByCost.rate) * Number(largestProjectByCost.size) +
-                                 Number(largestProjectByCost.additional_expense || 0)).toLocaleString()
+                                 getJobIncentive(largestProjectByCost)).toLocaleString()
                            ) : '0'}
                         </div>
                         <p className="text-xs text-muted-foreground mt-1 truncate">
@@ -324,7 +326,7 @@ const ProjectAnalytics: React.FC = () => {
                         <div className="text-2xl font-bold tabular-nums @[200px]/card:text-3xl @[300px]/card:text-4xl transition-all duration-300">
                            ₹{largestProjectByPerUnit && Number(largestProjectByPerUnit.size) > 0 ? (
                               ((Number(largestProjectByPerUnit.rate) * Number(largestProjectByPerUnit.size) +
-                                 Number(largestProjectByPerUnit.additional_expense || 0)) / Number(largestProjectByPerUnit.size)).toLocaleString(undefined, { maximumFractionDigits: 2 })
+                                 getJobIncentive(largestProjectByPerUnit)) / Number(largestProjectByPerUnit.size)).toLocaleString(undefined, { maximumFractionDigits: 2 })
                            ) : '0'}
                         </div>
                         <p className="text-xs text-muted-foreground mt-1 truncate">
@@ -385,7 +387,7 @@ const ProjectAnalytics: React.FC = () => {
                                  />
                                  <Legend />
                                  <Bar dataKey="total_payout" name="Base Payout" fill="#18181b" radius={[4, 4, 0, 0]} />
-                                 <Bar dataKey="total_additional_expense" name="Additional" fill="#a1a1aa" radius={[4, 4, 0, 0]} />
+                                 <Bar dataKey="total_additional_expense" name="Incentive" fill="#a1a1aa" radius={[4, 4, 0, 0]} />
                               </BarChart>
                            </ResponsiveContainer>
                         </div>
@@ -415,7 +417,7 @@ const ProjectAnalytics: React.FC = () => {
                                  <TableHead className="text-right">Projects</TableHead>
                                  <TableHead className="text-right">Total Area</TableHead>
                                  <TableHead className="text-right">Base Payout</TableHead>
-                                 <TableHead className="text-right">Additional</TableHead>
+                                 <TableHead className="text-right">Incentive</TableHead>
                                  <TableHead className="text-right">Total Cost</TableHead>
                                  <TableHead className="text-right">Avg per Unit</TableHead>
                               </TableRow>

@@ -89,7 +89,7 @@ def get_payout_analytics(
         )
 
         total_additional_expense = (
-            db.query(func.sum(func.coalesce(Job.additional_expense, 0)))
+            db.query(func.sum(func.coalesce(Job.incentive, 0)))
             .filter(*base_filter, Job.status == "completed")
             .scalar()
             or Decimal(0)
@@ -100,7 +100,7 @@ def get_payout_analytics(
                 Job.status,
                 func.count(Job.id).label("count"),
                 func.sum(_payout_expression()).label("total_payout"),
-                func.sum(func.coalesce(Job.additional_expense, 0)).label("total_additional_expense"),
+                func.sum(func.coalesce(Job.incentive, 0)).label("total_additional_expense"),
             )
             .select_from(Job)
             .outerjoin(JobRate, Job.job_rate_id == JobRate.id)
@@ -125,7 +125,7 @@ def get_payout_analytics(
                 (func.coalesce(ip.first_name, "") + " " + func.coalesce(ip.last_name, "")).label("ip_name"),
                 func.count(Job.id).label("job_count"),
                 func.sum(_payout_expression()).label("total_payout"),
-                func.sum(func.coalesce(Job.additional_expense, 0)).label("total_additional_expense"),
+                func.sum(func.coalesce(Job.incentive, 0)).label("total_additional_expense"),
             )
             .select_from(ip)
             .join(Job, Job.assigned_ip_id == ip.id)
@@ -170,7 +170,7 @@ def get_job_stage_summary(db: Session):
                 Job.status,
                 func.count(Job.id).label("count"),
                 func.sum(_payout_expression()).label("total_payout"),
-                func.sum(func.coalesce(Job.additional_expense, 0)).label("total_additional_expense"),
+                func.sum(func.coalesce(Job.incentive, 0)).label("total_additional_expense"),
             )
             .select_from(Job)
             .outerjoin(JobRate, Job.job_rate_id == JobRate.id)
@@ -200,7 +200,7 @@ def get_ip_performance(db: Session):
                 (func.coalesce(ip.first_name, "") + " " + func.coalesce(ip.last_name, "")).label("ip_name"),
                 func.count(Job.id).label("job_count"),
                 func.sum(_payout_expression()).label("total_payout"),
-                func.sum(func.coalesce(Job.additional_expense, 0)).label("total_additional_expense"),
+                func.sum(func.coalesce(Job.incentive, 0)).label("total_additional_expense"),
             )
             .select_from(ip)
             .outerjoin(Job, and_(Job.assigned_ip_id == ip.id, Job.status == "completed"))

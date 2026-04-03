@@ -58,7 +58,7 @@ class Job(Base):
     status: Mapped[str] = mapped_column(String, default="created", index=True)
     delivery_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
-    additional_expense: Mapped[Decimal] = mapped_column(
+    incentive: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=True, default=0
     )
     job_rate_id: Mapped[Optional[int]] = mapped_column(
@@ -75,8 +75,9 @@ class Job(Base):
     start_otp_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     end_otp_verified: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    # Backward-compat alias used throughout existing code.
+    # Backward-compat aliases used throughout existing code.
     user_id = synonym("admin_assigned")
+    additional_expense = synonym("incentive")
 
     # Relationships
     assigned_ip: Mapped[Optional["ip"]] = relationship("ip")
