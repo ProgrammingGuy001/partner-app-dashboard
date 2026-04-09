@@ -2,20 +2,22 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, condecimal
+from pydantic import BaseModel, ConfigDict, Field, condecimal, model_validator
 
 from app.schemas.checklist import JobChecklistResponse
 
 
 class JobBase(BaseModel):
     name: str
-    customer_name: str
+    customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
-    address: str
-    city: str
-    pincode: int
-    type: str
-    rate: Decimal = Field(..., max_digits=10, decimal_places=2)
+    address_line_1: Optional[str] = None
+    address_line_2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[int] = None
+    type: Optional[str] = None
+    rate: Optional[Decimal] = Field(default=None, max_digits=10, decimal_places=2)
     size: Optional[int] = None
     assigned_ip_id: Optional[int] = None
     customer_id: Optional[int] = None
@@ -33,13 +35,43 @@ class JobCreate(JobBase):
     checklist_ids: Optional[list[int]] = None
     user_id: Optional[int] = None
 
+    @model_validator(mode="after")
+    def validate_customer_and_rate_sources(self) -> "JobCreate":
+        if self.customer_id is None:
+            missing_customer_fields = [
+                field_name
+                for field_name in ("customer_name", "address_line_1", "city", "state", "pincode")
+                if not getattr(self, field_name)
+            ]
+            if missing_customer_fields:
+                raise ValueError(
+                    "Missing customer fields when customer_id is not provided: "
+                    + ", ".join(missing_customer_fields)
+                )
+
+        if self.job_rate_id is None:
+            missing_rate_fields = [
+                field_name
+                for field_name in ("type", "rate")
+                if getattr(self, field_name) in (None, "")
+            ]
+            if missing_rate_fields:
+                raise ValueError(
+                    "Missing job rate fields when job_rate_id is not provided: "
+                    + ", ".join(missing_rate_fields)
+                )
+
+        return self
+
 
 class JobUpdate(BaseModel):
     name: Optional[str] = None
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
-    address: Optional[str] = None
+    address_line_1: Optional[str] = None
+    address_line_2: Optional[str] = None
     city: Optional[str] = None
+    state: Optional[str] = None
     pincode: Optional[int] = None
     type: Optional[str] = None
     rate: Optional[condecimal(max_digits=10, decimal_places=2)] = None
@@ -90,21 +122,21 @@ class IPSummary(BaseModel):
     phone_number: str
     is_assigned: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CustomerOptionResponse(BaseModel):
     id: int
     name: str
     phone_number: Optional[str] = None
-    address: Optional[str] = None
+    address_line_1: Optional[str] = None
+    address_line_2: Optional[str] = None
     city: Optional[str] = None
+    state: Optional[str] = None
     pincode: Optional[int] = None
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class JobRateResponse(BaseModel):
@@ -112,8 +144,7 @@ class JobRateResponse(BaseModel):
     job_type_name: str
     base_rate: Decimal
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class JobResponse(BaseModel):
@@ -122,8 +153,10 @@ class JobResponse(BaseModel):
     customer_id: Optional[int] = None
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
-    address: Optional[str] = None
+    address_line_1: Optional[str] = None
+    address_line_2: Optional[str] = None
     city: Optional[str] = None
+    state: Optional[str] = None
     pincode: Optional[int] = None
     job_rate_id: Optional[int] = None
     type: Optional[str] = None
@@ -140,7 +173,6 @@ class JobResponse(BaseModel):
     incentive: Optional[Decimal] = Field(default=Decimal("0.00"))
     start_otp_verified: bool = False
     end_otp_verified: bool = False
-    job_checklists: List[JobChecklistResponse] = []
+    job_checklists: List[JobChecklistResponse] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

@@ -1,23 +1,45 @@
+from collections.abc import Generator
+
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.engine import make_url
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+
 from app.config import settings
 
 
-# Database engine with connection pooling for better performance
-engine = create_engine(
-    settings.DATABASE_URL,
-    pool_size=10,           # Number of connections to keep in the pool
-    max_overflow=20,        # Max additional connections when pool is exhausted
-    pool_pre_ping=True,     # Check connection validity before using
-    pool_recycle=3600,      # Recycle connections after 1 hour
+database_url = make_url(settings.DATABASE_URL)
+
+engine_kwargs = {
+    "pool_pre_ping": True,
+    "pool_recycle": settings.DB_POOL_RECYCLE,
+}
+
+if database_url.get_backend_name() == "sqlite":
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    engine_kwargs.update(
+        {
+            "pool_size": settings.DB_POOL_SIZE,
+            "max_overflow": settings.DB_MAX_OVERFLOW,
+            "pool_timeout": settings.DB_POOL_TIMEOUT,
+            "pool_use_lifo": True,
+        }
+    )
+
+engine = create_engine(settings.DATABASE_URL, **engine_kwargs)
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    expire_on_commit=False,
+    bind=engine,
 )
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-Base = declarative_base()
 
 
-def get_db():
+class Base(DeclarativeBase):
+    pass
+
+
+def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db

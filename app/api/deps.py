@@ -1,11 +1,14 @@
+from typing import Union
+
 from fastapi import Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+
+from app.api.cookie_security import cookie_bearer
+from app.core.security import decode_access_token, strip_bearer_prefix
 from app.database import get_db
 from app.model.ip import ip
 from app.model.user import User
-from app.utils.helpers import verify_token
-from app.api.cookie_security import cookie_bearer
-from typing import Union
 
 def get_current_user(
     token: str = Depends(cookie_bearer),
@@ -18,17 +21,7 @@ def get_current_user(
             detail="Not authenticated"
         )
 
-    # The token is in the format "Bearer <token>"
-    parts = token.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token format"
-        )
-
-    token = parts[1]
-
-    payload = verify_token(token)
+    payload = decode_access_token(strip_bearer_prefix(token))
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -42,19 +35,19 @@ def get_current_user(
             detail="Invalid token payload"
         )
 
-    # Try to parse as integer (IP user ID)
-    # If sub is email (e.g. "a@gmail.com"), int() will raise ValueError
     try:
         user_id = int(sub)
-        user = db.query(ip).filter(ip.id == user_id).first()
+        user = db.scalar(
+            select(ip)
+            .options(selectinload(ip.financial))
+            .where(ip.id == user_id)
+        )
         if user is not None:
             return user
     except (ValueError, TypeError):
-        # Not an integer ID, continue to check as email
         pass
 
-    # Try as email (Admin user)
-    admin_user = db.query(User).filter(User.email == sub).first()
+    admin_user = db.scalar(select(User).where(User.email == sub))
     if admin_user is not None:
         if not admin_user.isActive:
             raise HTTPException(
@@ -68,7 +61,6 @@ def get_current_user(
             )
         return admin_user
 
-    # Neither IP nor Admin user found
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
         detail="User not found"

@@ -39,9 +39,11 @@ const jobSchema = z.object({
   name: z.string().min(1, "Job Name is required"),
   customer_id: z.string().optional(),
   customer_name: z.string().min(1, "Customer Name is required"),
-  customer_phone: z.string().min(10, "Phone must be at least 10 digits").regex(/^\d+$/, "Must be numbers").optional().or(z.literal("")),
-  address: z.string().min(1, "Address is required"),
+  customer_phone: z.string().optional().refine((val) => !val || (val.length >= 10 && /^\d+$/.test(val)), { message: "Phone must be at least 10 digits and contain only numbers" }),
+  address_line_1: z.string().min(1, "Address Line 1 is required"),
+  address_line_2: z.string().optional(),
   city: z.string().min(1, "City is required"),
+  state: z.string().min(1, "State is required"),
   pincode: z.string().min(6, "Pincode must be 6 digits").max(6, "Pincode must be 6 digits").regex(/^\d+$/, "Must be numbers"),
   google_map_link: z.string().url("Invalid URL").optional().or(z.literal("")),
   type: z.string().min(1, "Type is required"),
@@ -97,8 +99,10 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
       customer_id: '',
       customer_name: '',
       customer_phone: '',
-      address: '',
+      address_line_1: '',
+      address_line_2: '',
       city: '',
+      state: '',
       pincode: '',
       google_map_link: '',
       type: '',
@@ -129,8 +133,10 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
         customer_id: editCustomerId,
         customer_name: job.customer_name || '',
         customer_phone: job.customer_phone || '',
-        address: job.address || '',
+        address_line_1: job.address_line_1 || '',
+        address_line_2: job.address_line_2 || '',
         city: job.city || '',
+        state: job.state || '',
         pincode: (job.pincode ?? '').toString(),
         google_map_link: job.google_map_link || '',
         type: job.type || '',
@@ -166,8 +172,10 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
       setValue('customer_id', '');
       setValue('customer_name', '', { shouldValidate: true });
       setValue('customer_phone', '', { shouldValidate: true });
-      setValue('address', '', { shouldValidate: true });
+      setValue('address_line_1', '', { shouldValidate: true });
+      setValue('address_line_2', '', { shouldValidate: true });
       setValue('city', '', { shouldValidate: true });
+      setValue('state', '', { shouldValidate: true });
       setValue('pincode', '', { shouldValidate: true });
       setSoResult(null);
       setSoError('');
@@ -184,8 +192,10 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
 
     setValue('customer_name', selectedCustomer.name || '', { shouldValidate: true });
     setValue('customer_phone', selectedCustomer.phone_number || '', { shouldValidate: true });
-    setValue('address', selectedCustomer.address || '', { shouldValidate: true });
+    setValue('address_line_1', selectedCustomer.address_line_1 || '', { shouldValidate: true });
+    setValue('address_line_2', selectedCustomer.address_line_2 || '', { shouldValidate: true });
     setValue('city', selectedCustomer.city || '', { shouldValidate: true });
+    setValue('state', selectedCustomer.state || '', { shouldValidate: true });
     setValue('pincode', selectedCustomer.pincode ? String(selectedCustomer.pincode) : '', { shouldValidate: true });
   };
 
@@ -206,8 +216,10 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
         const cleaned = result.phone.replace(/[\s\-+]/g, '').slice(-10);
         setValue('customer_phone', cleaned, { shouldValidate: true });
       }
-      if (result.address) setValue('address', result.address, { shouldValidate: true });
+      if (result.address_line_1) setValue('address_line_1', result.address_line_1, { shouldValidate: true });
+      if (result.address_line_2) setValue('address_line_2', result.address_line_2, { shouldValidate: true });
       if (result.city) setValue('city', result.city, { shouldValidate: true });
+      if (result.state) setValue('state', result.state, { shouldValidate: true });
       if (result.pincode) setValue('pincode', result.pincode, { shouldValidate: true });
       // Use project name or SO+PO as job name
       const jobName = result.project_name || `${result.sales_order}${result.client_order_ref ? ' - ' + result.client_order_ref : ''}`;
@@ -261,8 +273,10 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
         customer_id: data.customer_id ? parseInt(data.customer_id, 10) : undefined,
         customer_name: data.customer_name,
         customer_phone: data.customer_phone || undefined,
-        address: data.address,
+        address_line_1: data.address_line_1,
+        address_line_2: data.address_line_2 || undefined,
         city: data.city,
+        state: data.state,
         pincode: parseInt(data.pincode, 10),
         type: data.type,
         job_rate_id: data.job_rate_id ? parseInt(data.job_rate_id, 10) : undefined,
@@ -277,19 +291,38 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
 
       if (data.checklist_link) payload.checklist_link = data.checklist_link;
 
+      console.log('Submitting job payload:', JSON.stringify(payload, null, 2));
+
       if (job?.id) {
         await updateJobMutation.mutateAsync({ id: job.id, data: payload as JobUpdate });
       } else {
         await createJobMutation.mutateAsync(payload as Job);
       }
       onSuccess();
-    } catch (err: unknown) {
+    } catch (err: any) {
       console.error('Error saving job:', err);
-      if (err instanceof Error) {
-        setSubmitError(err.message);
-      } else {
-        setSubmitError('Operation failed');
+      
+      // Extract detailed error message from backend response
+      let errorMessage = 'Operation failed';
+      
+      if (err?.response?.data) {
+        const errorData = err.response.data;
+        
+        // Handle Pydantic validation errors (FastAPI 422)
+        if (errorData.detail && Array.isArray(errorData.detail)) {
+          errorMessage = errorData.detail.map((e: any) => 
+            `${e.loc?.join(' → ') || 'Field'}: ${e.msg}`
+          ).join('; ');
+        } else if (errorData.detail && typeof errorData.detail === 'string') {
+          errorMessage = errorData.detail;
+        } else if (errorData.message) {
+          errorMessage = errorData.message;
+        }
+      } else if (err.message) {
+        errorMessage = err.message;
       }
+      
+      setSubmitError(errorMessage);
     }
   };
 
@@ -442,15 +475,29 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="address">Address *</Label>
+                <Label htmlFor="address_line_1">Address Line 1 *</Label>
                 <Input
-                  id="address"
-                  {...register("address")}
+                  id="address_line_1"
+                  {...register("address_line_1")}
                   readOnly={isExistingCustomerSelected}
                   className={isExistingCustomerSelected ? 'bg-gray-100' : ''}
-                  aria-invalid={!!errors.address}
+                  aria-invalid={!!errors.address_line_1}
+                  placeholder="Street, Building, Apartment"
                 />
-                {errors.address && <p className="text-xs text-destructive">{errors.address.message}</p>}
+                {errors.address_line_1 && <p className="text-xs text-destructive">{errors.address_line_1.message}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="address_line_2">Address Line 2</Label>
+                <Input
+                  id="address_line_2"
+                  {...register("address_line_2")}
+                  readOnly={isExistingCustomerSelected}
+                  className={isExistingCustomerSelected ? 'bg-gray-100' : ''}
+                  aria-invalid={!!errors.address_line_2}
+                  placeholder="Landmark, Area (Optional)"
+                />
+                {errors.address_line_2 && <p className="text-xs text-destructive">{errors.address_line_2.message}</p>}
               </div>
 
               <div className="space-y-2">
@@ -475,6 +522,19 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
                   aria-invalid={!!errors.city}
                 />
                 {errors.city && <p className="text-xs text-destructive">{errors.city.message}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="state">State *</Label>
+                <Input
+                  id="state"
+                  {...register("state")}
+                  readOnly={isExistingCustomerSelected}
+                  className={isExistingCustomerSelected ? 'bg-gray-100' : ''}
+                  aria-invalid={!!errors.state}
+                  placeholder="State"
+                />
+                {errors.state && <p className="text-xs text-destructive">{errors.state.message}</p>}
               </div>
 
               <div className="space-y-2">

@@ -419,7 +419,8 @@ class OdooService:
             'customer_name': '',
             'phone': '',
             'email': '',
-            'address': '',
+            'address_line_1': '',
+            'address_line_2': '',
             'city': '',
             'pincode': '',
             'state': '',
@@ -452,13 +453,9 @@ class OdooService:
                 result['phone'] = partner.get('phone') or partner.get('mobile') or ''
                 result['email'] = partner.get('email') or ''
 
-                # Build full address from street + street2
-                street_parts = []
-                if partner.get('street'):
-                    street_parts.append(partner['street'])
-                if partner.get('street2'):
-                    street_parts.append(partner['street2'])
-                result['address'] = ', '.join(street_parts)
+                # Store street and street2 as separate address lines
+                result['address_line_1'] = partner.get('street') or ''
+                result['address_line_2'] = partner.get('street2') or ''
 
                 result['city'] = partner.get('city') or ''
                 result['pincode'] = partner.get('zip') or ''

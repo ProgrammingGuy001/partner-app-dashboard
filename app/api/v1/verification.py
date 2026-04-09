@@ -4,11 +4,12 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_verified_user
 from app.database import get_db
 from app.model.ip import ip
-from app.model.job import Job
 from app.schemas.ip import BankVerification, PANVerification, UserDetailResponse
 from app.schemas.job import JobResponse
+from app.crud.job import get_jobs_for_ip
 from app.services.bank_service import BankService
 from app.services.pan_service import PANService
+from app.services.upload_service import read_validated_upload
 from app.utils.rate_limiter import limiter
 
 router = APIRouter(prefix="/verification", tags=["Verification"])
@@ -96,7 +97,6 @@ def verify_bank(
 @router.get("/status", response_model=UserDetailResponse)
 def get_verification_status(
     current_user: ip = Depends(get_verified_user),
-    db: Session = Depends(get_db)
 ):
     """Get current verification status of the user"""
 
@@ -105,34 +105,20 @@ def get_verification_status(
 
 @router.post("/verify_document", response_model=UserDetailResponse)
 @limiter.limit("5/hour")
-def upload_id_document(
+async def upload_id_document(
     request: Request,
     file: UploadFile = File(...),
     current_user: ip = Depends(get_verified_user),
     db: Session = Depends(get_db)
 ):
     """Upload ID document for verification (requires admin approval)"""
-    
-    # Validate file type
-    allowed_types = ["image/jpeg", "image/jpg", "image/png", "application/pdf"]
-    if file.content_type not in allowed_types:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid file type. Only JPEG, PNG, and PDF files are allowed"
-        )
-    
-    # Validate file size (max 5MB)
-    max_size = 5 * 1024 * 1024  # 5MB in bytes
-    file.file.seek(0, 2)  # Seek to end of file
-    file_size = file.file.tell()
-    file.file.seek(0)  # Reset to beginning
-    
-    if file_size > max_size:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File size exceeds 5MB limit"
-        )
-    
+    await read_validated_upload(
+        file,
+        allowed_extensions={".jpg", ".jpeg", ".png", ".pdf"},
+        allowed_content_types={"image/jpeg", "image/jpg", "image/png", "application/pdf"},
+        max_size_mb=5,
+    )
+
     # TODO: Upload file to S3 or local storage
     # TODO: Save document reference to database
     # Note: is_id_verified remains False until admin manually verifies
@@ -162,7 +148,7 @@ def check_panel_access(
 
     # ✅ If verified, fetch jobs assigned to this user only
     if all_verified:
-        jobs = db.query(Job).filter(Job.assigned_ip_id == current_user.id).all()
+        jobs = get_jobs_for_ip(db, current_user.id)
 
         # Convert SQLAlchemy objects to dict using JobResponse for safety and completeness
         job_data = [JobResponse.model_validate(job).model_dump() for job in jobs]
@@ -184,4 +170,3 @@ def check_panel_access(
         },
         "message": "Please complete pending verifications"
     }
-

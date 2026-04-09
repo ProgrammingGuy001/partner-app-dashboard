@@ -1,11 +1,8 @@
-import logging
-from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
-from app.config import settings
 from app.database import get_db
 from app.model.ip import ip
-from app.model.job import Job, JobChecklist, ChecklistItem, JobChecklistItemStatus
+from app.model.job import ChecklistItem
 from app.schemas.job import JobResponse
 from app.schemas.checklist import (
     JobChecklistItemStatusUpdate,
@@ -14,14 +11,19 @@ from app.schemas.checklist import (
 from app.schemas.job_status_log import JobStatusLogResponse, JobStatusLogCreate
 from app.api.deps import get_fully_verified_user
 from app.services.s3_service import upload_file_to_s3
+from app.services.upload_service import read_validated_upload
 from app.crud.checklist import update_job_checklist_item_status
-from app.crud.job import get_job_status_history
+from app.crud.job import (
+    get_ip_job_by_id,
+    get_job_checklist_items_with_status,
+    get_job_checklists_overview,
+    get_job_status_history,
+    get_jobs_for_ip,
+)
 from typing import List
 from app.model.media_document import MediaDocument
 from app.model.job_status_log import JobStatusLog
 from datetime import datetime
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/dashboard/jobs", tags=["Dashboard"])
 
@@ -33,7 +35,7 @@ def get_all_jobs(
     db: Session = Depends(get_db)
 ):
     """Get all jobs assigned to current user"""
-    jobs = db.query(Job).filter(Job.assigned_ip_id == current_user.id).all()
+    jobs = get_jobs_for_ip(db, current_user.id)
     serialized_jobs = [JobResponse.model_validate(j) for j in jobs]
 
     return {
@@ -51,16 +53,7 @@ def get_single_job(
     db: Session = Depends(get_db)
 ):
     """Get a single job - only if assigned to current user"""
-    job = db.query(Job).filter(
-        Job.id == job_id,
-        Job.assigned_ip_id == current_user.id
-    ).first()
-
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found or not assigned to you"
-        )
+    job = get_ip_job_by_id(db, job_id, current_user.id)
 
     return {
         "message": "Job retrieved successfully",
@@ -75,14 +68,8 @@ def get_job_history(
     db: Session = Depends(get_db)
 ):
     """Get job status history for a specific job"""
-    job = db.query(Job).filter(Job.id == job_id, Job.assigned_ip_id == current_user.id).first()
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found or not assigned to you"
-        )
-
-    return get_job_status_history(db, job_id)
+    get_ip_job_by_id(db, job_id, current_user.id)
+    return get_job_status_history(db, job_id, verify_exists=False)
 
 
 @router.post("/{job_id}/notes", response_model=dict)
@@ -93,12 +80,7 @@ def add_job_note(
     db: Session = Depends(get_db)
 ):
     """Add a note to job history - IP users can add notes to track progress"""
-    job = db.query(Job).filter(Job.id == job_id, Job.assigned_ip_id == current_user.id).first()
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found or not assigned to you"
-        )
+    job = get_ip_job_by_id(db, job_id, current_user.id)
 
     if not note_data.notes or not note_data.notes.strip():
         raise HTTPException(
@@ -129,12 +111,7 @@ def get_job_progress(
     db: Session = Depends(get_db)
 ):
     """Get job progress uploads (placeholder - no progress table yet)"""
-    job = db.query(Job).filter(Job.id == job_id, Job.assigned_ip_id == current_user.id).first()
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found or not assigned to you"
-        )
+    get_ip_job_by_id(db, job_id, current_user.id)
 
     # TODO: Implement progress upload tracking table
     # For now, return empty uploads list
@@ -155,39 +132,13 @@ async def upload_progress_update(
     db: Session = Depends(get_db)
 ):
     """Upload a file for job progress - with validation"""
-    # Authorization: verify job belongs to current user
-    job = db.query(Job).filter(
-        Job.id == job_id,
-        Job.assigned_ip_id == current_user.id
-    ).first()
-
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found or not assigned to you"
-        )
-
-    # Validate file extension
-    file_ext = Path(file.filename).suffix.lower() if file.filename else ""
-    if file_ext not in settings.allowed_extensions_list:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid file type. Allowed: {', '.join(settings.allowed_extensions_list)}"
-        )
-
-    # Read file content and validate size
-    file_content = await file.read()
-    max_size_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
-    if len(file_content) > max_size_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"File too large. Maximum size: {settings.MAX_UPLOAD_SIZE_MB}MB"
-        )
+    get_ip_job_by_id(db, job_id, current_user.id)
+    upload = await read_validated_upload(file)
 
     file_url = upload_file_to_s3(
-        file_content=file_content,
-        filename=file.filename,
-        content_type=file.content_type
+        file_content=upload.content,
+        filename=upload.filename,
+        content_type=upload.content_type,
     )
 
     db.add(
@@ -206,24 +157,8 @@ async def upload_progress_update(
     }
 
 
-@router.get("/{job_id}/completed", response_model=dict)
-def complete_job(
-    job_id: int,
-    current_user: ip = Depends(get_fully_verified_user),
-    db: Session = Depends(get_db)
-):
-    """Mark a job as completed - only if assigned to current user"""
-    job = db.query(Job).filter(
-        Job.id == job_id,
-        Job.assigned_ip_id == current_user.id
-    ).first()
-
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found or not assigned to you"
-        )
-
+def _complete_ip_job(job_id: int, current_user: ip, db: Session):
+    job = get_ip_job_by_id(db, job_id, current_user.id)
     job.status = "completed"
     db.commit()
     db.refresh(job)
@@ -234,6 +169,26 @@ def complete_job(
     }
 
 
+@router.post("/{job_id}/complete", response_model=dict)
+def complete_job(
+    job_id: int,
+    current_user: ip = Depends(get_fully_verified_user),
+    db: Session = Depends(get_db)
+):
+    """Mark a job as completed - only if assigned to current user."""
+    return _complete_ip_job(job_id, current_user, db)
+
+
+@router.get("/{job_id}/completed", response_model=dict, deprecated=True)
+def complete_job_legacy(
+    job_id: int,
+    current_user: ip = Depends(get_fully_verified_user),
+    db: Session = Depends(get_db)
+):
+    """Backward-compatible alias for older clients. Prefer POST /complete."""
+    return _complete_ip_job(job_id, current_user, db)
+
+
 # ✅ Get job checklists (Metadata only)
 @router.get("/{job_id}/checklists", response_model=dict)
 def get_job_checklists(
@@ -242,20 +197,8 @@ def get_job_checklists(
     db: Session = Depends(get_db)
 ):
     """Get list of checklists assigned to a job (without items)"""
-    # Verify job exists and belongs to current user
-    job = db.query(Job).filter(
-        Job.id == job_id,
-        Job.assigned_ip_id == current_user.id
-    ).first()
-
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found or not assigned to you"
-        )
-
-    # Get all checklists assigned to the job
-    job_checklists = db.query(JobChecklist).filter(JobChecklist.job_id == job_id).all()
+    get_ip_job_by_id(db, job_id, current_user.id)
+    job_checklists = get_job_checklists_overview(db, job_id)
 
     result = []
     for jc in job_checklists:
@@ -284,73 +227,8 @@ def get_job_checklist_items(
     db: Session = Depends(get_db)
 ):
     """Get items and status for a specific checklist within a job"""
-    # Verify job exists and belongs to current user
-    job = db.query(Job).filter(
-        Job.id == job_id,
-        Job.assigned_ip_id == current_user.id
-    ).first()
-
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found or not assigned to you"
-        )
-
-    # Verify checklist is actually assigned to this job
-    job_checklist_link = db.query(JobChecklist).filter(
-        JobChecklist.job_id == job_id,
-        JobChecklist.checklist_id == checklist_id
-    ).first()
-
-    if not job_checklist_link:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Checklist not assigned to this job"
-        )
-
-    # Get checklist details
-    checklist = job_checklist_link.checklist
-
-    # Get all items for the checklist
-    items = db.query(ChecklistItem).filter(
-        ChecklistItem.checklist_id == checklist_id
-    ).order_by(ChecklistItem.position).all()
-
-    # Fetch all item statuses for this job in a single query (N+1 fix)
-    item_ids = [item.id for item in items]
-    all_statuses = db.query(JobChecklistItemStatus).filter(
-        JobChecklistItemStatus.job_id == job_id,
-        JobChecklistItemStatus.checklist_item_id.in_(item_ids)
-    ).all()
-
-    # Create a lookup dictionary for O(1) status access
-    status_map = {s.checklist_item_id: s for s in all_statuses}
-
-    items_with_status = []
-    for item in items:
-        # Get status from lookup instead of querying DB
-        item_status = status_map.get(item.id)
-
-        items_with_status.append({
-            "id": item.id,
-            "checklist_id": item.checklist_id,
-            "text": item.text,
-            "position": item.position,
-            "created_at": item.created_at,
-            "updated_at": item.updated_at,
-            "status": {
-                "id": item_status.id if item_status else None,
-                "job_id": item_status.job_id if item_status else job_id,
-                "checklist_item_id": item_status.checklist_item_id if item_status else item.id,
-                "checked": item_status.checked if item_status else False,
-                "is_approved": item_status.is_approved if item_status else False,
-                "comment": item_status.comment if item_status else None,
-                "admin_comment": item_status.admin_comment if item_status else None,
-                "document_link": item_status.document_link if item_status else None,
-                "created_at": item_status.created_at if item_status else None,
-                "updated_at": item_status.updated_at if item_status else None,
-            } if item_status or True else None
-        })
+    get_ip_job_by_id(db, job_id, current_user.id)
+    checklist, items_with_status = get_job_checklist_items_with_status(db, job_id, checklist_id)
 
     return {
         "message": "Checklist items fetched successfully",
@@ -374,20 +252,10 @@ def update_checklist_item_status(
     db: Session = Depends(get_db)
 ):
     """Update checklist item status - IP users can mark as checked and add comments"""
-    # Verify job exists and belongs to current user
-    job = db.query(Job).filter(
-        Job.id == job_id,
-        Job.assigned_ip_id == current_user.id
-    ).first()
-
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found or not assigned to you"
-        )
+    get_ip_job_by_id(db, job_id, current_user.id)
 
     # Verify checklist item exists
-    item = db.query(ChecklistItem).filter(ChecklistItem.id == item_id).first()
+    item = db.get(ChecklistItem, item_id)
     if not item:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

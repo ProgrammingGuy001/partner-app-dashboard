@@ -8,6 +8,15 @@ from datetime import datetime, timezone
 from app.database import get_db
 from app.config import settings
 from app.model.ip import ip
+from app.core.security import (
+    clear_cookie,
+    create_access_token,
+    create_refresh_token,
+    decode_access_token,
+    decode_refresh_token,
+    set_bearer_cookie,
+    strip_bearer_prefix,
+)
 
 from app.schemas.ip import (
     UserRegistration,
@@ -19,26 +28,10 @@ from app.schemas.ip import (
     RefreshTokenResponse,
 )
 from app.services.otp_service import OTPService
-from app.utils.helpers import create_access_token, create_refresh_token, verify_token, verify_refresh_token
 from app.utils.rate_limiter import limiter
 from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
-
-
-def _cookie_security_settings() -> tuple[bool, str]:
-    """Use secure cross-site cookies in prod/staging; relaxed local cookies in dev."""
-    is_secure = settings.ENVIRONMENT.lower() in {"production", "staging"}
-    samesite = "none" if is_secure else "lax"
-    return is_secure, samesite
-
-
-def _strip_bearer_prefix(token: str | None) -> str | None:
-    if not token:
-        return None
-    if token.startswith("Bearer "):
-        return token.replace("Bearer ", "", 1)
-    return token
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -144,24 +137,12 @@ def verify_otp(request: Request, otp_data: OTPVerification, response: Response, 
     # Generate access token
     access_token = create_access_token(data={"sub": str(user.id)})
     refresh_token = create_refresh_token(data={"sub": str(user.id)})
-    secure_cookie, same_site = _cookie_security_settings()
-
-    # Set cookie
-    response.set_cookie(
-        key=settings.IP_AUTH_COOKIE_NAME,
-        value=f"Bearer {access_token}",
-        httponly=True,
-        samesite=same_site,
-        secure=secure_cookie,
-    )
-
-    response.set_cookie(
+    set_bearer_cookie(response, key=settings.IP_AUTH_COOKIE_NAME, token=access_token)
+    set_bearer_cookie(
+        response,
         key=settings.IP_REFRESH_COOKIE_NAME,
-        value=f"Bearer {refresh_token}",
-        httponly=True,
-        samesite=same_site,
-        secure=secure_cookie,
-        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+        token=refresh_token,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
     )
 
     # Return user with tokens for mobile app (cookies don't work well on mobile)
@@ -215,10 +196,7 @@ def verify_access_token(request: Request):
     if not token:
         raise HTTPException(status_code=401, detail="No token provided")
 
-    if token.startswith("Bearer "):
-        token = token.replace("Bearer ", "")
-
-    payload = verify_token(token)
+    payload = decode_access_token(strip_bearer_prefix(token))
     if not payload or "sub" not in payload:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
@@ -238,32 +216,21 @@ def refresh_token(
     if not refresh_token_value:
         raise HTTPException(status_code=401, detail="No refresh token provided")
 
-    refresh_token_value = _strip_bearer_prefix(refresh_token_value)
+    refresh_token_value = strip_bearer_prefix(refresh_token_value)
 
-    payload = verify_refresh_token(refresh_token_value)
+    payload = decode_refresh_token(refresh_token_value)
     if not payload or "sub" not in payload:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
     sub = payload["sub"]
     access_token = create_access_token(data={"sub": sub})
     new_refresh_token = create_refresh_token(data={"sub": sub})
-    secure_cookie, same_site = _cookie_security_settings()
-
-    response.set_cookie(
-        key=settings.IP_AUTH_COOKIE_NAME,
-        value=f"Bearer {access_token}",
-        httponly=True,
-        samesite=same_site,
-        secure=secure_cookie,
-    )
-
-    response.set_cookie(
+    set_bearer_cookie(response, key=settings.IP_AUTH_COOKIE_NAME, token=access_token)
+    set_bearer_cookie(
+        response,
         key=settings.IP_REFRESH_COOKIE_NAME,
-        value=f"Bearer {new_refresh_token}",
-        httponly=True,
-        samesite=same_site,
-        secure=secure_cookie,
-        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+        token=new_refresh_token,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
     )
 
     return {
@@ -286,26 +253,10 @@ def logout(
 ):
 
     # Clear cookie first
-    secure_cookie, same_site = _cookie_security_settings()
-    response.delete_cookie(
-        key=settings.IP_AUTH_COOKIE_NAME,
-        httponly=True,
-        secure=secure_cookie,
-        samesite=same_site,
-    )
+    clear_cookie(response, key=settings.IP_AUTH_COOKIE_NAME)
     # Legacy cleanup for older cookie name.
-    response.delete_cookie(
-        key="access_token",
-        httponly=True,
-        secure=secure_cookie,
-        samesite=same_site,
-    )
-    response.delete_cookie(
-        key=settings.IP_REFRESH_COOKIE_NAME,
-        httponly=True,
-        secure=secure_cookie,
-        samesite=same_site,
-    )
+    clear_cookie(response, key="access_token")
+    clear_cookie(response, key=settings.IP_REFRESH_COOKIE_NAME)
 
     if isinstance(current_user, ip):
         # Do NOT reset is_phone_verified — that flag records a permanent one-time

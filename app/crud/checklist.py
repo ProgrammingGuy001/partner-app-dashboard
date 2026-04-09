@@ -18,6 +18,27 @@ from app.schemas.checklist import (
 )
 
 
+def _ensure_job_checklist_item_link(db: Session, job_id: int, checklist_item_id: int) -> ChecklistItem:
+    item = get_checklist_item(db, checklist_item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail=f"Checklist item {checklist_item_id} not found")
+
+    job_checklist = (
+        db.query(JobChecklist)
+        .filter(
+            JobChecklist.job_id == job_id,
+            JobChecklist.checklist_id == item.checklist_id,
+        )
+        .first()
+    )
+    if not job_checklist:
+        raise HTTPException(
+            status_code=400,
+            detail="Checklist item is not assigned to this job",
+        )
+    return item
+
+
 # --- Checklist ---
 def get_checklist(db: Session, checklist_id: int):
     return db.query(Checklist).filter(Checklist.id == checklist_id).first()
@@ -122,6 +143,7 @@ def create_job_checklist_item_status(
     job = db.query(Job).filter(Job.id == status.job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {status.job_id} not found")
+    _ensure_job_checklist_item_link(db, status.job_id, status.checklist_item_id)
 
     db_status = JobChecklistItemStatus(**status.model_dump())
     db.add(db_status)
@@ -137,6 +159,7 @@ def update_job_checklist_item_status(
     status: JobChecklistItemStatusUpdate,
 ):
     db_status = get_job_checklist_item_status(db, job_id, checklist_item_id)
+    _ensure_job_checklist_item_link(db, job_id, checklist_item_id)
 
     if not db_status:
         # Create new if not exists (Upsert)
@@ -147,6 +170,19 @@ def update_job_checklist_item_status(
         create_data = status.model_dump(exclude_unset=True)
         create_data['job_id'] = job_id
         create_data['checklist_item_id'] = checklist_item_id
+        
+        # Validate checked=True requirements for new records
+        if create_data.get('checked') is True:
+            if not create_data.get('document_link'):
+                raise HTTPException(
+                    status_code=422,
+                    detail='A photo/document must be uploaded before marking the item as complete.'
+                )
+            if not create_data.get('comment') or not create_data['comment'].strip():
+                raise HTTPException(
+                    status_code=422,
+                    detail='Notes/comment must be added before marking the item as complete.'
+                )
 
         db_status = JobChecklistItemStatus(**create_data)
         db.add(db_status)
@@ -155,6 +191,24 @@ def update_job_checklist_item_status(
         return db_status
 
     update_data = status.model_dump(exclude_unset=True)
+    
+    # Validate checked=True requirements for existing records
+    if update_data.get('checked') is True:
+        # Get the final state after applying the update
+        final_document_link = update_data.get('document_link', db_status.document_link)
+        final_comment = update_data.get('comment', db_status.comment)
+        
+        if not final_document_link:
+            raise HTTPException(
+                status_code=422,
+                detail='A photo/document must be uploaded before marking the item as complete.'
+            )
+        if not final_comment or not final_comment.strip():
+            raise HTTPException(
+                status_code=422,
+                detail='Notes/comment must be added before marking the item as complete.'
+            )
+    
     for key, value in update_data.items():
         setattr(db_status, key, value)
     db.commit()

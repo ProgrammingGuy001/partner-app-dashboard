@@ -37,8 +37,10 @@ export interface Job {
   customer_id?: number | null;
   customer_name?: string | null;
   customer_phone?: string | null;
-  address?: string | null;
+  address_line_1?: string | null;
+  address_line_2?: string | null;
   city?: string | null;
+  state?: string | null;
   pincode?: number | null;
   job_rate_id?: number | null;
   type?: string | null;
@@ -130,8 +132,10 @@ export interface Customer {
   id: number;
   name: string;
   phone_number?: string | null;
-  address?: string | null;
+  address_line_1?: string | null;
+  address_line_2?: string | null;
   city?: string | null;
+  state?: string | null;
   pincode?: number | null;
   created_at?: string;
 }
@@ -171,7 +175,8 @@ export interface SOLookupResult {
   customer_name: string;
   phone: string;
   email: string;
-  address: string;
+  address_line_1: string;
+  address_line_2: string;
   city: string;
   pincode: string;
   state: string;

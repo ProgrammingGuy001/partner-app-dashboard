@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,11 +18,16 @@ from app.routes.checklist import router as checklist_router
 from app.routes.job import router as job_router
 from app.utils.rate_limiter import limiter, rate_limit_exceeded_handler
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown events"""
-    Base.metadata.create_all(bind=engine)
+    if settings.enable_schema_sync:
+        Base.metadata.create_all(bind=engine)
+    else:
+        logger.info("Skipping automatic schema creation; use Alembic migrations instead.")
     start_scheduler()
     yield
     # Shutdown

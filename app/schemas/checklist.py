@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 
 # --- Checklist ---
@@ -87,6 +87,11 @@ class JobChecklistItemStatusUpdate(BaseModel):
     comment: Optional[str] = None
     admin_comment: Optional[str] = None
     document_link: Optional[str] = None
+    
+    # Note: Validation for checked=True requirements (document_link and comment)
+    # is now performed in the endpoint handler where we have access to the
+    # existing database record. This allows partial updates while still
+    # enforcing requirements when marking items as complete.
 
 
 class JobChecklistItemStatusResponse(JobChecklistItemStatusBase):
@@ -99,10 +104,10 @@ class JobChecklistItemStatusResponse(JobChecklistItemStatusBase):
 
 # --- Composite Schemas ---
 class ChecklistWithItemsResponse(ChecklistResponse):
-    checklist_items: List[ChecklistItemResponse] = []
+    checklist_items: List[ChecklistItemResponse] = Field(default_factory=list)
 
 class ChecklistItemWithStatusResponse(ChecklistItemResponse):
     status: Optional[JobChecklistItemStatusResponse] = None
 
 class ChecklistWithItemsAndStatusResponse(ChecklistResponse):
-    items: List[ChecklistItemWithStatusResponse] = []
+    items: List[ChecklistItemWithStatusResponse] = Field(default_factory=list)

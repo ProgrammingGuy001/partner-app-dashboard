@@ -25,8 +25,10 @@ class Customer(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     phone_number: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    address: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    address_line_1: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    address_line_2: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     city: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    state: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     pincode: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
@@ -101,12 +103,20 @@ class Job(Base):
         return self.customer.phone_number if self.customer else None
 
     @property
-    def address(self) -> Optional[str]:
-        return self.customer.address if self.customer else None
+    def address_line_1(self) -> Optional[str]:
+        return self.customer.address_line_1 if self.customer else None
+
+    @property
+    def address_line_2(self) -> Optional[str]:
+        return self.customer.address_line_2 if self.customer else None
 
     @property
     def city(self) -> Optional[str]:
         return self.customer.city if self.customer else None
+
+    @property
+    def state(self) -> Optional[str]:
+        return self.customer.state if self.customer else None
 
     @property
     def pincode(self) -> Optional[int]:

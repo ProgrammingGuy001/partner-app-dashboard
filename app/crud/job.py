@@ -2,15 +2,22 @@ from datetime import datetime
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import or_
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session, selectinload
 
 from app.crud.ip import assign_ip, unassign_ip
 from app.model.ip import ip
-from app.model.job import Customer, Job, JobChecklist, JobRate
+from app.model.job import ChecklistItem, Customer, Job, JobChecklist, JobChecklistItemStatus, JobRate
 from app.model.job_status_log import JobStatusLog
 from app.schemas.job import JobCreate, JobUpdate
 from app.utils.ip_assignment import is_admin_allowed_for_ip
+
+JOB_LOAD_OPTIONS = (
+    selectinload(Job.assigned_ip),
+    selectinload(Job.customer),
+    selectinload(Job.job_rate),
+    selectinload(Job.job_checklists),
+)
 
 
 def _upsert_customer(
@@ -18,16 +25,20 @@ def _upsert_customer(
     *,
     customer_name: str | None,
     customer_phone: str | None,
-    address: str | None,
+    address_line_1: str | None,
+    address_line_2: str | None,
     city: str | None,
+    state: str | None,
     pincode: int | None,
     existing_customer: Customer | None = None,
 ) -> Customer | None:
     if (
         customer_name is None
         and customer_phone is None
-        and address is None
+        and address_line_1 is None
+        and address_line_2 is None
         and city is None
+        and state is None
         and pincode is None
     ):
         return existing_customer
@@ -37,8 +48,10 @@ def _upsert_customer(
         customer = Customer(
             name=customer_name or "Unknown",
             phone_number=customer_phone,
-            address=address,
+            address_line_1=address_line_1,
+            address_line_2=address_line_2,
             city=city,
+            state=state,
             pincode=pincode,
         )
         db.add(customer)
@@ -49,10 +62,14 @@ def _upsert_customer(
         customer.name = customer_name
     if customer_phone is not None:
         customer.phone_number = customer_phone
-    if address is not None:
-        customer.address = address
+    if address_line_1 is not None:
+        customer.address_line_1 = address_line_1
+    if address_line_2 is not None:
+        customer.address_line_2 = address_line_2
     if city is not None:
         customer.city = city
+    if state is not None:
+        customer.state = state
     if pincode is not None:
         customer.pincode = pincode
     return customer
@@ -96,16 +113,7 @@ def _get_job_rate_by_id(db: Session, job_rate_id: int) -> JobRate:
 def get_job_by_id(db: Session, job_id: int, user_id: int = None):
     """Get a job by ID with authorization checks."""
     try:
-        job = (
-            db.query(Job)
-            .options(
-                joinedload(Job.assigned_ip),
-                joinedload(Job.customer),
-                joinedload(Job.job_rate),
-            )
-            .filter(Job.id == job_id)
-            .first()
-        )
+        job = db.scalars(select(Job).options(*JOB_LOAD_OPTIONS).where(Job.id == job_id)).first()
         if not job:
             raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
         if user_id is not None and job.user_id != user_id:
@@ -122,33 +130,65 @@ def get_all_jobs(
     skip: int = 0,
     limit: int = 100,
     status: str = None,
-    type: str = None,
+    job_type: str = None,
     search: str = None,
     user_id: int = None,
     admin_id: int = None,
 ):
     """Get jobs with optional filtering."""
     try:
-        query = db.query(Job).options(
-            joinedload(Job.assigned_ip),
-            joinedload(Job.customer),
-            joinedload(Job.job_rate),
-        )
-        if user_id:
-            query = query.filter(Job.user_id == user_id)
+        stmt = select(Job).options(*JOB_LOAD_OPTIONS)
+        if user_id is not None:
+            stmt = stmt.where(Job.user_id == user_id)
         if status:
-            query = query.filter(Job.status == status)
-        if type:
-            query = query.join(Job.job_rate).filter(JobRate.job_type_name == type)
+            stmt = stmt.where(Job.status == status)
+        if job_type:
+            stmt = stmt.join(Job.job_rate).where(JobRate.job_type_name == job_type)
         if search:
-            query = query.join(Job.customer).filter(
+            search_pattern = f"%{search.strip()}%"
+            stmt = stmt.join(Job.customer).where(
                 or_(
-                    Job.name.ilike(f"{search}%"),
-                    Customer.name.ilike(f"{search}%"),
-                    Customer.city.ilike(f"{search}%"),
+                    Job.name.ilike(search_pattern),
+                    Customer.name.ilike(search_pattern),
+                    Customer.city.ilike(search_pattern),
                 )
             )
-        return query.distinct().offset(skip).limit(limit).all()
+        stmt = stmt.order_by(Job.created_at.desc(), Job.id.desc()).offset(skip).limit(limit)
+        return db.scalars(stmt).unique().all()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}") from e
+
+
+def get_jobs_for_ip(db: Session, ip_id: int):
+    """Return jobs assigned to a specific IP with related entities eager-loaded."""
+    try:
+        stmt = (
+            select(Job)
+            .options(*JOB_LOAD_OPTIONS)
+            .where(Job.assigned_ip_id == ip_id)
+            .order_by(Job.created_at.desc(), Job.id.desc())
+        )
+        return db.scalars(stmt).unique().all()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}") from e
+
+
+def get_ip_job_by_id(db: Session, job_id: int, ip_id: int):
+    """Get a job assigned to the current IP user."""
+    try:
+        stmt = select(Job).options(*JOB_LOAD_OPTIONS).where(
+            Job.id == job_id,
+            Job.assigned_ip_id == ip_id,
+        )
+        job = db.scalars(stmt).first()
+        if not job:
+            raise HTTPException(
+                status_code=404,
+                detail="Job not found or not assigned to you",
+            )
+        return job
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}") from e
 
@@ -179,16 +219,20 @@ def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = 
             # Ignore free-text customer payload when an explicit customer_id is supplied.
             job_data.pop("customer_name", None)
             job_data.pop("customer_phone", None)
-            job_data.pop("address", None)
+            job_data.pop("address_line_1", None)
+            job_data.pop("address_line_2", None)
             job_data.pop("city", None)
+            job_data.pop("state", None)
             job_data.pop("pincode", None)
         else:
             customer = _upsert_customer(
                 db,
                 customer_name=job_data.pop("customer_name", None),
                 customer_phone=job_data.pop("customer_phone", None),
-                address=job_data.pop("address", None),
+                address_line_1=job_data.pop("address_line_1", None),
+                address_line_2=job_data.pop("address_line_2", None),
                 city=job_data.pop("city", None),
+                state=job_data.pop("state", None),
                 pincode=job_data.pop("pincode", None),
             )
 
@@ -248,14 +292,7 @@ def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = 
 def update_job(db: Session, job_id: int, job_update: JobUpdate, admin_id: int = None, is_superadmin: bool = False):
     """Update job details, customer, and job rate references."""
     try:
-        db_job = (
-            db.query(Job)
-            .options(joinedload(Job.customer), joinedload(Job.job_rate))
-            .filter(Job.id == job_id)
-            .first()
-        )
-        if not db_job:
-            raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
+        db_job = get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
 
         update_data = job_update.model_dump(exclude_unset=True)
 
@@ -281,16 +318,20 @@ def update_job(db: Session, job_id: int, job_update: JobUpdate, admin_id: int = 
             db_job.customer_id = _get_customer_by_id(db, customer_id).id if customer_id is not None else None
             update_data.pop("customer_name", None)
             update_data.pop("customer_phone", None)
-            update_data.pop("address", None)
+            update_data.pop("address_line_1", None)
+            update_data.pop("address_line_2", None)
             update_data.pop("city", None)
+            update_data.pop("state", None)
             update_data.pop("pincode", None)
         else:
             customer = _upsert_customer(
                 db,
                 customer_name=update_data.pop("customer_name", None),
                 customer_phone=update_data.pop("customer_phone", None),
-                address=update_data.pop("address", None),
+                address_line_1=update_data.pop("address_line_1", None),
+                address_line_2=update_data.pop("address_line_2", None),
                 city=update_data.pop("city", None),
+                state=update_data.pop("state", None),
                 pincode=update_data.pop("pincode", None),
                 existing_customer=db_job.customer,
             )
@@ -343,9 +384,7 @@ def update_job(db: Session, job_id: int, job_update: JobUpdate, admin_id: int = 
 def delete_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bool = False):
     """Delete a job and related runtime mappings."""
     try:
-        db_job = db.query(Job).filter(Job.id == job_id).first()
-        if not db_job:
-            raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
+        db_job = get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
 
         if db_job.assigned_ip_id:
             unassign_ip(db, db_job.assigned_ip_id, admin_id, is_superadmin, commit=False)
@@ -366,9 +405,7 @@ def delete_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bo
 def start_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bool = False, notes: str = None):
     """Start/resume a job and assign IP."""
     try:
-        db_job = db.query(Job).filter(Job.id == job_id).first()
-        if not db_job:
-            raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
+        db_job = get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
 
         prev_status = db_job.status
         if prev_status not in {"created", "paused"}:
@@ -404,9 +441,7 @@ def start_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: boo
 def pause_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bool = False, notes: str = None):
     """Pause a job and unassign its IP."""
     try:
-        db_job = db.query(Job).filter(Job.id == job_id).first()
-        if not db_job:
-            raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
+        db_job = get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
         if db_job.status != "in_progress":
             raise HTTPException(
                 status_code=400,
@@ -439,9 +474,7 @@ def pause_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: boo
 def finish_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bool = False, notes: str = None):
     """Finish a job and unassign its IP."""
     try:
-        db_job = db.query(Job).filter(Job.id == job_id).first()
-        if not db_job:
-            raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
+        db_job = get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
         if db_job.status != "in_progress":
             raise HTTPException(
                 status_code=400,
@@ -471,12 +504,11 @@ def finish_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bo
         raise HTTPException(status_code=500, detail=f"Error finishing job: {str(e)}") from e
 
 
-def get_job_status_history(db: Session, job_id: int):
+def get_job_status_history(db: Session, job_id: int, verify_exists: bool = True):
     """Get status history for a job."""
     try:
-        db_job = db.query(Job).filter(Job.id == job_id).first()
-        if not db_job:
-            raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
+        if verify_exists:
+            get_job_by_id(db, job_id)
 
         return (
             db.query(JobStatusLog)
@@ -488,3 +520,87 @@ def get_job_status_history(db: Session, job_id: int):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching job status history: {str(e)}") from e
+
+
+def get_job_checklists_overview(db: Session, job_id: int):
+    """Return checklist metadata for a job using a single eager-loaded query."""
+    try:
+        stmt = (
+            select(JobChecklist)
+            .options(selectinload(JobChecklist.checklist))
+            .where(JobChecklist.job_id == job_id)
+            .order_by(JobChecklist.id.asc())
+        )
+        return db.scalars(stmt).all()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching job checklists: {str(e)}") from e
+
+
+def get_job_checklist_items_with_status(db: Session, job_id: int, checklist_id: int):
+    """Return checklist items plus their persisted status for a job."""
+    try:
+        job_checklist_link = db.scalars(
+            select(JobChecklist)
+            .options(selectinload(JobChecklist.checklist))
+            .where(
+                JobChecklist.job_id == job_id,
+                JobChecklist.checklist_id == checklist_id,
+            )
+        ).first()
+
+        if not job_checklist_link:
+            raise HTTPException(
+                status_code=404,
+                detail="Checklist not assigned to this job",
+            )
+
+        checklist = job_checklist_link.checklist
+        items = db.scalars(
+            select(ChecklistItem)
+            .where(ChecklistItem.checklist_id == checklist_id)
+            .order_by(ChecklistItem.position.asc(), ChecklistItem.id.asc())
+        ).all()
+
+        item_ids = [item.id for item in items]
+        if not item_ids:
+            return checklist, []
+
+        statuses = db.scalars(
+            select(JobChecklistItemStatus).where(
+                JobChecklistItemStatus.job_id == job_id,
+                JobChecklistItemStatus.checklist_item_id.in_(item_ids),
+            )
+        ).all()
+        status_map = {status.checklist_item_id: status for status in statuses}
+
+        items_with_status = []
+        for item in items:
+            item_status = status_map.get(item.id)
+            items_with_status.append(
+                {
+                    "id": item.id,
+                    "checklist_id": item.checklist_id,
+                    "text": item.text,
+                    "position": item.position,
+                    "created_at": item.created_at,
+                    "updated_at": item.updated_at,
+                    "status": {
+                        "id": item_status.id if item_status else None,
+                        "job_id": item_status.job_id if item_status else job_id,
+                        "checklist_item_id": item_status.checklist_item_id if item_status else item.id,
+                        "checked": item_status.checked if item_status else False,
+                        "is_approved": item_status.is_approved if item_status else False,
+                        "comment": item_status.comment if item_status else None,
+                        "admin_comment": item_status.admin_comment if item_status else None,
+                        "document_link": item_status.document_link if item_status else None,
+                        "created_at": item_status.created_at if item_status else None,
+                        "updated_at": item_status.updated_at if item_status else None,
+                    },
+                }
+            )
+
+        return checklist, items_with_status
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching checklist items: {str(e)}") from e

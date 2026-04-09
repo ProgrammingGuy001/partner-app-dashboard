@@ -1,54 +1,57 @@
-import os
+from functools import lru_cache
 from pathlib import Path
+from typing import List, Optional
+
 from pydantic import field_validator
-from pydantic_settings import BaseSettings
-from typing import Optional, List
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+APP_DIR = Path(__file__).resolve().parent
 
 
+@lru_cache(maxsize=1)
 def get_env_file() -> str:
     """
     Read env.mode file to determine which environment file to load.
-    Returns path to .env or .env.test based on env.mode content.
+    Returns an absolute path to app/.env or app/.env.test based on env.mode content.
     """
-    mode_file = Path(__file__).parent / "env.mode"
-    
-    # Default to test if env.mode doesn't exist
+    mode_file = APP_DIR / "env.mode"
+
+    def env_path(filename: str) -> str:
+        return str((APP_DIR / filename).resolve())
+
     if not mode_file.exists():
-        print("env.mode not found, defaulting to test mode")
-        return ".env.test"
-    
-    # Read mode from env.mode file
+        return env_path(".env.test")
+
     try:
-        content = mode_file.read_text().strip()
-        # Parse ENVIRONMENT=prod or ENVIRONMENT=test
-        for line in content.split('\n'):
+        content = mode_file.read_text(encoding="utf-8").strip()
+        for line in content.splitlines():
             line = line.strip()
-            if line.startswith('ENVIRONMENT='):
-                mode = line.split('=')[1].strip().lower()
-                if mode == 'prod':
-                    print("Mode: PRODUCTION - Loading .env")
-                    return ".env"
-                elif mode == 'test':
-                    print("Mode: TEST - Loading .env.test")
-                    return ".env.test"
-                else:
-                    print(f"Unknown mode '{mode}' in env.mode, defaulting to test")
-                    return ".env.test"
-    except Exception as e:
-        print(f"Error reading env.mode: {e}, defaulting to test")
-        return ".env.test"
-    
-    # If no ENVIRONMENT found in file
-    print("No ENVIRONMENT found in env.mode, defaulting to test")
-    return ".env.test"
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("ENVIRONMENT="):
+                mode = line.split("=", 1)[1].strip().lower()
+                if mode == "prod":
+                    return env_path(".env")
+                if mode == "test":
+                    return env_path(".env.test")
+                break
+    except OSError:
+        return env_path(".env.test")
+
+    return env_path(".env.test")
 
 
 class Settings(BaseSettings):
     # Environment
     ENVIRONMENT: str = "test"  # "test" or "prod"
+    AUTO_CREATE_TABLES: Optional[bool] = None
 
     # Database
     DATABASE_URL: str
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
+    DB_POOL_TIMEOUT: int = 30
+    DB_POOL_RECYCLE: int = 3600
 
     # Project
     PROJECT_NAME: str = "Modula Admin Dashboard"
@@ -62,6 +65,7 @@ class Settings(BaseSettings):
     IP_AUTH_COOKIE_NAME: str = "ip_access_token"
     ADMIN_REFRESH_COOKIE_NAME: str = "admin_refresh_token"
     IP_REFRESH_COOKIE_NAME: str = "ip_refresh_token"
+    SERVICE_SECRET_KEY: str
 
     # AWS
     AWS_ACCESS_KEY_ID: str
@@ -90,6 +94,7 @@ class Settings(BaseSettings):
     # File Upload Settings
     MAX_UPLOAD_SIZE_MB: int = 10
     ALLOWED_FILE_EXTENSIONS: str = ".jpg,.jpeg,.png,.pdf,.doc,.docx"
+    UPLOAD_READ_CHUNK_SIZE: int = 1024 * 1024
 
     # Odoo Settings (optional - only needed if Odoo integration is used)
     ODOO_URL: Optional[str] = None
@@ -98,6 +103,8 @@ class Settings(BaseSettings):
     ODOO_PASSWORD: Optional[str] = None
     # Set to "false" to disable SSL verification for Odoo (dev only, never in prod)
     ODOO_SSL_VERIFY: str = "true"
+    
+    ModulaCare_URL: str 
 
     @field_validator("SECRET_KEY")
     @classmethod
@@ -114,10 +121,25 @@ class Settings(BaseSettings):
     def allowed_extensions_list(self) -> List[str]:
         return [e.strip().lower() for e in self.ALLOWED_FILE_EXTENSIONS.split(",")]
 
-    class Config:
-        env_file = get_env_file()
-        case_sensitive = True
-        extra = 'ignore'  # Allow extra fields in .env files without validation errors
+    @property
+    def normalized_environment(self) -> str:
+        return self.ENVIRONMENT.strip().lower()
+
+    @property
+    def enable_schema_sync(self) -> bool:
+        if self.AUTO_CREATE_TABLES is not None:
+            return self.AUTO_CREATE_TABLES
+        return self.normalized_environment in {"test", "development", "dev", "local"}
+
+    @property
+    def is_secure_cookie_environment(self) -> bool:
+        return self.normalized_environment in {"production", "prod", "staging"}
+
+    model_config = SettingsConfigDict(
+        env_file=get_env_file(),
+        case_sensitive=True,
+        extra="ignore",
+    )
 
 
 settings = Settings()
