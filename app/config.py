@@ -89,7 +89,7 @@ class Settings(BaseSettings):
     OTP_DEBUG_LOG_ENABLED: bool = False
 
     # CORS allowed origins (comma-separated in .env)
-    CORS_ORIGINS: str = "http://localhost,http://localhost:3000,http://localhost:5174,http://localhost:5173"
+    CORS_ORIGINS: str = "http://localhost,http://localhost:3000,http://localhost:5174,http://localhost:5173,https://partner.modula.in,https://partner-app-dashboard-navy.vercel.app"
 
     # Trusted Proxy Hosts (comma-separated in .env)
     TRUSTED_PROXY_HOSTS: str = "127.0.0.1"
