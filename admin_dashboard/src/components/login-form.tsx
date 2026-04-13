@@ -10,12 +10,23 @@ import {
 import {
   Field,
   FieldDescription,
+  FieldError,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import {
+  AlertCircle,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  LockKeyhole,
+  Mail,
+} from "lucide-react"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
+import { Link } from "react-router-dom"
 import * as z from "zod"
 
 const loginSchema = z.object({
@@ -36,6 +47,7 @@ export function LoginForm({
   error?: string
   className?: string
 }) {
+  const [showPassword, setShowPassword] = useState(false)
   const { register, handleSubmit, formState: { errors } } = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
@@ -48,66 +60,99 @@ export function LoginForm({
     <form
       onSubmit={handleSubmit(onSubmit)}
       className={cn("flex flex-col gap-6", className)}
+      noValidate
     >
-      <Card className="bg-card border-border shadow-sm">
-        <CardHeader className="text-center">
-          <CardTitle className="text-xl">Welcome back</CardTitle>
-          <CardDescription>Sign in to your account</CardDescription>
+      <Card className="gap-0 overflow-hidden rounded-[1.75rem] border-border/70 bg-card/92 py-0 shadow-[0_24px_80px_-42px_rgba(58,26,26,0.4)] backdrop-blur">
+        <CardHeader className="space-y-4 border-b border-border/70 px-8 py-8 text-left">
+
+          <div className="space-y-2">
+            <CardTitle className="text-3xl font-semibold tracking-tight">Welcome back</CardTitle>
+            <CardDescription className="max-w-sm text-[15px] leading-6">
+              Sign in to manage jobs, workers, analytics, and site requisites from one place.
+            </CardDescription>
+          </div>
         </CardHeader>
 
-        <CardContent>
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="email">Email</FieldLabel>
-              <Input
-                id="email"
-                type="email"
-                placeholder="m@example.com"
-                className="bg-white"
-                {...register("email")}
-                aria-invalid={!!errors.email}
-              />
-              {errors.email && <p className="text-xs text-red-600">{errors.email.message}</p>}
+        <CardContent className="px-8 py-8">
+          <FieldGroup className="gap-5">
+            <Field className="gap-2.5">
+              <FieldLabel htmlFor="email" className="text-sm font-medium text-foreground">
+                Work Email
+              </FieldLabel>
+              <div className="relative">
+                <Mail className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@modula.in"
+                  className="h-12 rounded-xl border-border/70 bg-background/80 pl-11"
+                  autoComplete="email"
+                  {...register("email")}
+                  aria-invalid={!!errors.email}
+                />
+              </div>
+              <FieldError errors={[errors.email]} className="text-xs" />
             </Field>
 
-            <Field>
-              <div className="flex items-center">
-                <FieldLabel htmlFor="password">Password</FieldLabel>
-                <a
-                  href="#"
-                  className="ml-auto text-sm underline-offset-4 hover:underline"
-                >
-                  Forgot your password?
-                </a>
+            <Field className="gap-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <FieldLabel htmlFor="password" className="text-sm font-medium text-foreground">
+                  Password
+                </FieldLabel>
+                <span className="text-xs font-medium text-muted-foreground">
+                  Contact an admin if access needs to be reset.
+                </span>
               </div>
 
-              <Input
-                id="password"
-                type="password"
-                placeholder="********"
-                className="bg-white"
-                {...register("password")}
-                aria-invalid={!!errors.password}
-              />
-              {errors.password && <p className="text-xs text-red-600">{errors.password.message}</p>}
+              <div className="relative">
+                <LockKeyhole className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Enter your password"
+                  className="h-12 rounded-xl border-border/70 bg-background/80 pl-11 pr-12"
+                  autoComplete="current-password"
+                  {...register("password")}
+                  aria-invalid={!!errors.password}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((value) => !value)}
+                  className="absolute right-3 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </div>
+              <FieldError errors={[errors.password]} className="text-xs" />
             </Field>
 
             {error && (
-              <p className="text-sm text-red-600">{error}</p>
+              <div className="flex items-start gap-3 rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-destructive">
+                <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                <p>{error}</p>
+              </div>
             )}
 
-            <Button type="submit" disabled={loading}>
-              {loading ? "Logging in..." : "Login"}
+            <Button type="submit" disabled={loading} className="h-12 w-full rounded-xl text-sm font-semibold shadow-lg shadow-primary/15">
+              {loading ? "Signing you in..." : "Sign in to dashboard"}
+              {!loading && <ArrowRight className="size-4" />}
             </Button>
 
-            <FieldDescription className="text-center">
-              Don&apos;t have an account? <a href="/register">Sign up</a>
-            </FieldDescription>
+            <div className="rounded-2xl bg-muted/55 px-4 py-4 text-sm leading-6 text-muted-foreground">
+              Don&apos;t have an account yet?{" "}
+              <Link to="/register" className="font-semibold text-primary transition-colors hover:text-primary/80">
+                Create an admin account
+              </Link>
+              .
+            </div>
+
+            
           </FieldGroup>
         </CardContent>
       </Card>
 
-      <FieldDescription className="px-6 text-center">
+      <FieldDescription className="px-2 text-center text-xs leading-6 sm:px-6">
         By clicking continue, you agree to our{" "}
         <a href="#">Terms of Service</a> and{" "}
         <a href="#">Privacy Policy</a>.
