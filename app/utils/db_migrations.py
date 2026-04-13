@@ -58,9 +58,11 @@ def _add_so_detail_odoo_columns(db: Session) -> None:
 
 
 def _drop_so_detail_sales_order_unique(db: Session) -> None:
-    """Drop unique constraint on so_detail.sales_order to allow multiple requisites per SO."""
+    """Drop legacy uniqueness on so_detail.sales_order to allow multiple requisites per SO."""
+    dialect = db.bind.dialect.name if db.bind is not None else ""
+    changed = False
+
     try:
-        # PostgreSQL: check if the unique constraint still exists
         result = db.execute(
             text(
                 "SELECT 1 FROM information_schema.table_constraints "
@@ -71,10 +73,27 @@ def _drop_so_detail_sales_order_unique(db: Session) -> None:
         )
         if result.fetchone():
             db.execute(text("ALTER TABLE so_detail DROP CONSTRAINT so_detail_sales_order_key"))
-            db.commit()
+            changed = True
             logger.info("Migration: dropped unique constraint on so_detail.sales_order")
+
+        if dialect == "postgresql":
+            index_result = db.execute(
+                text(
+                    "SELECT 1 FROM pg_indexes "
+                    "WHERE schemaname = current_schema() "
+                    "AND tablename = 'so_detail' "
+                    "AND indexname = 'ix_so_detail_sales_order'"
+                )
+            )
+            if index_result.fetchone():
+                db.execute(text("DROP INDEX IF EXISTS ix_so_detail_sales_order"))
+                changed = True
+                logger.info("Migration: dropped unique index ix_so_detail_sales_order")
+
+        if changed:
+            db.commit()
         else:
-            logger.debug("Migration: so_detail.sales_order unique constraint already dropped.")
+            logger.debug("Migration: so_detail.sales_order uniqueness already removed.")
     except Exception as exc:
         db.rollback()
         logger.error("Migration failed dropping so_detail unique constraint: %s", exc)

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Send, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Send, CheckCircle, AlertCircle, Loader2, Building2, FolderOpen, MapPin, UserCircle2, BadgeCheck } from 'lucide-react';
 import { bomAPI } from '@/api/bom';
 import { useRequisite } from '@/context/RequisiteContext';
 import { Card, CardContent } from '@/components/ui/card';
@@ -11,16 +11,58 @@ import { toast } from 'sonner';
 
 const SiteRequisiteSubmit: React.FC = () => {
     const navigate = useNavigate();
-    const { state, clear } = useRequisite();
-    const { bucket, salesOrder, cabinetPosition } = state;
+    const { state, clear, setSODetails } = useRequisite();
+    const { bucket, salesOrder, cabinetPosition, soDetails } = state;
 
     const [srPoc, setSrPoc] = useState('');
     const [repairReference, setRepairReference] = useState('');
     const [expectedDelivery, setExpectedDelivery] = useState('');
     const [doNumber, setDoNumber] = useState('');
     const [loading, setLoading] = useState(false);
+    const [detailsLoading, setDetailsLoading] = useState(false);
+    const [detailsError, setDetailsError] = useState('');
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(false);
+
+    const formatOrderState = (value?: string) => {
+        const normalized = (value || '').trim().toLowerCase();
+        if (!normalized) return '';
+        const labels: Record<string, string> = {
+            draft: 'Quotation',
+            sent: 'Quotation Sent',
+            sale: 'Confirmed',
+            done: 'Locked',
+            cancel: 'Cancelled',
+        };
+        return labels[normalized] || normalized.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+    };
+
+    const fetchSODetails = useCallback(async () => {
+        if (!salesOrder) return null;
+
+        setDetailsLoading(true);
+        setDetailsError('');
+
+        try {
+            const details = await bomAPI.lookupSO(salesOrder);
+            setSODetails(details);
+            return details;
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Failed to fetch sales order details from Odoo.';
+            setDetailsError(msg);
+            return null;
+        } finally {
+            setDetailsLoading(false);
+        }
+    }, [salesOrder, setSODetails]);
+
+    useEffect(() => {
+        if (salesOrder && !soDetails) {
+            void fetchSODetails();
+        } else if (soDetails) {
+            setDetailsError('');
+        }
+    }, [fetchSODetails, salesOrder, soDetails]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -39,6 +81,12 @@ const SiteRequisiteSubmit: React.FC = () => {
         setError('');
 
         try {
+            const resolvedDetails = await fetchSODetails();
+            if (!resolvedDetails) {
+                setError('Sales order details must be fetched from Odoo before submitting the site requisite.');
+                return;
+            }
+
             await bomAPI.submitRequisite({
                 sales_order: salesOrder,
                 cabinet_position: cabinetPosition,
@@ -116,6 +164,83 @@ const SiteRequisiteSubmit: React.FC = () => {
                         <CardContent className="p-6">
                             <h2 className="text-xl font-semibold mb-6">Requisite Details</h2>
                             <form onSubmit={handleSubmit} className="space-y-5">
+                                <div className="rounded-lg border bg-muted/30 p-4">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                            <p className="text-sm font-semibold text-foreground">Sales-order details from Odoo</p>
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                These values are fetched before submission and will be used to enrich the site requisite record.
+                                            </p>
+                                        </div>
+                                        {detailsLoading ? (
+                                            <div className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                                Fetching...
+                                            </div>
+                                        ) : soDetails ? (
+                                            <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                                                Synced
+                                            </div>
+                                        ) : (
+                                            <Button type="button" variant="outline" size="sm" onClick={() => void fetchSODetails()}>
+                                                Refresh details
+                                            </Button>
+                                        )}
+                                    </div>
+
+                                    {detailsError ? (
+                                        <div className="mt-4 flex items-start gap-3 rounded-md border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-200">
+                                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                                            <div>
+                                                <p className="font-semibold">SO details not available yet</p>
+                                                <p className="mt-1">{detailsError}</p>
+                                            </div>
+                                        </div>
+                                    ) : soDetails ? (
+                                        <div className="mt-4 grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
+                                            <div className="flex items-start gap-3 rounded-lg border bg-background px-4 py-3">
+                                                <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-primary/70" />
+                                                <div>
+                                                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Customer</p>
+                                                    <p className="font-medium text-foreground">{soDetails.customer_name || 'N/A'}</p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-start gap-3 rounded-lg border bg-background px-4 py-3">
+                                                <FolderOpen className="mt-0.5 h-4 w-4 shrink-0 text-primary/70" />
+                                                <div>
+                                                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Project</p>
+                                                    <p className="font-medium text-foreground">{soDetails.project_name || 'N/A'}</p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-start gap-3 rounded-lg border bg-background px-4 py-3">
+                                                <UserCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary/70" />
+                                                <div>
+                                                    <p className="text-xs uppercase tracking-wide text-muted-foreground">SO POC</p>
+                                                    <p className="font-medium text-foreground">{soDetails.client_order_ref || 'N/A'}</p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-start gap-3 rounded-lg border bg-background px-4 py-3">
+                                                <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary/70" />
+                                                <div>
+                                                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Order Status</p>
+                                                    <p className="font-medium text-foreground">{formatOrderState(soDetails.order_state) || 'N/A'}</p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-start gap-3 rounded-lg border bg-background px-4 py-3 md:col-span-2">
+                                                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary/70" />
+                                                <div>
+                                                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Delivery Address</p>
+                                                    <p className="font-medium text-foreground">
+                                                        {[soDetails.address_line_1, soDetails.address_line_2, soDetails.city, soDetails.state, soDetails.pincode]
+                                                            .filter(Boolean)
+                                                            .join(', ') || 'N/A'}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : null}
+                                </div>
+
                                 <div className="space-y-2">
                                     <Label>Sales Order <span className="text-destructive">*</span></Label>
                                     <Input value={salesOrder} disabled className="bg-muted opacity-70" />
@@ -134,10 +259,6 @@ const SiteRequisiteSubmit: React.FC = () => {
                                         onChange={(e) => setSrPoc(e.target.value)}
                                         placeholder="Enter POC name or email"
                                     />
-                                </div>
-
-                                <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
-                                    Customer, project name, delivery address, sale order status, and SO POC are pulled automatically from Odoo using the sales order.
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -181,7 +302,7 @@ const SiteRequisiteSubmit: React.FC = () => {
                                     </Button>
                                     <Button
                                         type="submit"
-                                        disabled={loading || bucket.length === 0}
+                                        disabled={loading || detailsLoading || bucket.length === 0 || !soDetails}
                                         size="lg"
                                         className="flex-1"
                                     >

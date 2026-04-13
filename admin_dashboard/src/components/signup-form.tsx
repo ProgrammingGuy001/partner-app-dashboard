@@ -23,7 +23,6 @@ import {
   EyeOff,
   LockKeyhole,
   Mail,
-  ShieldCheck,
 } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"

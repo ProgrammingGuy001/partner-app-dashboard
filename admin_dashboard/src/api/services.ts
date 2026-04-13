@@ -1,4 +1,5 @@
 import axiosInstance from './axios';
+import { clearAdminTokens, persistAdminTokens } from './authStorage';
 
 // ============ Types ============
 export interface LoginRequest {
@@ -105,6 +106,8 @@ export interface PayoutSummary {
 
 // Backward-compatible type alias.
 export type PayoutByIPUser = PayoutByIP;
+
+const JOBS_API_MAX_LIMIT = 200;
 
 export interface IPUser {
   id: number;
@@ -263,7 +266,10 @@ const normalizeJobPayload = (job: Partial<Job>) => {
 // Auth APIs
 export const authAPI = {
   login: (data: LoginRequest): Promise<any> =>
-    axiosInstance.post('/auth/login', data).then(res => handleResponse(res)),
+    axiosInstance.post('/auth/login', data).then(res => {
+      persistAdminTokens(res.data);
+      return handleResponse(res);
+    }),
 
   signup: (data: SignupRequest): Promise<any> =>
     axiosInstance.post('/auth/signup', data).then(res => handleResponse(res)),
@@ -275,15 +281,21 @@ export const authAPI = {
     axiosInstance.get('/auth/verify-token').then(res => handleResponse(res)),
 
   refreshToken: (): Promise<any> =>
-    axiosInstance.post('/auth/refresh-token').then(res => handleResponse(res)),
+    axiosInstance.post('/auth/refresh-token').then(res => {
+      persistAdminTokens(res.data);
+      return handleResponse(res);
+    }),
 
   logout: (): Promise<any> =>
-    axiosInstance.post('/auth/logout').then(res => handleResponse(res)),
+    axiosInstance.post('/auth/logout').then(res => {
+      clearAdminTokens();
+      return handleResponse(res);
+    }),
 };
 
 // Job APIs with pagination support
 export const jobAPI = {
-  getAll: (params?: {
+  getAll: async (params?: {
     page?: number;
     limit?: number;
     status?: string;
@@ -291,10 +303,7 @@ export const jobAPI = {
     search?: string;
   }): Promise<Job[] | PaginatedResponse<Job>> => {
     const { page = 1, limit = 100, ...rest } = params || {};
-    const skip = (page - 1) * limit;
-    return axiosInstance.get('/jobs', {
-      params: { ...rest, skip, limit }
-    }).then(res => {
+    const mapJobResponse = (res: Awaited<ReturnType<typeof axiosInstance.get>>) => {
       const data = handleResponse<Job[] | PaginatedResponse<Job>>(res);
       if (Array.isArray(data)) {
         return data.map(normalizeJob);
@@ -304,7 +313,38 @@ export const jobAPI = {
         jobs: data.jobs?.map(normalizeJob),
         data: data.data?.map(normalizeJob),
       };
-    });
+    };
+
+    if (limit <= JOBS_API_MAX_LIMIT) {
+      const skip = (page - 1) * limit;
+      const response = await axiosInstance.get('/jobs', {
+        params: { ...rest, skip, limit }
+      });
+      return mapJobResponse(response);
+    }
+
+    let remaining = limit;
+    let skip = (page - 1) * limit;
+    const allJobs: Job[] = [];
+
+    while (remaining > 0) {
+      const batchLimit = Math.min(remaining, JOBS_API_MAX_LIMIT);
+      const response = await axiosInstance.get('/jobs', {
+        params: { ...rest, skip, limit: batchLimit }
+      });
+      const data = mapJobResponse(response);
+      const batch = Array.isArray(data) ? data : (data.jobs || data.data || []);
+      allJobs.push(...batch);
+
+      if (batch.length < batchLimit) {
+        break;
+      }
+
+      remaining -= batch.length;
+      skip += batch.length;
+    }
+
+    return allJobs;
   },
 
   getById: (id: number): Promise<Job> =>

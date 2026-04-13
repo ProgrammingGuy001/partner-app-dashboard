@@ -1,14 +1,16 @@
 import React, { createContext, useContext, useReducer } from 'react';
-import type { BucketItem } from '@/api/bom';
+import type { BucketItem, SOLookupDetails } from '@/api/bom';
 
 interface RequisiteState {
     salesOrder: string;
     cabinetPosition: string;
+    soDetails: SOLookupDetails | null;
     bucket: BucketItem[];
 }
 
 type Action =
-    | { type: 'SET_SO'; salesOrder: string; cabinetPosition: string }
+    | { type: 'SET_SO'; salesOrder: string; cabinetPosition: string; soDetails: SOLookupDetails | null }
+    | { type: 'SET_SO_DETAILS'; soDetails: SOLookupDetails | null }
     | { type: 'ADD_ITEM'; item: BucketItem }
     | { type: 'REMOVE_ITEM'; productName: string }
     | { type: 'UPDATE_ITEM'; productName: string; updates: Partial<BucketItem> }
@@ -17,13 +19,21 @@ type Action =
 const initialState: RequisiteState = {
     salesOrder: '',
     cabinetPosition: '',
+    soDetails: null,
     bucket: [],
 };
 
 function reducer(state: RequisiteState, action: Action): RequisiteState {
     switch (action.type) {
         case 'SET_SO':
-            return { ...state, salesOrder: action.salesOrder, cabinetPosition: action.cabinetPosition };
+            return {
+                ...state,
+                salesOrder: action.salesOrder,
+                cabinetPosition: action.cabinetPosition,
+                soDetails: action.soDetails,
+            };
+        case 'SET_SO_DETAILS':
+            return { ...state, soDetails: action.soDetails };
         case 'ADD_ITEM':
             return { ...state, bucket: [...state.bucket, action.item] };
         case 'REMOVE_ITEM':
@@ -44,7 +54,8 @@ function reducer(state: RequisiteState, action: Action): RequisiteState {
 
 interface RequisiteContextValue {
     state: RequisiteState;
-    setSO: (salesOrder: string, cabinetPosition: string) => void;
+    setSO: (salesOrder: string, cabinetPosition: string, soDetails?: SOLookupDetails | null) => void;
+    setSODetails: (soDetails: SOLookupDetails | null) => void;
     addItem: (item: BucketItem) => void;
     removeItem: (productName: string) => void;
     updateItem: (productName: string, updates: Partial<BucketItem>) => void;
@@ -58,7 +69,9 @@ export function RequisiteProvider({ children }: { children: React.ReactNode }) {
 
     const value: RequisiteContextValue = {
         state,
-        setSO: (salesOrder, cabinetPosition) => dispatch({ type: 'SET_SO', salesOrder, cabinetPosition }),
+        setSO: (salesOrder, cabinetPosition, soDetails = null) =>
+            dispatch({ type: 'SET_SO', salesOrder, cabinetPosition, soDetails }),
+        setSODetails: (soDetails) => dispatch({ type: 'SET_SO_DETAILS', soDetails }),
         addItem: (item) => dispatch({ type: 'ADD_ITEM', item }),
         removeItem: (productName) => dispatch({ type: 'REMOVE_ITEM', productName }),
         updateItem: (productName, updates) => dispatch({ type: 'UPDATE_ITEM', productName, updates }),

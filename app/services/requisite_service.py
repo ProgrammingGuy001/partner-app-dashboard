@@ -63,10 +63,9 @@ class RequisiteService:
         user_id: int | None = None,
     ):
         """Submit site requisite with all bucket items."""
-        from app.services.odoo_service import OdooService
-
         odoo: dict = {}
         try:
+            from app.services.odoo_service import OdooService
             odoo = OdooService.get_sales_order_details(data.sales_order)
         except Exception as exc:
             logger.warning("Could not fetch Odoo details for %s: %s", data.sales_order, exc)

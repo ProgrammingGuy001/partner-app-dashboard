@@ -8,8 +8,10 @@ from app.core.security import (
     clear_cookie,
     create_access_token,
     create_refresh_token,
+    decode_refresh_token,
     get_current_user,
     set_bearer_cookie,
+    strip_bearer_prefix,
     verify_hashed_password,
     verify_refresh_token_cookie,
     verify_token as security_verify_token,
@@ -31,6 +33,17 @@ def signup(user: UserCreate, db: Session = Depends(get_db)):
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str | None = None
+
+
+class TokenResponse(BaseModel):
+    message: str
+    access_token: str
+    refresh_token: str | None = None
+    token_type: str = "bearer"
 
 @router.post("/login")
 @limiter.limit("5/minute")
@@ -56,7 +69,12 @@ def login(request: Request, response: Response, login_data: LoginRequest, db: Se
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
     )
 
-    return {"message": "Login successful"}
+    return {
+        "message": "Login successful",
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+    }
 
 
 @router.get("/verify-token")
@@ -65,19 +83,47 @@ def verify_access_token(email: str = Depends(security_verify_token)):
 
 
 @router.post("/refresh-token")
-def refresh_token(request: Request, response: Response):
-    email = verify_refresh_token_cookie(request)
+def refresh_token(request: Request, response: Response, refresh_data: RefreshTokenRequest | None = None):
+    refresh_token_value = request.cookies.get(settings.ADMIN_REFRESH_COOKIE_NAME)
+    if not refresh_token_value:
+        refresh_token_value = refresh_data.refresh_token if refresh_data else None
+
+    payload = decode_refresh_token(strip_bearer_prefix(refresh_token_value))
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token" if refresh_token_value else "No refresh token provided",
+        )
+
+    email: str | None = payload.get("sub")
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+        )
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(data={"sub": email}, expires_delta=access_token_expires)
+    new_refresh_token = create_refresh_token(data={"sub": email})
     set_bearer_cookie(
         response,
         key=settings.ADMIN_AUTH_COOKIE_NAME,
         token=access_token,
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
+    set_bearer_cookie(
+        response,
+        key=settings.ADMIN_REFRESH_COOKIE_NAME,
+        token=new_refresh_token,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+    )
 
-    return {"message": "Token refreshed successfully"}
+    return {
+        "message": "Token refreshed successfully",
+        "access_token": access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+    }
 
 
 @router.get("/me", response_model=UserResponse)

@@ -1,6 +1,7 @@
 import axios from "axios";
 import axiosRetry from "axios-retry";
 import Cookies from "js-cookie";
+import { clearAdminTokens, getAdminAccessToken, getAdminRefreshToken, persistAdminTokens } from "./authStorage";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
 
@@ -44,6 +45,11 @@ axiosRetry(axiosInstance, {
 // Request interceptor - Attach CSRF token to state-changing requests
 axiosInstance.interceptors.request.use(
   (config) => {
+    const accessToken = getAdminAccessToken();
+    if (accessToken) {
+      config.headers.Authorization = `Bearer ${accessToken}`;
+    }
+
     if (MUTATING_METHODS.has(config.method?.toLowerCase() ?? "")) {
       const csrfToken = getCsrfToken();
       if (csrfToken) {
@@ -69,14 +75,17 @@ axiosInstance.interceptors.response.use(
     ) {
       originalRequest._retry = true;
       try {
-        await axios.post(
+        const refreshToken = getAdminRefreshToken();
+        const refreshResponse = await axios.post(
           `${API_BASE_URL}/auth/refresh-token`,
-          {},
+          refreshToken ? { refresh_token: refreshToken } : {},
           { withCredentials: true },
         );
+        persistAdminTokens(refreshResponse.data);
         // Retry the original request with the new cookie
         return axiosInstance(originalRequest);
       } catch {
+        clearAdminTokens();
         // Refresh failed — reject so React Query / ProtectedRoute handles the redirect
         return Promise.reject(error);
       }

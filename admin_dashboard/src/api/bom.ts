@@ -26,8 +26,11 @@ export interface BucketItem {
 }
 
 export interface SOLookupDetails {
+    sales_order?: string;
     customer_name?: string;
     project_name?: string;
+    client_order_ref?: string;
+    order_state?: string;
     address_line_1?: string;
     address_line_2?: string;
     city?: string;
