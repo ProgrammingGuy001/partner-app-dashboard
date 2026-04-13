@@ -82,11 +82,6 @@ axiosInstance.interceptors.response.use(
       }
     }
 
-    // Handle network errors
-    if (!response) {
-      console.error("Network error:", error.message);
-    }
-
     throw error;
   },
 );

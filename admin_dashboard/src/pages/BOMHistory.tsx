@@ -34,13 +34,25 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { Loader2, RefreshCw, Box, Eye } from 'lucide-react';
+import { Download, Loader2, RefreshCw, Box, Eye } from 'lucide-react';
 import { toast } from "sonner";
 
 const BOMHistory: React.FC = () => {
     const queryClient = useQueryClient();
     const [selectedSO, setSelectedSO] = useState<SODetail | null>(null);
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+    const [downloadingId, setDownloadingId] = useState<number | null>(null);
+
+    const handleDownload = async (soId: number, salesOrder: string) => {
+        setDownloadingId(soId);
+        try {
+            await bomAPI.downloadRepairOrder(soId, salesOrder);
+        } catch {
+            toast.error('Failed to download repair order');
+        } finally {
+            setDownloadingId(null);
+        }
+    };
 
     const { data: history, isLoading, refetch } = useQuery({
         queryKey: ['bom-history'],
@@ -72,6 +84,17 @@ const BOMHistory: React.FC = () => {
             case 'completed': return 'default'; // standard for completed
             default: return 'outline';
         }
+    };
+
+    const formatDateOnly = (dateString?: string) => {
+        if (!dateString) return 'N/A';
+
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+            const [year, month, day] = dateString.split('-').map(Number);
+            return new Date(year, month - 1, day).toLocaleDateString();
+        }
+
+        return new Date(dateString).toLocaleDateString();
     };
 
     return (
@@ -146,17 +169,32 @@ const BOMHistory: React.FC = () => {
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => {
-                                                        setSelectedSO(item);
-                                                        setIsDetailsOpen(true);
-                                                    }}
-                                                >
-                                                    <Eye className="h-4 w-4 mr-2" />
-                                                    Details
-                                                </Button>
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        disabled={downloadingId === item.id}
+                                                        onClick={() => handleDownload(item.id, item.sales_order)}
+                                                    >
+                                                        {downloadingId === item.id ? (
+                                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                                        ) : (
+                                                            <Download className="h-4 w-4 mr-2" />
+                                                        )}
+                                                        Repair Order
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => {
+                                                            setSelectedSO(item);
+                                                            setIsDetailsOpen(true);
+                                                        }}
+                                                    >
+                                                        <Eye className="h-4 w-4 mr-2" />
+                                                        Details
+                                                    </Button>
+                                                </div>
                                             </TableCell>
                                         </TableRow>
                                     ))
@@ -179,7 +217,7 @@ const BOMHistory: React.FC = () => {
 
                     {selectedSO && (
                         <div className="flex flex-col gap-6 py-4">
-                            <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 text-sm">
                                 <div>
                                     <span className="text-muted-foreground">Cabinet Position:</span>
                                     <p className="font-medium">{selectedSO.cabinet_position || 'N/A'}</p>
@@ -198,6 +236,38 @@ const BOMHistory: React.FC = () => {
                                         {selectedSO.status.toUpperCase()}
                                     </Badge>
                                 </div>
+                                <div>
+                                    <span className="text-muted-foreground">Customer:</span>
+                                    <p className="font-medium">{selectedSO.customer_name || 'N/A'}</p>
+                                </div>
+                                <div>
+                                    <span className="text-muted-foreground">Project Name:</span>
+                                    <p className="font-medium">{selectedSO.project_name || 'N/A'}</p>
+                                </div>
+                                <div>
+                                    <span className="text-muted-foreground">SO POC:</span>
+                                    <p className="font-medium">{selectedSO.so_poc || 'N/A'}</p>
+                                </div>
+                                <div>
+                                    <span className="text-muted-foreground">Sale Order Status:</span>
+                                    <p className="font-medium">{selectedSO.so_status || 'N/A'}</p>
+                                </div>
+                                <div>
+                                    <span className="text-muted-foreground">Repair Reference:</span>
+                                    <p className="font-medium">{selectedSO.repair_reference || 'N/A'}</p>
+                                </div>
+                                <div>
+                                    <span className="text-muted-foreground">Expected Delivery:</span>
+                                    <p className="font-medium">{formatDateOnly(selectedSO.expected_delivery)}</p>
+                                </div>
+                                <div>
+                                    <span className="text-muted-foreground">DO Number:</span>
+                                    <p className="font-medium">{selectedSO.do_number || 'N/A'}</p>
+                                </div>
+                                <div className="md:col-span-2 xl:col-span-3">
+                                    <span className="text-muted-foreground">Delivery Address:</span>
+                                    <p className="font-medium">{selectedSO.delivery_address || 'N/A'}</p>
+                                </div>
                             </div>
 
                             <div className="border rounded-md">
@@ -206,6 +276,8 @@ const BOMHistory: React.FC = () => {
                                         <TableRow>
                                             <TableHead>Product</TableHead>
                                             <TableHead>Qty</TableHead>
+                                            <TableHead>Component Status</TableHead>
+                                            <TableHead>Department</TableHead>
                                             <TableHead>Issue</TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -214,6 +286,14 @@ const BOMHistory: React.FC = () => {
                                             <TableRow key={req.id}>
                                                 <TableCell className="font-medium">{req.product_name}</TableCell>
                                                 <TableCell>{req.quantity}</TableCell>
+                                                <TableCell>{req.component_status || '-'}</TableCell>
+                                                <TableCell>
+                                                    {req.responsible_department ? (
+                                                        <Badge variant="outline" className="capitalize">
+                                                            {req.responsible_department}
+                                                        </Badge>
+                                                    ) : '-'}
+                                                </TableCell>
                                                 <TableCell className="text-muted-foreground text-sm">
                                                     {req.issue_description || '-'}
                                                 </TableCell>
@@ -245,7 +325,19 @@ const BOMHistory: React.FC = () => {
                         </div>
                     )}
 
-                    <DialogFooter>
+                    <DialogFooter className="gap-2">
+                        <Button
+                            variant="outline"
+                            disabled={downloadingId === selectedSO?.id}
+                            onClick={() => selectedSO && handleDownload(selectedSO.id, selectedSO.sales_order)}
+                        >
+                            {downloadingId === selectedSO?.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                            ) : (
+                                <Download className="h-4 w-4 mr-2" />
+                            )}
+                            Download Repair Order
+                        </Button>
                         <Button variant="outline" onClick={() => setIsDetailsOpen(false)}>Close</Button>
                     </DialogFooter>
                 </DialogContent>

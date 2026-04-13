@@ -60,9 +60,7 @@ def decode_token(token: str | None, *, expected_type: str) -> dict[str, Any] | N
         return None
 
     token_type = payload.get("type")
-    if expected_type == "access" and token_type == "refresh":
-        return None
-    if expected_type == "refresh" and token_type != "refresh":
+    if token_type != expected_type:
         return None
     return payload
 

@@ -12,6 +12,7 @@ class SiteRequisite(Base):
     quantity = Column(DECIMAL(10, 2), default=1.00)
     issue_description = Column(Text, nullable=True)
     responsible_department = Column(String(100), nullable=True)
+    component_status = Column(String(100), nullable=True)
     created_date = Column(DateTime, default=datetime.utcnow)
 
     # Relationship

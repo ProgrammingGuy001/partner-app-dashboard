@@ -35,3 +35,6 @@ slowapi==0.1.9
 APScheduler==3.11.2
 # XML security
 defusedxml==0.7.1
+
+# Excel export
+openpyxl==3.1.5

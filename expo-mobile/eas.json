@@ -28,7 +28,7 @@
       },
       "android": {
         "buildType": "app-bundle",
-        "resourceClass": "large"
+        "resourceClass": "default"
       },
       "cache": {
         "disabled": false

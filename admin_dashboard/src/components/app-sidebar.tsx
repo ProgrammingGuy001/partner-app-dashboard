@@ -8,6 +8,7 @@ import {
   IconUsers,
   IconBox,
   IconChecklist,
+  IconClipboardList,
 } from "@tabler/icons-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -61,6 +62,11 @@ const navGroups = [
         title: "BOM Requests",
         url: "/dashboard/bom",
         icon: IconBox,
+      },
+      {
+        title: "Site Requisite",
+        url: "/dashboard/site-requisite",
+        icon: IconClipboardList,
       },
       {
         title: "Checklists",

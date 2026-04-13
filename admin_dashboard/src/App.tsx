@@ -8,7 +8,9 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { Separator } from "@/components/ui/separator"
 import { BreadcrumbNav } from "@/components/BreadcrumbNav"
 import { Loader2 } from "lucide-react"
+import { ThemeToggle } from "@/components/theme-toggle"
 
+import { RequisiteProvider } from '@/context/RequisiteContext';
 import './App.css';
 
 // Lazy load pages for better performance
@@ -22,6 +24,9 @@ const ProjectAnalytics = React.lazy(() => import('@/pages/ProjectAnalytics'));
 const JobHistory = React.lazy(() => import('@/pages/JobHistory'));
 const Checklists = React.lazy(() => import('@/pages/Checklist'));
 const BOMHistory = React.lazy(() => import('@/pages/BOMHistory'));
+const SiteRequisite = React.lazy(() => import('@/pages/SiteRequisite'));
+const SiteRequisiteBucket = React.lazy(() => import('@/pages/SiteRequisiteBucket'));
+const SiteRequisiteSubmit = React.lazy(() => import('@/pages/SiteRequisiteSubmit'));
 
 // Loading Fallback
 const PageLoader = () => (
@@ -37,7 +42,6 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     queryFn: () => authAPI.getCurrentUser(),
     retry: false,
     staleTime: 1000 * 60 * 5,   // keep successful responses fresh for 5 min
-    gcTime: 0,                   // don't persist failed/stale entries in cache
     refetchOnMount: 'always',    // always re-verify on navigation to a protected page
   });
 
@@ -66,6 +70,9 @@ const DashboardLayout = () => {
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-2 h-4" />
             <BreadcrumbNav />
+            <div className="ml-auto flex items-center">
+              <ThemeToggle />
+            </div>
           </header>
           <main className="flex flex-1 flex-col gap-4 p-4">
             <Suspense fallback={<div className="flex items-center justify-center h-full min-h-[400px]"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>}>
@@ -97,6 +104,15 @@ function App() {
               <Route path="jobs/:jobId/history" element={<JobHistory />} />
               <Route path="checklists" element={<Checklists />} />
               <Route path="bom" element={<BOMHistory />} />
+              <Route path="site-requisite" element={
+                <RequisiteProvider>
+                  <Outlet />
+                </RequisiteProvider>
+              }>
+                <Route index element={<SiteRequisite />} />
+                <Route path="bucket" element={<SiteRequisiteBucket />} />
+                <Route path="submit" element={<SiteRequisiteSubmit />} />
+              </Route>
               <Route path="admin" element={<Navigate to="/dashboard/workers" replace />} />
             </Route>
 

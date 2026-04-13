@@ -35,7 +35,7 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div className="bg-zinc-50 flex min-h-svh flex-col items-center justify-center gap-6 p-6 md:p-10">
+    <div className="bg-muted flex min-h-svh flex-col items-center justify-center gap-6 p-6 md:p-10">
       <div className="flex w-full max-w-sm flex-col gap-6">
         <a href="https://www.modula.in/">
           <div className="h-16 px-4 flex items-center justify-center">

@@ -1,6 +1,7 @@
 import logging
 from typing import List
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas.requisite_schema import SiteRequisiteSubmit, SODetailResponse, BOMItemResponse
@@ -53,22 +54,18 @@ async def get_requisite_history(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching history: {str(e)}") from e
 
-@router.get("/history/{sales_order}", response_model=SODetailResponse)
-async def get_requisite_by_sales_order(
+@router.get("/history/by-sales-order/{sales_order}", response_model=List[SODetailResponse])
+async def get_requisites_by_sales_order(
     sales_order: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get requisite history for specific sales order (Admin)
+    Get all requisites for a specific sales order (Admin) — may return multiple records
     """
     try:
-        result = RequisiteService.get_history_by_sales_order(db, sales_order)
-        if not result:
-            raise HTTPException(status_code=404, detail="Sales order not found")
-        return result
-    except HTTPException:
-        raise
+        results = RequisiteService.get_history_by_sales_order(db, sales_order)
+        return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}") from e
 
@@ -94,6 +91,50 @@ async def update_requisite_status(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}") from e
+
+@router.get("/history/{so_id}/download")
+async def download_repair_order(
+    so_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Download Repair Order xlsx for a specific requisite by ID (Admin)
+    """
+    try:
+        logger.info(f"[BOM Download Admin] Admin: {current_user.email}, SO ID: {so_id}")
+
+        xlsx_bytes = RequisiteService.generate_repair_order_xlsx(db, so_id)
+
+        filename = f"repair_order_{so_id}.xlsx"
+        return Response(
+            content=xlsx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[BOM Download Admin] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to generate repair order") from e
+
+
+@router.get("/so-lookup/{sales_order}")
+async def lookup_sales_order(
+    sales_order: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Fetch SO details from Odoo (customer, project, address) — Admin
+    """
+    try:
+        from app.services.odoo_service import OdooService
+        details = OdooService.get_sales_order_details(sales_order)
+        return details
+    except Exception as e:
+        logger.warning(f"[BOM SO Lookup Admin] Failed for {sales_order}: {str(e)}")
+        raise HTTPException(status_code=404, detail="Sales order not found or Odoo unavailable")
+
 
 @router.get("/{sales_order}/{cabinet_position}", response_model=List[BOMItemResponse])
 async def get_bom_items(

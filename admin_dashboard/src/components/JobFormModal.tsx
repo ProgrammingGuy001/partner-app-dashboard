@@ -291,8 +291,6 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
 
       if (data.checklist_link) payload.checklist_link = data.checklist_link;
 
-      console.log('Submitting job payload:', JSON.stringify(payload, null, 2));
-
       if (job?.id) {
         await updateJobMutation.mutateAsync({ id: job.id, data: payload as JobUpdate });
       } else {
@@ -300,7 +298,6 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
       }
       onSuccess();
     } catch (err: any) {
-      console.error('Error saving job:', err);
       
       // Extract detailed error message from backend response
       let errorMessage = 'Operation failed';

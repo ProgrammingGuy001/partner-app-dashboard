@@ -2,6 +2,7 @@
 import logging
 from typing import List
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas.requisite_schema import SiteRequisiteSubmit, SODetailResponse, BOMItemResponse
@@ -28,16 +29,17 @@ async def submit_site_requisite(
     try:
         logger.info(f"[BOM Submit] User: {current_user.phone_number}, SO: {data.sales_order}, Items: {len(data.items)}")
 
-        # Auto-populate POC from logged in partner
-        data.sr_poc = f"{current_user.first_name} {current_user.last_name or ''}".strip()
+        # Default POC from the logged in partner only when user did not provide one.
+        if not data.sr_poc:
+            data.sr_poc = f"{current_user.first_name} {current_user.last_name or ''}".strip()
 
-        result = RequisiteService.submit_site_requisite(db, data)
+        result = RequisiteService.submit_site_requisite(db, data, user_id=current_user.id)
         logger.info(f"[BOM Submit] Success - SO ID: {result.id}")
         return result
     except Exception as e:
         logger.error(f"[BOM Submit] Error: {str(e)}", exc_info=True)
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error submitting requisite: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Failed to submit requisite") from e
 
 @router.get("/history", response_model=List[SODetailResponse])
 async def get_requisite_history(
@@ -51,31 +53,28 @@ async def get_requisite_history(
     """
     try:
         logger.info(f"[BOM History] Fetching history for user: {current_user.phone_number}")
-        history = RequisiteService.get_history(db, limit, offset)
+        history = RequisiteService.get_history(db, limit, offset, user_id=current_user.id)
         logger.info(f"[BOM History] Returned {len(history)} records")
         return history
     except Exception as e:
         logger.error(f"[BOM History] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error fetching history: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Failed to fetch history") from e
 
-@router.get("/history/{sales_order}", response_model=SODetailResponse)
-async def get_requisite_by_sales_order(
+@router.get("/history/by-sales-order/{sales_order}", response_model=List[SODetailResponse])
+async def get_requisites_by_sales_order(
     sales_order: str,
     db: Session = Depends(get_db),
     current_user: ip = Depends(get_fully_verified_user)
 ):
     """
-    Get requisite history for specific sales order (Partner)
+    Get all requisites for a specific sales order (Partner) — may return multiple records
     """
     try:
-        result = RequisiteService.get_history_by_sales_order(db, sales_order)
-        if not result:
-            raise HTTPException(status_code=404, detail="Sales order not found")
-        return result
-    except HTTPException:
-        raise
+        results = RequisiteService.get_history_by_sales_order(db, sales_order, user_id=current_user.id)
+        return results
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}") from e
+        logger.error(f"[BOM History SO] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch sales order") from e
 
 @router.patch("/history/{so_id}/status")
 async def update_requisite_status(
@@ -100,6 +99,52 @@ async def update_requisite_status(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}") from e
 
+@router.get("/history/{so_id}/download")
+async def download_repair_order(
+    so_id: int,
+    db: Session = Depends(get_db),
+    current_user: ip = Depends(get_fully_verified_user)
+):
+    """
+    Download Repair Order xlsx for a specific requisite by ID (Partner)
+    """
+    try:
+        logger.info(f"[BOM Download] User: {current_user.phone_number}, SO ID: {so_id}")
+
+        xlsx_bytes = RequisiteService.generate_repair_order_xlsx(
+            db, so_id, user_id=current_user.id
+        )
+
+        filename = f"repair_order_{so_id}.xlsx"
+        return Response(
+            content=xlsx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[BOM Download] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to generate repair order") from e
+
+
+@router.get("/so-lookup/{sales_order}")
+async def lookup_sales_order(
+    sales_order: str,
+    current_user: ip = Depends(get_fully_verified_user)
+):
+    """
+    Fetch SO details from Odoo (customer, project, address) for the partner UI.
+    Returns a best-effort response — fields may be None if Odoo is unavailable.
+    """
+    try:
+        details = OdooService.get_sales_order_details(sales_order)
+        return details
+    except Exception as e:
+        logger.warning(f"[BOM SO Lookup] Failed for {sales_order}: {str(e)}")
+        raise HTTPException(status_code=404, detail="Sales order not found or Odoo unavailable")
+
+
 @router.get("/{sales_order}/{cabinet_position}", response_model=List[BOMItemResponse])
 async def get_bom_items(
     sales_order: str,
@@ -120,4 +165,4 @@ async def get_bom_items(
         raise
     except Exception as e:
         logger.error(f"[BOM API] Unexpected error fetching BOM: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error fetching BOM: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Failed to fetch BOM data") from e

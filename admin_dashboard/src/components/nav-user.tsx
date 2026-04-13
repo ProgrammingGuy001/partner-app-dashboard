@@ -45,8 +45,8 @@ export function NavUser({
   const handleLogout = async () => {
     try {
       await authAPI.logout()
-    } catch (error) {
-      console.error('Logout error:', error)
+    } catch {
+      // Logout errors are non-fatal; proceed to clear session regardless
     }
     // Clear all cached queries
     queryClient.clear()

@@ -30,6 +30,8 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -48,6 +50,7 @@ const Workers: React.FC = () => {
   const [selectedWorker, setSelectedWorker] = useState<IPUser | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [selectedAdminIds, setSelectedAdminIds] = useState<number[]>([]);
+  const [pendingVerifyPhone, setPendingVerifyPhone] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const { data, isLoading, error, refetch } = useIPUsers();
@@ -152,12 +155,16 @@ const Workers: React.FC = () => {
   };
 
   const handleVerify = (phoneNumber: string) => {
-    if (window.confirm('Are you sure you want to verify this worker?')) {
-      verifyMutation.mutate({
-        phoneNumber,
-        adminIds: canManageAssignments && selectedAdminIds.length > 0 ? selectedAdminIds : undefined,
-      });
-    }
+    setPendingVerifyPhone(phoneNumber);
+  };
+
+  const confirmVerify = () => {
+    if (!pendingVerifyPhone) return;
+    verifyMutation.mutate({
+      phoneNumber: pendingVerifyPhone,
+      adminIds: canManageAssignments && selectedAdminIds.length > 0 ? selectedAdminIds : undefined,
+    });
+    setPendingVerifyPhone(null);
   };
 
   const handleSaveAssignments = () => {
@@ -319,6 +326,26 @@ const Workers: React.FC = () => {
         onSaveAssignments={handleSaveAssignments}
         isSavingAssignments={assignAdminsMutation.isPending}
       />
+
+      {/* Verify Confirmation Dialog */}
+      <Dialog open={pendingVerifyPhone !== null} onOpenChange={(open) => !open && setPendingVerifyPhone(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Verify Personnel</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to verify this worker? This will grant them full access.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setPendingVerifyPhone(null)}>
+              Cancel
+            </Button>
+            <Button onClick={confirmVerify} disabled={verifyMutation.isPending}>
+              {verifyMutation.isPending ? 'Verifying...' : 'Verify'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

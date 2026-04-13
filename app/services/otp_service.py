@@ -1,5 +1,4 @@
 import logging
-import urllib.parse
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -123,16 +122,21 @@ class OTPService:
                 "Keep it safe and don't share it with anyone. - Team Modula"
             )
 
-            encoded_password = urllib.parse.quote(password)
-            encoded_message = urllib.parse.quote(message)
-            url = (
-                f"https://sms6.rmlconnect.net:8443/bulksms/bulksms?"
-                f"username={username}&password={encoded_password}&type=0&dlr=1&"
-                f"destination={formatted_number}&source={sender_id}&message={encoded_message}&"
-                f"entityid={entity_id}&tempid={template_id}"
+            response = requests.post(
+                "https://sms6.rmlconnect.net:8443/bulksms/bulksms",
+                data={
+                    "username": username,
+                    "password": password,
+                    "type": "0",
+                    "dlr": "1",
+                    "destination": formatted_number,
+                    "source": sender_id,
+                    "message": message,
+                    "entityid": entity_id,
+                    "tempid": template_id,
+                },
+                timeout=10,
             )
-
-            response = requests.get(url, timeout=10)
             response.raise_for_status()
             logger.info(f"OTP sent successfully to {formatted_number[:4]}****")
             return True

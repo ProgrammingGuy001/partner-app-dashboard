@@ -88,6 +88,9 @@ class Settings(BaseSettings):
     OTP_LENGTH: int = 6
     OTP_DEBUG_LOG_ENABLED: bool = False
 
+    # CORS allowed origins (comma-separated in .env)
+    CORS_ORIGINS: str = "http://localhost,http://localhost:3000,http://localhost:5174,http://localhost:5173"
+
     # Trusted Proxy Hosts (comma-separated in .env)
     TRUSTED_PROXY_HOSTS: str = "127.0.0.1"
 
@@ -112,6 +115,10 @@ class Settings(BaseSettings):
         if not v or len(v) < 32:
             raise ValueError("SECRET_KEY must be at least 32 characters long")
         return v
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
     @property
     def trusted_hosts_list(self) -> List[str]:

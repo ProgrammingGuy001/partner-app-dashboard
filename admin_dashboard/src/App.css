@@ -82,37 +82,54 @@
 }
 
 .dark {
-  --background: #3a1a1a;
-  --foreground: #edeae3;
-  --card: #3a1a1a;
-  --card-foreground: #edeae3;
-  --popover: #3a1a1a;
-  --popover-foreground: #edeae3;
-  --primary: #9b7c73;
-  --primary-foreground: #3a1a1a;
-  --secondary: #6b4b41;
-  --secondary-foreground: #edeae3;
-  --muted: #6b4b41;
-  --muted-foreground: #c4af9e;
-  --accent: #6b4b41;
-  --accent-foreground: #edeae3;
+  /* Layer hierarchy (darkest → lightest):
+     sidebar #140b0b → background #1c0f0f → card #281616
+     → popover #331d1d → muted surfaces #3d2424 */
+
+  --background: #1c0f0f;
+  --foreground: #ede9de;
+
+  --card: #281616;
+  --card-foreground: #ede9de;
+
+  --popover: #331d1d;
+  --popover-foreground: #ede9de;
+
+  /* Lighter primary for dark backgrounds */
+  --primary: #b8897f;
+  --primary-foreground: #1c0f0f;
+
+  --secondary: #3d2424;
+  --secondary-foreground: #ede9de;
+
+  --muted: #3d2424;
+  --muted-foreground: #b0968e;
+
+  --accent: #4a2e2e;
+  --accent-foreground: #ede9de;
+
   --destructive: oklch(0.704 0.191 22.216);
-  --border: #6b4b41;
-  --input: #6b4b41;
-  --ring: #9b7c73;
-  --chart-1: #9b7c73;
+
+  /* Borders clearly visible against all surface layers */
+  --border: #4d3030;
+  --input: #3d2424;
+  --ring: #b8897f;
+
+  --chart-1: #b8897f;
   --chart-2: #c4af9e;
   --chart-3: #7c685f;
-  --chart-4: #6b4b41;
-  --chart-5: #3a1a1a;
-  --sidebar: #2b1313;
-  --sidebar-foreground: #edeae3;
-  --sidebar-primary: #9b7c73;
-  --sidebar-primary-foreground: #3a1a1a;
-  --sidebar-accent: #6b4b41;
-  --sidebar-accent-foreground: #edeae3;
-  --sidebar-border: #6b4b41;
-  --sidebar-ring: #9b7c73;
+  --chart-4: #4a2e2e;
+  --chart-5: #281616;
+
+  /* Sidebar: deepest layer, visually anchors the layout */
+  --sidebar: #140b0b;
+  --sidebar-foreground: #ede9de;
+  --sidebar-primary: #b8897f;
+  --sidebar-primary-foreground: #1c0f0f;
+  --sidebar-accent: #3d2424;
+  --sidebar-accent-foreground: #ede9de;
+  --sidebar-border: #4d3030;
+  --sidebar-ring: #b8897f;
 }
 
 @layer base {

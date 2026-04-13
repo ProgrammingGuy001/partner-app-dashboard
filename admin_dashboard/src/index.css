@@ -12,7 +12,7 @@ body {
   min-height: 100vh;
   margin: 0;
   padding: 0;
-  background-color: var(--muted);
+  background-color: var(--background);
   color: var(--foreground);
   overflow-x: hidden;
 }
@@ -33,10 +33,10 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / 0.3);
+  background: color-mix(in srgb, var(--muted-foreground) 30%, transparent);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.5);
+  background: color-mix(in srgb, var(--muted-foreground) 50%, transparent);
 }

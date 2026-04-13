@@ -1,4 +1,4 @@
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -29,7 +29,9 @@ export const BreadcrumbNav = () => {
 
     return (
       <BreadcrumbItem key={name}>
-        <BreadcrumbLink href={routeTo}>{displayName}</BreadcrumbLink>
+        <BreadcrumbLink asChild>
+          <Link to={routeTo}>{displayName}</Link>
+        </BreadcrumbLink>
       </BreadcrumbItem>
     );
   });

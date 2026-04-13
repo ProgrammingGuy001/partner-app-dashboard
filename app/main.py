@@ -9,13 +9,14 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.api.v1 import auth, bom, jobs, verification
 from app.config import settings
 from app.core.scheduler import shutdown_scheduler, start_scheduler
-from app.database import Base, engine
+from app.database import Base, engine, SessionLocal
 from app.routes.analytics import router as analytics_router
 from app.routes.approval import router as approval_router
 from app.routes.auth import router as auth_router
 from app.routes.bom import router as bom_router
 from app.routes.checklist import router as checklist_router
 from app.routes.job import router as job_router
+from app.utils.db_migrations import run_migrations
 from app.utils.rate_limiter import limiter, rate_limit_exceeded_handler
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,14 @@ async def lifespan(app: FastAPI):
         Base.metadata.create_all(bind=engine)
     else:
         logger.info("Skipping automatic schema creation; use Alembic migrations instead.")
+
+    # Always run column-level migrations (idempotent)
+    try:
+        with SessionLocal() as db:
+            run_migrations(db)
+    except Exception as exc:
+        logger.error("Startup migrations failed: %s", exc)
+
     start_scheduler()
     yield
     # Shutdown
@@ -46,21 +55,11 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 
-origins = [
-    "http://localhost",
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "https://partner-app-dashboard-navy.vercel.app",
-    "https://partner.modula.in",
-    "https://admin.modula.in",
-]
-
-
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=settings.trusted_hosts_list)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Requested-With", "X-CSRF-Token"],
