@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from typing import List, Optional
+from pydantic import BaseModel, Field
 from app.database import get_db
 from app.schemas.job import (
     JobStart, JobPause, JobFinish, JobCreate, JobUpdate, JobResponse,
@@ -19,6 +20,14 @@ from app.services.polling_service import trigger_polling_on_crud
 from app.services.customer_otp_service import CustomerOTPService
 from app.services.s3_service import upload_file_to_s3
 from app.services.upload_service import read_validated_upload
+from app.services.billing_service import BillingService
+from app.services.invoice_request_service import (
+    create_invoice_request as create_invoice_request_record,
+    get_invoice_requests,
+    get_latest_invoice_request,
+    get_pending_invoice_request,
+    serialize_invoice_request,
+)
 import app.model as models
 from app.model.media_document import MediaDocument
 
@@ -222,6 +231,220 @@ def approve_checklist_item(
 
     # Admin can update is_approved and admin_comment
     return update_job_checklist_item_status(db, job_id, item_id, status_update)
+
+
+def _get_invoice_request(db: Session, job_id: int):
+    return get_latest_invoice_request(db, job_id)
+
+
+def _serialize_invoice_request(req) -> dict | None:
+    return serialize_invoice_request(req)
+
+
+class CreateInvoiceRequestRequest(BaseModel):
+    completion_percentage: int | None = Field(default=None, ge=0, le=100)
+    notes: str | None = None
+
+
+@router.get("/{job_id}/billing", response_model=dict)
+def get_job_billing(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Get billing data for a job. Only available for external IP jobs."""
+    job = get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
+
+    if not job.assigned_ip or job.assigned_ip.is_internal:
+        raise HTTPException(status_code=400, detail="Billing only available for external IP jobs")
+
+    ip_user = job.assigned_ip
+    financial = ip_user.financial
+    invoice_req = _get_invoice_request(db, job_id)
+
+    return {
+        "job_id": job.id,
+        "job_name": job.name,
+        "job_type": job.type,
+        "rate": str(job.rate) if job.rate else None,
+        "size": job.size,
+        "state": job.state,
+        "invoice_request": _serialize_invoice_request(invoice_req),
+        "invoice_requests": [
+            _serialize_invoice_request(req)
+            for req in get_invoice_requests(db, job_id)
+        ],
+        "ip": {
+            "name": f"{ip_user.first_name or ''} {ip_user.last_name or ''}".strip(),
+            "phone": ip_user.phone_number,
+            "city": ip_user.city,
+            "pan_number": financial.pan_number if financial else None,
+            "account_number": financial.account_number if financial else None,
+            "ifsc_code": financial.ifsc_code if financial else None,
+            "account_holder_name": financial.account_holder_name if financial else None,
+        },
+    }
+
+
+@router.post("/{job_id}/invoice-request", response_model=dict)
+def create_invoice_request(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Create an invoice request for a job. Only for external IP jobs."""
+    job = get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
+
+    if not job.assigned_ip or job.assigned_ip.is_internal:
+        raise HTTPException(status_code=400, detail="Invoice requests only for external IP jobs")
+
+    req = create_invoice_request_record(
+        db,
+        job_id=job_id,
+        requested_by_id=current_user.id,
+    )
+
+    return {
+        "message": "Invoice request created successfully",
+        "invoice_request": _serialize_invoice_request(req),
+    }
+
+
+@router.post("/{job_id}/invoice-requests", response_model=dict)
+def create_additional_invoice_request(
+    job_id: int,
+    body: CreateInvoiceRequestRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Create another invoice request for completion-based or phase-based billing."""
+    job = get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
+
+    if not job.assigned_ip or job.assigned_ip.is_internal:
+        raise HTTPException(status_code=400, detail="Invoice requests only for external IP jobs")
+
+    req = create_invoice_request_record(
+        db,
+        job_id=job_id,
+        requested_by_id=current_user.id,
+        completion_percentage=body.completion_percentage,
+        notes=body.notes,
+    )
+
+    return {
+        "message": "Additional invoice request created successfully",
+        "invoice_request": _serialize_invoice_request(req),
+    }
+
+
+@router.put("/{job_id}/invoice-request/approve", response_model=dict)
+def approve_invoice_request(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Approve the pending invoice request for a job."""
+    from datetime import datetime as dt
+    get_job_by_id(db, job_id)  # existence check without scope — any admin can approve
+
+    req = get_pending_invoice_request(db, job_id)
+    if not req or req.status != "pending":
+        raise HTTPException(status_code=404, detail="No pending invoice request found for this job")
+
+    req.status = "approved"
+    req.approved_at = dt.utcnow()
+    req.approved_by_id = current_user.id
+    req.rejection_reason = None
+    db.commit()
+    db.refresh(req)
+
+    return {
+        "message": "Invoice request approved",
+        "invoice_request": _serialize_invoice_request(req),
+    }
+
+
+@router.put("/{job_id}/invoice-request/reject", response_model=dict)
+def reject_invoice_request(
+    job_id: int,
+    reason: str = "",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Reject the pending invoice request for a job."""
+    get_job_by_id(db, job_id)
+
+    req = get_pending_invoice_request(db, job_id)
+    if not req or req.status != "pending":
+        raise HTTPException(status_code=404, detail="No pending invoice request found for this job")
+
+    req.status = "rejected"
+    req.rejection_reason = reason or None
+    db.commit()
+    db.refresh(req)
+
+    return {
+        "message": "Invoice request rejected",
+        "invoice_request": _serialize_invoice_request(req),
+    }
+
+
+@router.get("/{job_id}/invoice-request/download")
+def download_invoice_bill(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Download approved invoice bill using the project billing template."""
+    xlsx_bytes = BillingService.generate_invoice_xlsx(
+        db,
+        job_id,
+        admin_id=current_user.id,
+        is_superadmin=getattr(current_user, "is_superadmin", False),
+    )
+    filename = f"billing_invoice_{job_id}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/invoice-requests/pending", response_model=dict)
+def list_pending_invoice_requests(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """List all pending invoice requests visible to the current admin."""
+    from app.model.invoice_request import InvoiceRequest
+    from sqlalchemy import select as sa_select
+
+    is_superadmin = getattr(current_user, "is_superadmin", False)
+
+    if is_superadmin:
+        reqs = db.query(InvoiceRequest).filter(InvoiceRequest.status == "pending").all()
+    else:
+        # Admins see pending requests for jobs they own
+        reqs = (
+            db.query(InvoiceRequest)
+            .join(models.Job, InvoiceRequest.job_id == models.Job.id)
+            .filter(
+                InvoiceRequest.status == "pending",
+                models.Job.admin_assigned == current_user.id,
+            )
+            .all()
+        )
+
+    items = []
+    for req in reqs:
+        job = db.get(models.Job, req.job_id)
+        items.append({
+            **_serialize_invoice_request(req),
+            "job_name": job.name if job else None,
+            "job_id": req.job_id,
+        })
+
+    return {"pending_count": len(items), "requests": items}
 
 
 @router.post("/upload-file", response_model=dict)

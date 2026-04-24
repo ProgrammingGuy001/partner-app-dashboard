@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Response
 from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field
 from app.database import get_db
 from app.model.ip import ip
 from app.model.job import ChecklistItem
@@ -12,6 +13,14 @@ from app.schemas.job_status_log import JobStatusLogResponse, JobStatusLogCreate
 from app.api.deps import get_fully_verified_user
 from app.services.s3_service import upload_file_to_s3
 from app.services.upload_service import read_validated_upload
+from app.services.billing_service import BillingService
+from app.utils.attendance_policy import ensure_attendance_window_open
+from app.services.invoice_request_service import (
+    create_invoice_request as create_invoice_request_record,
+    get_invoice_requests,
+    get_latest_invoice_request,
+    serialize_invoice_request,
+)
 from app.crud.checklist import update_job_checklist_item_status
 from app.crud.job import (
     get_ip_job_by_id,
@@ -23,7 +32,22 @@ from app.crud.job import (
 from typing import List
 from app.model.media_document import MediaDocument
 from app.model.job_status_log import JobStatusLog
+from app.model.attendance import DailyAttendance
+from app.schemas.attendance import DailyAttendanceResponse
 from datetime import datetime
+
+
+def _get_invoice_request(db: Session, job_id: int):
+    return get_latest_invoice_request(db, job_id)
+
+
+def _serialize_invoice_request(req) -> dict | None:
+    return serialize_invoice_request(req)
+
+
+class CreateInvoiceRequestRequest(BaseModel):
+    completion_percentage: int | None = Field(default=None, ge=0, le=100)
+    notes: str | None = None
 
 router = APIRouter(prefix="/dashboard/jobs", tags=["Dashboard"])
 
@@ -101,6 +125,67 @@ def add_job_note(
     return {
         "message": "Note added successfully",
         "note": JobStatusLogResponse.model_validate(job_status_log)
+    }
+
+
+@router.post("/{job_id}/attendance", response_model=dict)
+async def record_attendance(
+    job_id: int,
+    phone: str | None = Form(None),
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+    manual_location: str | None = Form(None),
+    photo: UploadFile = File(...),
+    current_user: ip = Depends(get_fully_verified_user),
+    db: Session = Depends(get_db)
+):
+    """Record daily attendance with authenticated IP identity, GPS location, and mandatory photo"""
+    ensure_attendance_window_open()
+
+    get_ip_job_by_id(db, job_id, current_user.id)
+
+    upload = await read_validated_upload(photo)
+    photo_url = upload_file_to_s3(
+        file_content=upload.content,
+        filename=upload.filename,
+        content_type=upload.content_type,
+    )
+
+    record = DailyAttendance(
+        job_id=job_id,
+        phone=(phone or current_user.phone_number).strip(),
+        latitude=latitude,
+        longitude=longitude,
+        manual_location=manual_location.strip() if manual_location else None,
+        photo_url=photo_url,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return {
+        "message": "Attendance recorded successfully",
+        "attendance": DailyAttendanceResponse.model_validate(record)
+    }
+
+
+@router.get("/{job_id}/attendance", response_model=dict)
+def get_attendance(
+    job_id: int,
+    current_user: ip = Depends(get_fully_verified_user),
+    db: Session = Depends(get_db)
+):
+    """Get daily attendance records for a job"""
+    get_ip_job_by_id(db, job_id, current_user.id)
+    records = (
+        db.query(DailyAttendance)
+        .filter(DailyAttendance.job_id == job_id)
+        .order_by(DailyAttendance.recorded_at.desc())
+        .all()
+    )
+    return {
+        "message": "Attendance records fetched",
+        "job_id": job_id,
+        "records": [DailyAttendanceResponse.model_validate(r) for r in records]
     }
 
 
@@ -277,3 +362,85 @@ def update_checklist_item_status(
         "message": "Checklist item status updated successfully",
         "status": JobChecklistItemStatusResponse.model_validate(updated_status)
     }
+
+
+@router.get("/{job_id}/billing", response_model=dict)
+def get_billing(
+    job_id: int,
+    current_user: ip = Depends(get_fully_verified_user),
+    db: Session = Depends(get_db),
+):
+    """Get billing / invoice-request status for a job (external IPs only)."""
+    job = get_ip_job_by_id(db, job_id, current_user.id)
+    if current_user.is_internal:
+        raise HTTPException(status_code=403, detail="Billing is only available for external IPs")
+    invoice_req = _get_invoice_request(db, job_id)
+    return {
+        "job_id": job_id,
+        "invoice_request": _serialize_invoice_request(invoice_req),
+        "invoice_requests": [
+            _serialize_invoice_request(req)
+            for req in get_invoice_requests(db, job_id)
+        ],
+    }
+
+
+@router.post("/{job_id}/invoice-request", response_model=dict)
+def create_invoice_request(
+    job_id: int,
+    current_user: ip = Depends(get_fully_verified_user),
+    db: Session = Depends(get_db),
+):
+    """Create an invoice request (external IPs only). Blocks if one is already pending."""
+    get_ip_job_by_id(db, job_id, current_user.id)
+    if current_user.is_internal:
+        raise HTTPException(status_code=403, detail="Billing is only available for external IPs")
+    req = create_invoice_request_record(db, job_id=job_id)
+    return {
+        "message": "Invoice request submitted successfully",
+        "invoice_request": _serialize_invoice_request(req),
+    }
+
+
+@router.post("/{job_id}/invoice-requests", response_model=dict)
+def create_additional_invoice_request(
+    job_id: int,
+    body: CreateInvoiceRequestRequest,
+    current_user: ip = Depends(get_fully_verified_user),
+    db: Session = Depends(get_db),
+):
+    """Create another invoice request for completion-based or phase-based billing."""
+    get_ip_job_by_id(db, job_id, current_user.id)
+    if current_user.is_internal:
+        raise HTTPException(status_code=403, detail="Billing is only available for external IPs")
+
+    req = create_invoice_request_record(
+        db,
+        job_id=job_id,
+        completion_percentage=body.completion_percentage,
+        notes=body.notes,
+    )
+    return {
+        "message": "Additional invoice request submitted successfully",
+        "invoice_request": _serialize_invoice_request(req),
+    }
+
+
+@router.get("/{job_id}/invoice-request/download")
+def download_invoice_bill(
+    job_id: int,
+    current_user: ip = Depends(get_fully_verified_user),
+    db: Session = Depends(get_db),
+):
+    """Download approved invoice bill using the project billing template."""
+    xlsx_bytes = BillingService.generate_invoice_xlsx(
+        db,
+        job_id,
+        ip_user_id=current_user.id,
+    )
+    filename = f"billing_invoice_{job_id}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

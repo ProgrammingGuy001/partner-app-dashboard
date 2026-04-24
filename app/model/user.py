@@ -1,4 +1,6 @@
-from sqlalchemy import Boolean, Integer, String
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 from typing import List
 from app.database import Base
@@ -14,6 +16,7 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_approved: Mapped[bool] = mapped_column(Boolean, default=False)
     is_superadmin: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     # Compatibility aliases for existing code paths.
     hashed_password = synonym("password")

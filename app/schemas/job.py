@@ -121,6 +121,7 @@ class IPSummary(BaseModel):
     last_name: str
     phone_number: str
     is_assigned: bool
+    is_internal: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

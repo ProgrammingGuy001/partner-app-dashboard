@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from app.api.v1 import auth, bom, jobs, verification
+from app.api.v1 import attendance, auth, bom, jobs, verification
 from app.config import settings
 from app.core.scheduler import shutdown_scheduler, start_scheduler
 from app.database import Base, engine, SessionLocal
@@ -70,6 +70,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(verification.router, prefix="/api/v1")
 app.include_router(jobs.router, prefix="/api/v1")
+app.include_router(attendance.router, prefix="/api/v1")
 app.include_router(bom.router, prefix="/api/v1")
 
 # Backward-compatible alias for older clients that still call /api/v1/auth/verification/*

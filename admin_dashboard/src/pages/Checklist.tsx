@@ -11,7 +11,7 @@ const Checklists: React.FC = () => {
   }
 
   if (error) {
-    return <div className="p-6 text-red-500">Error: {(error as Error).message}</div>;
+    return <div className="p-6 text-red-500">Error: {(error).message}</div>;
   }
 
   return (

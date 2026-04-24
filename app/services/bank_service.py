@@ -10,6 +10,66 @@ logger = logging.getLogger(__name__)
 class BankService:
 
     @staticmethod
+    def fetch_ifsc_details(ifsc_code: str) -> dict:
+        """Fetch bank and branch details for an IFSC using Attestr."""
+        if not ifsc_code:
+            return {"success": False, "message": "IFSC code is required"}
+
+        try:
+            url = 'https://api.attestr.com/api/v2/public/finanx/ifsc'
+
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': settings.ATTESTR_API_KEY
+            }
+
+            payload = {
+                'ifsc': ifsc_code.upper(),
+            }
+
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            response.raise_for_status()
+
+            data = response.json()
+            logger.info("IFSC lookup completed: valid=%s", data.get("valid"))
+
+            if data.get('valid') is True:
+                return {
+                    "success": True,
+                    "verified": True,
+                    "ifsc_code": data.get('ifsc') or ifsc_code.upper(),
+                    "bank_name": data.get('bank'),
+                    "branch_name": data.get('branch'),
+                    "city": data.get('city'),
+                    "state": data.get('state'),
+                    "address": data.get('address'),
+                    "raw_response": data,
+                }
+
+            return {
+                "success": False,
+                "verified": False,
+                "ifsc_code": ifsc_code.upper(),
+                "message": data.get('message', 'IFSC validation failed'),
+                "raw_response": data,
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error("Error fetching IFSC details: %s", e)
+            return {
+                "success": False,
+                "verified": False,
+                "message": "IFSC lookup service unavailable",
+            }
+        except Exception as e:
+            logger.error("Unexpected error fetching IFSC details: %s", e)
+            return {
+                "success": False,
+                "verified": False,
+                "message": "An unexpected error occurred",
+            }
+
+    @staticmethod
     def verify_bank_account(account_number: str, ifsc_code: str, fetch_ifsc: bool = False) -> dict:
         """Verify Bank Account using Attestr API"""
         try:

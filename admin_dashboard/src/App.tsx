@@ -19,14 +19,13 @@ const SignUp = React.lazy(() => import('@/pages/SignUp'));
 const Dashboard = React.lazy(() => import('@/pages/Dashboard'));
 const Jobs = React.lazy(() => import('@/pages/Jobs'));
 const Workers = React.lazy(() => import('@/pages/Workers'));
-const Analytics = React.lazy(() => import('@/pages/Analytics'));
-const ProjectAnalytics = React.lazy(() => import('@/pages/ProjectAnalytics'));
 const JobHistory = React.lazy(() => import('@/pages/JobHistory'));
 const Checklists = React.lazy(() => import('@/pages/Checklist'));
 const BOMHistory = React.lazy(() => import('@/pages/BOMHistory'));
 const SiteRequisite = React.lazy(() => import('@/pages/SiteRequisite'));
 const SiteRequisiteBucket = React.lazy(() => import('@/pages/SiteRequisiteBucket'));
 const SiteRequisiteSubmit = React.lazy(() => import('@/pages/SiteRequisiteSubmit'));
+const Attendance = React.lazy(() => import('@/pages/Attendance'));
 
 // Loading Fallback
 const PageLoader = () => (
@@ -98,9 +97,6 @@ function App() {
               <Route index element={<Dashboard />} />
               <Route path="jobs" element={<Jobs />} />
               <Route path="workers" element={<Workers />} />
-              <Route path="analytics" element={<Analytics />} />
-              <Route path="project-analytics" element={<ProjectAnalytics />} />
-              <Route path="advanced-analytics" element={<ProjectAnalytics />} />
               <Route path="jobs/:jobId/history" element={<JobHistory />} />
               <Route path="checklists" element={<Checklists />} />
               <Route path="bom" element={<BOMHistory />} />
@@ -113,6 +109,7 @@ function App() {
                 <Route path="bucket" element={<SiteRequisiteBucket />} />
                 <Route path="submit" element={<SiteRequisiteSubmit />} />
               </Route>
+              <Route path="attendance" element={<Attendance />} />
               <Route path="admin" element={<Navigate to="/dashboard/workers" replace />} />
             </Route>
 

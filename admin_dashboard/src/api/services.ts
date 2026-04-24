@@ -32,6 +32,50 @@ export interface PaginatedResponse<T = unknown> {
   message?: string;
 }
 
+export interface AssignedIPSummary {
+  id: number;
+  first_name: string;
+  last_name: string;
+  phone_number: string;
+  is_assigned: boolean;
+  is_internal: boolean;
+}
+
+export interface InvoiceRequest {
+  id: number;
+  status: 'pending' | 'approved' | 'rejected';
+  invoice_number: string | null;
+  completion_percentage: number | null;
+  notes: string | null;
+  requested_at: string;
+  requested_by: string | null;
+  approved_at: string | null;
+  approved_by: string | null;
+  rejection_reason: string | null;
+  job_id?: number;
+  job_name?: string | null;
+}
+
+export interface BillingData {
+  job_id: number;
+  job_name: string;
+  job_type: string | null;
+  rate: string | null;
+  size: number | null;
+  state: string | null;
+  invoice_request: InvoiceRequest | null;
+  invoice_requests?: InvoiceRequest[];
+  ip: {
+    name: string;
+    phone: string;
+    city: string | null;
+    pan_number: string | null;
+    account_number: string | null;
+    ifsc_code: string | null;
+    account_holder_name: string | null;
+  };
+}
+
 export interface Job {
   id?: number;
   name: string;
@@ -49,6 +93,7 @@ export interface Job {
   size?: number;
   assigned_ip_id?: number;
   assigned_ip_name?: string;
+  assigned_ip?: AssignedIPSummary;
   is_ip_available?: boolean;
   start_date?: string;
   delivery_date: string;
@@ -400,6 +445,38 @@ export const jobAPI = {
 
   lookupSalesOrder: (soNumber: string): Promise<SOLookupResult> =>
     axiosInstance.get(`/jobs/lookup-so/${encodeURIComponent(soNumber)}`).then(res => handleResponse(res)),
+
+  getBilling: (id: number): Promise<BillingData> =>
+    axiosInstance.get(`/jobs/${id}/billing`).then(res => handleResponse(res)),
+
+  requestInvoice: (id: number): Promise<{ message: string; invoice_request: InvoiceRequest }> =>
+    axiosInstance.post(`/jobs/${id}/invoice-request`).then(res => handleResponse(res)),
+
+  requestAdditionalInvoice: (id: number, data?: { completion_percentage?: number; notes?: string }): Promise<{ message: string; invoice_request: InvoiceRequest }> =>
+    axiosInstance.post(`/jobs/${id}/invoice-requests`, data ?? {}).then(res => handleResponse(res)),
+
+  approveInvoice: (id: number): Promise<{ message: string; invoice_request: InvoiceRequest }> =>
+    axiosInstance.put(`/jobs/${id}/invoice-request/approve`).then(res => handleResponse(res)),
+
+  rejectInvoice: (id: number, reason?: string): Promise<{ message: string; invoice_request: InvoiceRequest }> =>
+    axiosInstance.put(`/jobs/${id}/invoice-request/reject`, null, { params: { reason: reason || '' } }).then(res => handleResponse(res)),
+
+  getPendingInvoiceRequests: (): Promise<{ pending_count: number; requests: InvoiceRequest[] }> =>
+    axiosInstance.get('/jobs/invoice-requests/pending').then(res => handleResponse(res)),
+
+  downloadInvoice: async (id: number, jobName?: string | null): Promise<void> => {
+    const response = await axiosInstance.get(`/jobs/${id}/invoice-request/download`, {
+      responseType: 'blob',
+    });
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `billing_invoice_${jobName || id}.xlsx`);
+    document.body.appendChild(link);
+    link.click();
+    link.parentNode?.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  },
 };
 
 // Admin APIs
@@ -448,6 +525,100 @@ export const analyticsAPI = {
 
   getIPPerformance: (): Promise<any> =>
     axiosInstance.get('/analytics/ip-performance').then(res => handleResponse(res)),
+};
+
+export interface DailyAttendance {
+  id: number;
+  job_id: number | null;
+  job_name: string | null;
+  phone: string;
+  latitude: number;
+  longitude: number;
+  manual_location: string | null;
+  photo_url: string | null;
+  recorded_at: string;
+}
+
+export interface AttendanceListResponse {
+  total: number;
+  skip: number;
+  limit: number;
+  completion_summary?: IPAttendanceCompletion[];
+  records: DailyAttendance[];
+}
+
+export interface AttendanceCompletion {
+  registered_at: string;
+  total_days: number;
+  completed_days: number;
+  missing_days: number;
+  completion_percentage: number;
+}
+
+export interface IPAttendanceCompletion extends AttendanceCompletion {
+  ip_id: number;
+  name: string;
+  phone: string;
+}
+
+export interface AdminAttendanceCompletion extends AttendanceCompletion {
+  admin_id: number;
+  admin_email: string;
+}
+
+export const attendanceAPI = {
+  getAll: (params?: {
+    job_id?: number;
+    phone?: string;
+    date_from?: string;
+    date_to?: string;
+    skip?: number;
+    limit?: number;
+  }): Promise<AttendanceListResponse> =>
+    axiosInstance.get('/admin/attendance', { params }).then(res => handleResponse(res)),
+};
+
+export interface AdminAttendanceRecord {
+  id: number;
+  admin_id: number;
+  admin_email: string;
+  marked_at: string;
+  latitude: number | null;
+  longitude: number | null;
+  notes: string | null;
+  manual_location: string | null;
+  photo_url: string | null;
+}
+
+export interface AdminAttendanceListResponse {
+  total: number;
+  completion?: AttendanceCompletion;
+  completion_summary?: AdminAttendanceCompletion[];
+  records: AdminAttendanceRecord[];
+}
+
+export const adminAttendanceAPI = {
+  mark: (data: { latitude: number; longitude: number; notes?: string; manual_location?: string; photo: File }): Promise<{ message: string; record: AdminAttendanceRecord }> => {
+    const formData = new FormData();
+    formData.append('latitude', String(data.latitude));
+    formData.append('longitude', String(data.longitude));
+    if (data?.notes) formData.append('notes', data.notes);
+    if (data?.manual_location) formData.append('manual_location', data.manual_location);
+    formData.append('photo', data.photo, data.photo.name);
+    return axiosInstance.post('/admin/my-attendance', formData).then(res => handleResponse(res));
+  },
+
+  getMine: (params?: { skip?: number; limit?: number }): Promise<AdminAttendanceListResponse> =>
+    axiosInstance.get('/admin/my-attendance', { params }).then(res => handleResponse(res)),
+
+  getAll: (params?: {
+    admin_id?: number;
+    date_from?: string;
+    date_to?: string;
+    skip?: number;
+    limit?: number;
+  }): Promise<AdminAttendanceListResponse & { skip: number; limit: number }> =>
+    axiosInstance.get('/admin/all-attendance', { params }).then(res => handleResponse(res)),
 };
 
 // Checklist APIs

@@ -1,14 +1,12 @@
 import * as React from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
-  IconChartBar,
   IconDashboard,
-  IconFolder,
   IconListDetails,
   IconUsers,
   IconBox,
-  IconChecklist,
   IconClipboardList,
+  IconCalendarCheck,
 } from "@tabler/icons-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -43,21 +41,6 @@ const navGroups = [
         url: "/dashboard/workers",
         icon: IconUsers,
       },
-    ],
-  },
-  {
-    label: "Insights",
-    items: [
-      {
-        title: "Analytics",
-        url: "/dashboard/analytics",
-        icon: IconChartBar,
-      },
-      {
-        title: "Projects",
-        url: "/dashboard/project-analytics",
-        icon: IconFolder,
-      },
       {
         title: "BOM Requests",
         url: "/dashboard/bom",
@@ -69,9 +52,9 @@ const navGroups = [
         icon: IconClipboardList,
       },
       {
-        title: "Checklists",
-        url: "/dashboard/checklists",
-        icon: IconChecklist,
+        title: "Attendance",
+        url: "/dashboard/attendance",
+        icon: IconCalendarCheck,
       },
     ],
   },

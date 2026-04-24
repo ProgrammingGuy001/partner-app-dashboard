@@ -83,6 +83,18 @@ class Settings(BaseSettings):
     # Attestr API
     ATTESTR_API_KEY: str
 
+    # KYC field-level encryption key — 64 hex chars (32 bytes, AES-256)
+    # Generate: python -c "import os,binascii; print(binascii.hexlify(os.urandom(32)).decode())"
+    KYC_ENCRYPTION_KEY: str
+
+    @field_validator("KYC_ENCRYPTION_KEY")
+    @classmethod
+    def validate_kyc_key(cls, v: str) -> str:
+        cleaned = v.strip()
+        if len(cleaned) != 64 or not all(c in "0123456789abcdefABCDEF" for c in cleaned):
+            raise ValueError("KYC_ENCRYPTION_KEY must be 64 hex characters (32 bytes)")
+        return cleaned
+
     # OTP Settings
     OTP_EXPIRY_MINUTES: int = 10
     OTP_LENGTH: int = 6

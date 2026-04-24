@@ -1,14 +1,23 @@
-from datetime import datetime
+from datetime import datetime, date
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from app.database import get_db
 from app.crud.ip import verify_ip_user, get_ip_by_phone, get_all_ips, get_approved_ips
 from app.core.security import get_current_user
 from app.model.user import User
 from app.model.ip import ip, IPAdminAssignment
+from app.model.attendance import DailyAttendance
+from app.model.job import Job
+from app.model.admin_attendance import AdminAttendance
+from app.services.s3_service import upload_file_to_s3
+from app.services.upload_service import read_validated_upload
+from app.utils.attendance_policy import (
+    build_attendance_completion,
+    ensure_attendance_window_open,
+)
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -26,6 +35,67 @@ class AdminUserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+def _visible_ip_users(db: Session, current_user: User, phone: Optional[str] = None) -> list[ip]:
+    query = db.query(ip)
+    if not getattr(current_user, "is_superadmin", False):
+        query = query.join(IPAdminAssignment, IPAdminAssignment.ip_id == ip.id).filter(
+            IPAdminAssignment.admin_id == current_user.id
+        )
+    if phone:
+        query = query.filter(ip.phone_number.ilike(f"%{phone.strip()}%"))
+    return query.all()
+
+
+def _ip_completion_summary(db: Session, ip_users: list[ip]) -> list[dict]:
+    phones = [ip_user.phone_number for ip_user in ip_users if ip_user.phone_number]
+    attendance_by_phone: dict[str, list[datetime]] = {phone: [] for phone in phones}
+    if phones:
+        rows = (
+            db.query(DailyAttendance.phone, DailyAttendance.recorded_at)
+            .filter(DailyAttendance.phone.in_(phones))
+            .all()
+        )
+        for phone, recorded_at in rows:
+            attendance_by_phone.setdefault(phone, []).append(recorded_at)
+
+    return [
+        {
+            "ip_id": ip_user.id,
+            "name": " ".join(
+                part for part in [ip_user.first_name, ip_user.last_name] if part
+            ) or ip_user.phone_number,
+            "phone": ip_user.phone_number,
+            **build_attendance_completion(
+                ip_user.created_at,
+                attendance_by_phone.get(ip_user.phone_number, []),
+            ),
+        }
+        for ip_user in ip_users
+    ]
+
+
+def _admin_completion_summary(db: Session, admins: list[User]) -> list[dict]:
+    admin_ids = [admin.id for admin in admins]
+    attendance_by_admin: dict[int, list[datetime]] = {admin_id: [] for admin_id in admin_ids}
+    if admin_ids:
+        rows = (
+            db.query(AdminAttendance.admin_id, AdminAttendance.marked_at)
+            .filter(AdminAttendance.admin_id.in_(admin_ids))
+            .all()
+        )
+        for admin_id, marked_at in rows:
+            attendance_by_admin.setdefault(admin_id, []).append(marked_at)
+
+    return [
+        {
+            "admin_id": admin.id,
+            "admin_email": admin.email,
+            **build_attendance_completion(admin.created_at, attendance_by_admin.get(admin.id, [])),
+        }
+        for admin in admins
+    ]
 
 
 class AssignAdminRequest(BaseModel):
@@ -185,3 +255,275 @@ def get_ip_admins(ip_id: int, db: Session = Depends(get_db), current_user: User 
 
     return [AdminUserResponse.model_validate(admin) for admin in admins]
 
+
+class AttendanceRecord(BaseModel):
+    id: int
+    job_id: Optional[int]
+    job_name: Optional[str]
+    phone: str
+    latitude: float
+    longitude: float
+    manual_location: Optional[str]
+    photo_url: Optional[str]
+    recorded_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.get("/attendance", response_model=dict)
+def get_all_attendance(
+    job_id: Optional[int] = Query(None),
+    phone: Optional[str] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Admin endpoint: list all attendance records with optional filters"""
+    visible_ips = _visible_ip_users(db, current_user, phone=phone)
+    visible_phones = [ip_user.phone_number for ip_user in visible_ips if ip_user.phone_number]
+
+    query = db.query(DailyAttendance).join(Job, Job.id == DailyAttendance.job_id, isouter=True)
+    if not getattr(current_user, "is_superadmin", False):
+        if not visible_phones:
+            query = query.filter(DailyAttendance.id == -1)
+        else:
+            query = query.filter(DailyAttendance.phone.in_(visible_phones))
+
+    if job_id is not None:
+        query = query.filter(DailyAttendance.job_id == job_id)
+    if phone:
+        query = query.filter(DailyAttendance.phone.ilike(f"%{phone.strip()}%"))
+    if date_from:
+        query = query.filter(DailyAttendance.recorded_at >= datetime.combine(date_from, datetime.min.time()))
+    if date_to:
+        from datetime import time as dtime
+        query = query.filter(DailyAttendance.recorded_at <= datetime.combine(date_to, dtime(23, 59, 59)))
+
+    total = query.count()
+    records = query.order_by(DailyAttendance.recorded_at.desc()).offset(skip).limit(limit).all()
+
+    job_names: dict[Optional[int], Optional[str]] = {}
+    for r in records:
+        if r.job_id not in job_names:
+            job = db.query(Job).filter(Job.id == r.job_id).first() if r.job_id else None
+            job_names[r.job_id] = job.name if job else None
+
+    return {
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "completion_summary": _ip_completion_summary(db, visible_ips),
+        "records": [
+            {
+                "id": r.id,
+                "job_id": r.job_id,
+                "job_name": job_names.get(r.job_id),
+                "phone": r.phone,
+                "latitude": r.latitude,
+                "longitude": r.longitude,
+                "manual_location": r.manual_location,
+                "photo_url": r.photo_url,
+                "recorded_at": r.recorded_at.isoformat(),
+            }
+            for r in records
+        ],
+    }
+
+
+class MarkAdminAttendanceRequest(BaseModel):
+    notes: Optional[str] = None
+    manual_location: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
+@router.post("/my-attendance", response_model=dict)
+async def mark_admin_attendance(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Admin marks their own attendance for today."""
+    if getattr(current_user, "is_superadmin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Superadmins do not mark attendance.",
+        )
+    ensure_attendance_window_open()
+
+    notes: str | None = None
+    manual_location: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    photo_url: str | None = None
+
+    content_type = request.headers.get("content-type", "")
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        notes = form.get("notes") or None
+        manual_location = form.get("manual_location") or None
+        latitude_value = form.get("latitude")
+        longitude_value = form.get("longitude")
+        if latitude_value in (None, "") or longitude_value in (None, ""):
+            raise HTTPException(status_code=422, detail="Latitude and longitude are required")
+        try:
+            latitude = float(str(latitude_value))
+            longitude = float(str(longitude_value))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid latitude or longitude") from exc
+        photo = form.get("photo")
+        if not photo or not getattr(photo, "filename", ""):
+            raise HTTPException(status_code=422, detail="Attendance photo is required")
+        upload = await read_validated_upload(photo)
+        photo_url = upload_file_to_s3(
+            file_content=upload.content,
+            filename=upload.filename,
+            content_type=upload.content_type,
+        )
+    else:
+        payload = await request.json() if content_type.startswith("application/json") else {}
+        body = MarkAdminAttendanceRequest.model_validate(payload)
+        notes = body.notes
+        manual_location = body.manual_location
+        latitude = body.latitude
+        longitude = body.longitude
+        raise HTTPException(status_code=422, detail="Admin attendance requires multipart form data with GPS and photo")
+
+    record = AdminAttendance(
+        admin_id=current_user.id,
+        latitude=latitude,
+        longitude=longitude,
+        notes=notes.strip() if notes else None,
+        manual_location=manual_location.strip() if manual_location else None,
+        photo_url=photo_url,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return {
+        "message": "Attendance marked",
+        "record": {
+            "id": record.id,
+            "admin_id": record.admin_id,
+            "admin_email": current_user.email,
+            "marked_at": record.marked_at.isoformat(),
+            "latitude": record.latitude,
+            "longitude": record.longitude,
+            "notes": record.notes,
+            "manual_location": record.manual_location,
+            "photo_url": record.photo_url,
+        },
+    }
+
+
+@router.get("/my-attendance", response_model=dict)
+def get_my_admin_attendance(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Admin fetches their own attendance history."""
+    if getattr(current_user, "is_superadmin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Superadmins do not have personal attendance records.",
+        )
+
+    total = db.query(AdminAttendance).filter(AdminAttendance.admin_id == current_user.id).count()
+    records = (
+        db.query(AdminAttendance)
+        .filter(AdminAttendance.admin_id == current_user.id)
+        .order_by(AdminAttendance.marked_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    all_records = (
+        db.query(AdminAttendance)
+        .filter(AdminAttendance.admin_id == current_user.id)
+        .all()
+    )
+    return {
+        "total": total,
+        "completion": build_attendance_completion(
+            current_user.created_at,
+            [r.marked_at for r in all_records],
+        ),
+        "records": [
+            {
+                "id": r.id,
+                "admin_id": r.admin_id,
+                "admin_email": current_user.email,
+                "marked_at": r.marked_at.isoformat(),
+                "latitude": r.latitude,
+                "longitude": r.longitude,
+                "notes": r.notes,
+                "manual_location": r.manual_location,
+                "photo_url": r.photo_url,
+            }
+            for r in records
+        ],
+    }
+
+
+@router.get("/all-attendance", response_model=dict)
+def get_all_admin_attendance(
+    admin_id: Optional[int] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Superadmin: view all admin attendance records."""
+    if not current_user.is_superadmin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Superadmin only")
+
+    query = db.query(AdminAttendance)
+    if admin_id is not None:
+        query = query.filter(AdminAttendance.admin_id == admin_id)
+    if date_from:
+        query = query.filter(AdminAttendance.marked_at >= datetime.combine(date_from, datetime.min.time()))
+    if date_to:
+        from datetime import time as dtime
+        query = query.filter(AdminAttendance.marked_at <= datetime.combine(date_to, dtime(23, 59, 59)))
+
+    admin_query = db.query(User).filter(User.is_superadmin == False)
+    if admin_id is not None:
+        admin_query = admin_query.filter(User.id == admin_id)
+    admins = admin_query.all()
+
+    total = query.count()
+    records = query.order_by(AdminAttendance.marked_at.desc()).offset(skip).limit(limit).all()
+
+    admin_emails: dict[int, str] = {}
+    for r in records:
+        if r.admin_id not in admin_emails:
+            admin = db.query(User).filter(User.id == r.admin_id).first()
+            admin_emails[r.admin_id] = admin.email if admin else f"admin#{r.admin_id}"
+
+    return {
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "completion_summary": _admin_completion_summary(db, admins),
+        "records": [
+            {
+                "id": r.id,
+                "admin_id": r.admin_id,
+                "admin_email": admin_emails.get(r.admin_id, f"admin#{r.admin_id}"),
+                "marked_at": r.marked_at.isoformat(),
+                "latitude": r.latitude,
+                "longitude": r.longitude,
+                "notes": r.notes,
+                "manual_location": r.manual_location,
+                "photo_url": r.photo_url,
+            }
+            for r in records
+        ],
+    }

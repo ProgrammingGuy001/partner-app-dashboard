@@ -132,6 +132,25 @@ async def upload_id_document(
 
 
 
+@router.delete("/data", status_code=status.HTTP_200_OK)
+def delete_verification_data(
+    current_user: ip = Depends(get_verified_user),
+    db: Session = Depends(get_db),
+):
+    """Delete all KYC data for the user (right to erasure / Play Store data deletion requirement)."""
+    if current_user.financial:
+        current_user.financial.pan_number = None
+        current_user.financial.pan_name = None
+        current_user.financial.is_pan_verified = False
+        current_user.financial.account_number = None
+        current_user.financial.ifsc_code = None
+        current_user.financial.account_holder_name = None
+        current_user.financial.is_bank_verified = False
+        current_user.financial.verified_at = None
+        db.commit()
+    return {"message": "Verification data deleted successfully"}
+
+
 @router.get("/panel-access")
 def check_panel_access(
     current_user: ip = Depends(get_verified_user),

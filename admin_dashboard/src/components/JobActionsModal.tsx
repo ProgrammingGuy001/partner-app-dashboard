@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { type Job, jobAPI, checklistAPI } from '@/api/services';
+import { type Job, type BillingData, type InvoiceRequest, jobAPI, checklistAPI } from '@/api/services';
 import { useJobAction } from '@/hooks/useJobs';
 import { useJobChecklists } from '@/hooks/useChecklists';
-import { Play, Pause, CheckCircle, AlertCircle, ListChecks, FileText, CheckSquare, Square, Phone, Key, Loader2, XCircle } from 'lucide-react';
+import { Play, Pause, CheckCircle, AlertCircle, ListChecks, FileText, CheckSquare, Square, Phone, Key, Loader2, XCircle, Receipt } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -62,6 +62,13 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
   const [adminComments, setAdminComments] = useState<Record<number, string>>({});
   const [itemActionLoading, setItemActionLoading] = useState<Record<number, 'approve' | 'reject'>>({});
 
+  const isExternalIP = job.assigned_ip?.is_internal === false;
+
+  // billing state
+  const [billingData, setBillingData] = useState<BillingData | null>(null);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState('');
+
   // Use React Query hook for checklists - enabled only when checklist tab is active
   const { data: checklistsData, isLoading: loadingChecklists, refetch: refetchChecklists } = useJobChecklists(
     activeTab === 'checklists' ? job.id : undefined
@@ -71,14 +78,25 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
   const { mutateAsync: performAction, isPending: isActionLoading } = useJobAction();
 
   useEffect(() => {
+    const data = (checklistsData as unknown as ChecklistWithStatus[]) || [];
     const nextComments: Record<number, string> = {};
-    checklists.forEach((checklist) => {
+    data.forEach((checklist) => {
       checklist.items.forEach((item) => {
         nextComments[item.id] = item.status?.admin_comment || '';
       });
     });
     setAdminComments(nextComments);
-  }, [checklistsData]);
+  }, [checklistsData]); // checklists is derived from checklistsData — using it directly avoids new [] ref each render
+
+  useEffect(() => {
+    if (activeTab !== 'checklists' || !isExternalIP || !job.id) return;
+    setBillingLoading(true);
+    setBillingError('');
+    jobAPI.getBilling(job.id)
+      .then(setBillingData)
+      .catch((err: any) => setBillingError(err?.response?.data?.detail || err.message || 'Failed to load billing data'))
+      .finally(() => setBillingLoading(false));
+  }, [activeTab, job.id, isExternalIP]);
 
   // Handle legacy start/pause/finish without OTP (for jobs without customer phone)
   const handleAction = async (action: 'start' | 'pause' | 'finish') => {
@@ -533,12 +551,407 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                     ))}
                   </div>
                 )}
+
+                {/* Billing section — external IPs only, after all checklist items */}
+                {isExternalIP && (
+                  <BillingSection
+                    job={job}
+                    billingData={billingData}
+                    billingLoading={billingLoading}
+                    billingError={billingError}
+                    onBillingUpdate={(data) => setBillingData(data)}
+                  />
+                )}
               </div>
             </TabsContent>
           </Tabs>
         </div>
       </DialogContent>
     </Dialog>
+  );
+};
+
+const BillingSection: React.FC<{
+  job: Job;
+  billingData: BillingData | null;
+  billingLoading: boolean;
+  billingError: string;
+  onBillingUpdate: (data: BillingData) => void;
+}> = ({ job, billingData, billingLoading, billingError, onBillingUpdate }) => {
+  const [actionLoading, setActionLoading] = useState<'request' | 'approve' | 'reject' | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [showRejectInput, setShowRejectInput] = useState(false);
+
+  const refreshBilling = async () => {
+    if (!job.id) return;
+    try {
+      const data = await jobAPI.getBilling(job.id);
+      onBillingUpdate(data);
+    } catch { /* silent */ }
+  };
+
+  const handleRequest = async () => {
+    if (!job.id) return;
+    setActionLoading('request');
+    try {
+      await jobAPI.requestInvoice(job.id);
+      await refreshBilling();
+      toast.success('Invoice request sent to admins');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Failed to send invoice request');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleApprove = async () => {
+    if (!job.id) return;
+    setActionLoading('approve');
+    try {
+      await jobAPI.approveInvoice(job.id);
+      await refreshBilling();
+      toast.success('Invoice approved');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Failed to approve');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!job.id) return;
+    setActionLoading('reject');
+    try {
+      await jobAPI.rejectInvoice(job.id, rejectReason);
+      await refreshBilling();
+      setShowRejectInput(false);
+      setRejectReason('');
+      toast.success('Invoice request rejected');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Failed to reject');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDownloadInvoice = async () => {
+    if (!job.id) return;
+    setActionLoading('approve');
+    try {
+      await jobAPI.downloadInvoice(job.id, job.name);
+      toast.success('Bill downloaded');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Failed to download bill');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const req: InvoiceRequest | null = billingData?.invoice_request ?? null;
+
+  return (
+    <div className="mt-6 border-t pt-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Receipt size={16} className="text-blue-500" />
+        <h4 className="font-semibold text-gray-800">Billing</h4>
+      </div>
+
+      {billingLoading ? (
+        <div className="text-center py-6 text-gray-500">
+          <Loader2 className="animate-spin mx-auto mb-2" size={20} />
+          Loading billing data...
+        </div>
+      ) : billingError ? (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{billingError}</AlertDescription>
+        </Alert>
+      ) : !billingData ? null : req === null ? (
+        /* No request yet — show request button */
+        <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-5 text-center">
+          <Receipt size={28} className="mx-auto mb-2 text-gray-400" />
+          <p className="text-sm font-medium text-gray-700 mb-1">No invoice requested yet</p>
+          <p className="text-xs text-gray-500 mb-4">
+            Send a request to the assigned admin and superadmin for approval.
+          </p>
+          <Button
+            size="sm"
+            onClick={handleRequest}
+            disabled={actionLoading === 'request'}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            {actionLoading === 'request' ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : <Receipt className="mr-2 h-4 w-4" />}
+            Request Invoice
+          </Button>
+        </div>
+      ) : req.status === 'pending' ? (
+        /* Pending — show approve / reject */
+        <div className="space-y-3">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <div className="flex items-start gap-3">
+              <Loader2 size={18} className="text-amber-500 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-amber-800">Invoice request pending approval</p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  Requested by {req.requested_by || 'admin'} on{' '}
+                  {new Date(req.requested_at).toLocaleDateString('en-IN')}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {showRejectInput ? (
+            <div className="space-y-2">
+              <Textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Reason for rejection (optional)"
+                className="min-h-[72px] text-sm"
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={handleReject}
+                  disabled={actionLoading === 'reject'}
+                >
+                  {actionLoading === 'reject' ? <Loader2 className="animate-spin mr-1 h-3 w-3" /> : null}
+                  Confirm Reject
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => { setShowRejectInput(false); setRejectReason(''); }}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                className="bg-green-600 hover:bg-green-700"
+                onClick={handleApprove}
+                disabled={!!actionLoading}
+              >
+                {actionLoading === 'approve' ? <Loader2 className="animate-spin mr-1 h-3 w-3" /> : <CheckCircle className="mr-1 h-3 w-3" />}
+                Approve Invoice
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => setShowRejectInput(true)}
+                disabled={!!actionLoading}
+              >
+                <XCircle className="mr-1 h-3 w-3" /> Reject
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : req.status === 'rejected' ? (
+        /* Rejected — allow re-request */
+        <div className="space-y-3">
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+            <div className="flex items-start gap-3">
+              <XCircle size={18} className="text-red-500 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-red-800">Invoice request rejected</p>
+                {req.rejection_reason && (
+                  <p className="text-xs text-red-700 mt-0.5">Reason: {req.rejection_reason}</p>
+                )}
+              </div>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleRequest}
+            disabled={actionLoading === 'request'}
+          >
+            {actionLoading === 'request' ? <Loader2 className="animate-spin mr-1 h-3 w-3" /> : <Receipt className="mr-1 h-3 w-3" />}
+            Re-request Invoice
+          </Button>
+        </div>
+      ) : (
+        /* Approved — show full invoice */
+        <div className="space-y-3">
+          <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-2.5 flex items-center gap-2">
+            <CheckCircle size={16} className="text-green-600 shrink-0" />
+            <div className="text-xs text-green-800">
+              <span className="font-semibold">Approved</span>
+              {req.approved_by && ` by ${req.approved_by}`}
+              {req.approved_at && ` on ${new Date(req.approved_at).toLocaleDateString('en-IN')}`}
+            </div>
+          </div>
+          <BillingInvoice
+            billingData={billingData}
+            jobName={job.name}
+            onDownload={handleDownloadInvoice}
+            downloading={actionLoading === 'approve'}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
+const BILL_TO = {
+  name: 'Ayena Innovation Pvt. Ltd.',
+  address: 'JSW Steel Township Dolvi',
+  state: 'Maharashtra',
+  pan: '27AAUCA9622P1ZP',
+};
+
+const BillingInvoice: React.FC<{
+  billingData: BillingData;
+  jobName: string;
+  onDownload: () => void;
+  downloading: boolean;
+}> = ({ billingData, jobName, onDownload, downloading }) => {
+  const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const invoiceNo = `INV-${billingData.job_id}-${new Date().getFullYear()}`;
+  const rate = billingData.rate ? parseFloat(billingData.rate) : 0;
+  const qty = billingData.size ?? 0;
+  const totalAmount = rate && qty ? rate * qty : rate || 0;
+
+  const amountToWords = (n: number): string => {
+    if (n === 0) return 'Zero';
+    const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+      'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+    const convert = (num: number): string => {
+      if (num < 20) return ones[num];
+      if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? ' ' + ones[num % 10] : '');
+      if (num < 1000) return ones[Math.floor(num / 100)] + ' Hundred' + (num % 100 ? ' ' + convert(num % 100) : '');
+      if (num < 100000) return convert(Math.floor(num / 1000)) + ' Thousand' + (num % 1000 ? ' ' + convert(num % 1000) : '');
+      if (num < 10000000) return convert(Math.floor(num / 100000)) + ' Lakh' + (num % 100000 ? ' ' + convert(num % 100000) : '');
+      return convert(Math.floor(num / 10000000)) + ' Crore' + (num % 10000000 ? ' ' + convert(num % 10000000) : '');
+    };
+    const [intPart, decPart] = n.toFixed(2).split('.');
+    const words = convert(parseInt(intPart));
+    return words + ' Rupees' + (parseInt(decPart) > 0 ? ' and ' + convert(parseInt(decPart)) + ' Paise' : ' Only');
+  };
+
+  return (
+    <div className="border rounded-lg overflow-hidden text-sm bg-white print:shadow-none" id="billing-invoice">
+      {/* Header */}
+      <div className="bg-gray-50 px-4 py-3 border-b flex justify-between items-center">
+        <div className="text-xs text-gray-600 space-y-0.5">
+          <div>Date: {today}</div>
+          {billingData.ip.city && <div>Add: {billingData.ip.city}</div>}
+          <div>Mob.: {billingData.ip.phone}</div>
+        </div>
+        <div className="text-right">
+          <h2 className="text-xl font-bold tracking-wide text-gray-800">INVOICE</h2>
+        </div>
+      </div>
+
+      {/* Invoice meta + Bill to */}
+      <div className="grid grid-cols-2 gap-0 border-b">
+        <div className="px-4 py-3 space-y-1 border-r">
+          <div className="flex gap-2">
+            <span className="text-gray-500 w-28 shrink-0">Project ID:</span>
+            <span className="font-medium">{billingData.job_id}</span>
+          </div>
+          <div className="flex gap-2">
+            <span className="text-gray-500 w-28 shrink-0">Invoice No.:</span>
+            <span className="font-medium">{invoiceNo}</span>
+          </div>
+          <div className="flex gap-2">
+            <span className="text-gray-500 w-28 shrink-0">Invoice Date:</span>
+            <span className="font-medium">{today}</span>
+          </div>
+          <div className="flex gap-2">
+            <span className="text-gray-500 w-28 shrink-0">State:</span>
+            <span className="font-medium">{billingData.state || '—'}</span>
+          </div>
+          <div className="flex gap-2">
+            <span className="text-gray-500 w-28 shrink-0">PAN No.:</span>
+            <span className="font-medium">{billingData.ip.pan_number || '—'}</span>
+          </div>
+        </div>
+        <div className="px-4 py-3 space-y-1">
+          <div className="font-semibold text-gray-700 mb-1">Bill to Party</div>
+          <div className="font-medium">{BILL_TO.name}</div>
+          <div className="text-gray-600">{BILL_TO.address}</div>
+          <div className="text-gray-600">State: {BILL_TO.state}</div>
+          <div className="text-gray-600">PAN No.: {BILL_TO.pan}</div>
+        </div>
+      </div>
+
+      {/* Project name */}
+      <div className="px-4 py-2 border-b bg-gray-50">
+        <span className="font-semibold text-gray-700">Project Name: </span>
+        <span>{jobName}</span>
+      </div>
+
+      {/* Line items table */}
+      <table className="w-full border-b text-xs">
+        <thead>
+          <tr className="bg-gray-100 text-gray-600">
+            <th className="border-r px-2 py-2 text-left w-8">Sr.</th>
+            <th className="border-r px-2 py-2 text-left">Description</th>
+            <th className="border-r px-2 py-2 text-center w-16">UOM</th>
+            <th className="border-r px-2 py-2 text-center w-14">Qty</th>
+            <th className="border-r px-2 py-2 text-center w-16">Rate (₹)</th>
+            <th className="px-2 py-2 text-right w-20">Total (₹)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td className="border-r px-2 py-2 text-center">1</td>
+            <td className="border-r px-2 py-2">
+              {billingData.job_type
+                ? billingData.job_type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+                : 'B2B/B2C Installation'}
+            </td>
+            <td className="border-r px-2 py-2 text-center">{qty ? 'Sq. Ft.' : 'NO.'}</td>
+            <td className="border-r px-2 py-2 text-center">{qty || '—'}</td>
+            <td className="border-r px-2 py-2 text-center">{rate ? `₹${rate.toLocaleString('en-IN')}` : '—'}</td>
+            <td className="px-2 py-2 text-right font-medium">
+              {totalAmount ? `₹${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
+            </td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr className="bg-gray-50 font-semibold">
+            <td colSpan={5} className="border-r border-t px-2 py-2 text-right text-gray-700">Total Amount</td>
+            <td className="border-t px-2 py-2 text-right">
+              {totalAmount ? `₹${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+
+      {/* Amounts in words */}
+      <div className="px-4 py-2 border-b text-xs text-gray-700">
+        <span className="font-medium">Amounts in words: </span>
+        {totalAmount ? amountToWords(totalAmount) : '—'}
+      </div>
+
+      {/* Declaration */}
+      <div className="px-4 py-2 border-b text-xs text-gray-500">
+        Declaration: Certified that the particulars given above are true and correct.
+      </div>
+
+      {/* Bank Details */}
+      <div className="px-4 py-3 text-xs space-y-1">
+        <div className="font-semibold text-gray-700 mb-1">Bank Details</div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+          <div><span className="text-gray-500">Account Holder: </span>{billingData.ip.account_holder_name || '—'}</div>
+          <div><span className="text-gray-500">Account No.: </span>{billingData.ip.account_number || '—'}</div>
+          <div><span className="text-gray-500">IFSC Code: </span>{billingData.ip.ifsc_code || '—'}</div>
+        </div>
+      </div>
+
+      {/* Print button */}
+      <div className="px-4 py-3 border-t bg-gray-50 flex justify-end">
+        <button
+          onClick={onDownload}
+          disabled={downloading}
+          className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700"
+        >
+          {downloading ? 'Downloading...' : 'Download Bill XLSX'}
+        </button>
+      </div>
+    </div>
   );
 };
 

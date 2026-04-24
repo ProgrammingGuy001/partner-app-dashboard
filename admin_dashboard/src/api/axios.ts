@@ -46,6 +46,11 @@ axiosRetry(axiosInstance, {
 axiosInstance.interceptors.request.use(
   (config) => {
     const accessToken = getAdminAccessToken();
+    if (typeof FormData !== "undefined" && config.data instanceof FormData) {
+      delete config.headers["Content-Type"];
+      delete config.headers["content-type"];
+    }
+
     if (accessToken) {
       config.headers.Authorization = `Bearer ${accessToken}`;
     }

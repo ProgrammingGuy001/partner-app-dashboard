@@ -99,6 +99,16 @@ class UserDetailResponse(UserResponse):
     class Config:
         from_attributes = True
 
+    @classmethod
+    def model_validate(cls, obj, *args, **kwargs):
+        instance = super().model_validate(obj, *args, **kwargs)
+        # Mask sensitive fields — full values stay server-side only
+        if instance.pan_number:
+            instance.pan_number = instance.pan_number[:2] + "XXXXX" + instance.pan_number[-3:]
+        if instance.account_number:
+            instance.account_number = "XXXX" + instance.account_number[-4:]
+        return instance
+
 
 class TokenResponse(BaseModel):
     access_token: str

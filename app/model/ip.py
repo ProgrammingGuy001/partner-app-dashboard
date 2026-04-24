@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
 from app.database import Base
+from app.utils.encryption import EncryptedString
 
 
 class IPAdminAssignment(Base):
@@ -27,12 +28,12 @@ class IPFinancial(Base):
     user_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("ip_user.id"), unique=True, index=True, nullable=True
     )
-    pan_number: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    pan_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    pan_number: Mapped[Optional[str]] = mapped_column(EncryptedString, nullable=True)
+    pan_name: Mapped[Optional[str]] = mapped_column(EncryptedString, nullable=True)
     is_pan_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    account_number: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    ifsc_code: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    account_holder_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    account_number: Mapped[Optional[str]] = mapped_column(EncryptedString, nullable=True)
+    ifsc_code: Mapped[Optional[str]] = mapped_column(EncryptedString, nullable=True)
+    account_holder_name: Mapped[Optional[str]] = mapped_column(EncryptedString, nullable=True)
     is_bank_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     highest_qualification: Mapped[Optional[str]] = mapped_column(String, nullable=True)
