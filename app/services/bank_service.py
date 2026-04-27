@@ -83,10 +83,11 @@ class BankService:
             payload = {
                 'acc': account_number,
                 'ifsc': ifsc_code.upper(),
-                'fetchIfsc': fetch_ifsc
             }
 
             response = requests.post(url, json=payload, headers=headers, timeout=30)
+            if not response.ok:
+                logger.error("Attestr bank verification failed: status=%s body=%s", response.status_code, response.text)
             response.raise_for_status()
 
             data = response.json()

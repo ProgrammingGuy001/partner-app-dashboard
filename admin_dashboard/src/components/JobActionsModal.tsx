@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { type Job, type BillingData, type InvoiceRequest, jobAPI, checklistAPI } from '@/api/services';
 import { useJobAction } from '@/hooks/useJobs';
 import { useJobChecklists } from '@/hooks/useChecklists';
-import { Play, Pause, CheckCircle, AlertCircle, ListChecks, FileText, CheckSquare, Square, Phone, Key, Loader2, XCircle, Receipt } from 'lucide-react';
+import { Play, Pause, CheckCircle, AlertCircle, ListChecks, FileText, CheckSquare, Square, Phone, Key, Loader2, XCircle, Receipt, Upload, Trash2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -75,6 +75,8 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
   const [otpSent, setOtpSent] = useState(false);
   const [adminComments, setAdminComments] = useState<Record<number, string>>({});
   const [itemActionLoading, setItemActionLoading] = useState<Record<number, 'approve' | 'reject'>>({});
+  const [itemUploadLoading, setItemUploadLoading] = useState<Record<number, boolean>>({});
+  const [itemDocuments, setItemDocuments] = useState<Record<number, string>>({});;
 
   const isExternalIP = job.assigned_ip?.is_internal === false;
 
@@ -229,6 +231,68 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
       toast.error(getApiErrorMessage(err, 'Failed to update checklist item'));
     } finally {
       setItemActionLoading((prev) => {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+    }
+  };
+
+  const handleDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>, item: ChecklistItem) => {
+    if (!job.id || !e.target.files?.[0]) return;
+
+    const file = e.target.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setItemUploadLoading((prev) => ({ ...prev, [item.id]: true }));
+    try {
+      const response = await jobAPI.uploadFile(formData);
+      const documentUrl = response?.url || response;
+
+      // Update checklist item status with document link
+      await checklistAPI.updateJobChecklistItemStatus(job.id, item.id, {
+        document_link: documentUrl,
+      });
+
+      // Update local state
+      setItemDocuments((prev) => ({ ...prev, [item.id]: documentUrl }));
+      await refetchChecklists();
+      toast.success('Document uploaded successfully');
+    } catch (err: unknown) {
+      console.error('Error uploading document:', err);
+      toast.error(getApiErrorMessage(err, 'Failed to upload document'));
+    } finally {
+      setItemUploadLoading((prev) => {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+      // Reset file input
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  const handleRemoveDocument = async (item: ChecklistItem) => {
+    if (!job.id) return;
+
+    setItemUploadLoading((prev) => ({ ...prev, [item.id]: true }));
+    try {
+      await checklistAPI.updateJobChecklistItemStatus(job.id, item.id, {
+        document_link: null,
+      });
+      setItemDocuments((prev) => {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+      await refetchChecklists();
+      toast.success('Document removed');
+    } catch (err: unknown) {
+      console.error('Error removing document:', err);
+      toast.error(getApiErrorMessage(err, 'Failed to remove document'));
+    } finally {
+      setItemUploadLoading((prev) => {
         const next = { ...prev };
         delete next[item.id];
         return next;
@@ -502,6 +566,53 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                                       </a>
                                     </div>
                                   )}
+
+                                  {/* Document Upload Section */}
+                                  <div className="rounded-md border border-dashed border-gray-300 bg-gray-50/50 p-3 space-y-2">
+                                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-600">
+                                      Upload Document
+                                    </label>
+                                    <div className="flex items-center gap-2">
+                                      <label htmlFor={`doc-upload-${item.id}`} className="cursor-pointer">
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          disabled={itemUploadLoading[item.id] || false}
+                                          onClick={() => document.getElementById(`doc-upload-${item.id}`)?.click()}
+                                          className="gap-2"
+                                        >
+                                          {itemUploadLoading[item.id] ? (
+                                            <Loader2 className="h-3 w-3 animate-spin" />
+                                          ) : (
+                                            <Upload className="h-3 w-3" />
+                                          )}
+                                          Choose File
+                                        </Button>
+                                      </label>
+                                      <input
+                                        id={`doc-upload-${item.id}`}
+                                        type="file"
+                                        className="hidden"
+                                        onChange={(e) => handleDocumentUpload(e, item)}
+                                        disabled={itemUploadLoading[item.id] || false}
+                                        accept=".pdf,.jpg,.jpeg,.png,.docx,.doc"
+                                      />
+                                      {(item.status?.document_link || itemDocuments[item.id]) && (
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => handleRemoveDocument(item)}
+                                          disabled={itemUploadLoading[item.id] || false}
+                                          className="h-8 w-8 p-0"
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </div>
+
                                   {hasSubmission && (
                                     <div className="space-y-3 rounded-md border border-dashed border-gray-200 bg-gray-50 p-3">
                                       <div className="space-y-1">
