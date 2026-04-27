@@ -36,7 +36,7 @@ class JobCreate(JobBase):
     user_id: Optional[int] = None
 
     @model_validator(mode="after")
-    def validate_customer_and_rate_sources(self) -> "JobCreate":
+    def validate_customer_source(self) -> "JobCreate":
         if self.customer_id is None:
             missing_customer_fields = [
                 field_name
@@ -48,19 +48,6 @@ class JobCreate(JobBase):
                     "Missing customer fields when customer_id is not provided: "
                     + ", ".join(missing_customer_fields)
                 )
-
-        if self.job_rate_id is None:
-            missing_rate_fields = [
-                field_name
-                for field_name in ("type", "rate")
-                if getattr(self, field_name) in (None, "")
-            ]
-            if missing_rate_fields:
-                raise ValueError(
-                    "Missing job rate fields when job_rate_id is not provided: "
-                    + ", ".join(missing_rate_fields)
-                )
-
         return self
 
 

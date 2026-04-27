@@ -189,12 +189,6 @@ export interface Customer {
   created_at?: string;
 }
 
-export interface JobRate {
-  id: number;
-  job_type_name: string;
-  base_rate: number;
-}
-
 export interface AdminUser {
   id: number;
   email: string;
@@ -405,9 +399,6 @@ export const jobAPI = {
   getCustomers: (params?: { search?: string; limit?: number }): Promise<Customer[]> =>
     axiosInstance.get('/jobs/customers', { params }).then(res => handleResponse(res)),
 
-  getJobRates: (): Promise<JobRate[]> =>
-    axiosInstance.get('/jobs/job-rates').then(res => handleResponse(res)),
-
   create: (data: Omit<Job, 'id'>): Promise<Job> =>
     axiosInstance.post('/jobs', normalizeJobPayload(data)).then(res => normalizeJob(handleResponse(res))),
 
@@ -470,6 +461,15 @@ export const jobAPI = {
 
   getPendingInvoiceRequests: (): Promise<{ pending_count: number; requests: InvoiceRequest[] }> =>
     axiosInstance.get('/jobs/invoice-requests/pending').then(res => handleResponse(res)),
+
+  getPendingApprovalJobs: (): Promise<Job[]> =>
+    axiosInstance.get('/jobs/pending-approval').then(res => handleResponse(res)),
+
+  approveJobCreation: (id: number): Promise<Job> =>
+    axiosInstance.post(`/jobs/${id}/approve-creation`).then(res => normalizeJob(handleResponse(res))),
+
+  rejectJobCreation: (id: number, reason?: string): Promise<Job> =>
+    axiosInstance.post(`/jobs/${id}/reject-creation`, null, { params: { reason: reason || '' } }).then(res => normalizeJob(handleResponse(res))),
 
   downloadInvoice: async (id: number, jobName?: string | null): Promise<void> => {
     const response = await axiosInstance.get(`/jobs/${id}/invoice-request/download`, {

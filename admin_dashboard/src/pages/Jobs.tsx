@@ -1,9 +1,16 @@
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { type Job, type IPUser } from '@/api/services';
-import { useJobs, useDeleteJob } from '@/hooks/useJobs';
+import { useQuery } from '@tanstack/react-query';
+import { authAPI, type Job, type IPUser } from '@/api/services';
+import {
+  useApproveJobCreation,
+  useDeleteJob,
+  useJobs,
+  usePendingApprovalJobs,
+  useRejectJobCreation,
+} from '@/hooks/useJobs';
 import { useIPUsers } from '@/hooks/useIPUsers';
-import { Plus, Search, Filter, RefreshCw, History, User, MoreVertical } from 'lucide-react';
+import { CheckCircle2, Plus, Search, Filter, RefreshCw, History, User, MoreVertical, XCircle } from 'lucide-react';
 import JobFormModal from '@/components/JobFormModal';
 import JobActionsModal from '@/components/JobActionsModal';
 import {
@@ -61,7 +68,6 @@ import { toast } from "sonner";
 const Jobs: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [actionJob, setActionJob] = useState<Job | null>(null);
@@ -70,13 +76,25 @@ const Jobs: React.FC = () => {
 
   const filters = useMemo(() => ({
     status: statusFilter !== 'all' ? statusFilter : undefined,
-    type: typeFilter !== 'all' ? typeFilter : undefined,
     search: searchTerm || undefined,
-  }), [statusFilter, typeFilter, searchTerm]);
+  }), [statusFilter, searchTerm]);
 
   const { data: jobsData, isLoading: jobsLoading, refetch: refetchJobs } = useJobs(filters);
+  const { data: currentUser } = useQuery({
+    queryKey: ['auth', 'user'],
+    queryFn: () => authAPI.getCurrentUser(),
+    staleTime: 1000 * 60 * 5,
+  });
+  const isSuperadmin = Boolean(currentUser?.is_superadmin);
+  const {
+    data: pendingJobs = [],
+    isLoading: pendingLoading,
+    refetch: refetchPendingJobs,
+  } = usePendingApprovalJobs(isSuperadmin);
 
   const deleteJobMutation = useDeleteJob();
+  const approveJobMutation = useApproveJobCreation();
+  const rejectJobMutation = useRejectJobCreation();
 
   const { data: workersData, isLoading: workersLoading } = useIPUsers();
 
@@ -97,6 +115,10 @@ const Jobs: React.FC = () => {
         return { variant: 'default', className: 'bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800' };
       case 'paused':
         return { variant: 'secondary', className: 'bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700' };
+      case 'pending_approval':
+        return { variant: 'secondary', className: 'bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800' };
+      case 'creation_rejected':
+        return { variant: 'destructive', className: '' };
       case 'created':
       default:
         return { variant: 'outline', className: 'text-muted-foreground' };
@@ -117,6 +139,9 @@ const Jobs: React.FC = () => {
 
   const handleSuccess = () => {
     refetchJobs();
+    if (isSuperadmin) {
+      refetchPendingJobs();
+    }
     setShowCreateModal(false);
     setEditingJob(null);
     setActionJob(null);
@@ -148,6 +173,18 @@ const Jobs: React.FC = () => {
         </div>
       </header>
 
+      {isSuperadmin && (
+        <PendingApprovalSection
+          jobs={pendingJobs}
+          workers={workers}
+          isLoading={pendingLoading || workersLoading}
+          getWorkerName={getWorkerName}
+          onApprove={(id) => approveJobMutation.mutate(id)}
+          onReject={(id) => rejectJobMutation.mutate({ id })}
+          isMutating={approveJobMutation.isPending || rejectJobMutation.isPending}
+        />
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>All Jobs</CardTitle>
@@ -166,7 +203,7 @@ const Jobs: React.FC = () => {
                 aria-label="Search jobs"
               />
             </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2 sm:w-[180px]">
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by status">
                   <Filter className="mr-2 h-4 w-4" />
@@ -178,20 +215,6 @@ const Jobs: React.FC = () => {
                   <SelectItem value="in_progress">In Progress</SelectItem>
                   <SelectItem value="paused">Paused</SelectItem>
                   <SelectItem value="completed">Completed</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by type">
-                  <Filter className="mr-2 h-4 w-4" />
-                  <SelectValue placeholder="Type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Types</SelectItem>
-                  <SelectItem value="site_readiness">Site Readiness</SelectItem>
-                  <SelectItem value="site_validation">Site Validation</SelectItem>
-                  <SelectItem value="installation">Installation</SelectItem>
-                  <SelectItem value="measurement">Measurement</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -295,6 +318,7 @@ const Jobs: React.FC = () => {
         <JobFormModal
           onClose={() => setShowCreateModal(false)}
           onSuccess={handleSuccess}
+          isSuperadmin={isSuperadmin}
         />
       )}
 
@@ -303,6 +327,7 @@ const Jobs: React.FC = () => {
           job={editingJob}
           onClose={() => setEditingJob(null)}
           onSuccess={handleSuccess}
+          isSuperadmin={isSuperadmin}
         />
       )}
 
@@ -319,6 +344,119 @@ const Jobs: React.FC = () => {
 };
 
 // Sub-components
+const PendingApprovalSection: React.FC<{
+  jobs: Job[];
+  workers: IPUser[];
+  isLoading: boolean;
+  getWorkerName: (id?: number) => string | null;
+  onApprove: (id: number) => void;
+  onReject: (id: number) => void;
+  isMutating: boolean;
+}> = ({ jobs, workers, isLoading, getWorkerName, onApprove, onReject, isMutating }) => (
+  <Card className="border-blue-200 bg-blue-50/40 dark:border-blue-900/60 dark:bg-blue-950/10">
+    <CardHeader>
+      <CardTitle className="flex items-center gap-2 text-blue-900 dark:text-blue-200">
+        <CheckCircle2 className="h-5 w-5" />
+        Pending Superadmin Approval
+      </CardTitle>
+      <CardDescription>
+        Jobs submitted by admins stay here until approved. Approved jobs move into the normal created-job list.
+      </CardDescription>
+    </CardHeader>
+    <CardContent>
+      {isLoading ? (
+        <TableSkeleton />
+      ) : jobs.length === 0 ? (
+        <div className="rounded-lg border border-dashed bg-background/60 p-6 text-center text-sm text-muted-foreground">
+          No jobs are waiting for approval.
+        </div>
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-2">
+          {jobs.map((job) => {
+            const workerName = getWorkerName(job.assigned_ip_id);
+            const worker = workers.find(w => w.id === job.assigned_ip_id);
+            return (
+              <article key={job.id} className="rounded-xl border bg-background p-4 shadow-sm">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-sm font-semibold">{job.name || 'Untitled Job'}</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {job.customer_name || 'Unknown customer'} · {job.city || 'No city'}
+                    </p>
+                  </div>
+                  <Badge variant="secondary" className="w-fit bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                    PENDING
+                  </Badge>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+                  <div>
+                    <p className="text-muted-foreground">Type</p>
+                    <p className="mt-0.5 font-medium capitalize">{job.type?.replace('_', ' ') || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Rate</p>
+                    <p className="mt-0.5 font-medium">₹{job.rate ?? '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Start</p>
+                    <p className="mt-0.5 font-medium">{job.start_date || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Delivery</p>
+                    <p className="mt-0.5 font-medium">{job.delivery_date || '-'}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  {job.assigned_ip_id ? (
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Avatar className="h-8 w-8 shrink-0">
+                        <AvatarFallback className="bg-muted text-xs text-muted-foreground">
+                          {workerName?.split(' ').map(n => n[0]).join('') || '?'}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium">{workerName}</p>
+                        <p className="text-[11px] text-muted-foreground">{worker?.is_assigned ? 'Assigned' : 'Available'}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <User className="h-4 w-4" />
+                      Not assigned
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2 sm:flex">
+                    <Button
+                      size="sm"
+                      onClick={() => job.id && onApprove(job.id)}
+                      disabled={isMutating || !job.id}
+                    >
+                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => job.id && onReject(job.id)}
+                      disabled={isMutating || !job.id}
+                    >
+                      <XCircle className="mr-2 h-4 w-4" />
+                      Reject
+                    </Button>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </CardContent>
+  </Card>
+);
+
 const TableSkeleton: React.FC = () => (
   <div className="p-4 space-y-4">
     {Array.from({ length: 5 }).map((_, i) => (

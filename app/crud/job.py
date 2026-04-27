@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.crud.ip import assign_ip, unassign_ip
 from app.model.ip import ip
-from app.model.job import ChecklistItem, Customer, Job, JobChecklist, JobChecklistItemStatus, JobRate
+from app.model.job import ChecklistItem, Customer, Job, JobChecklist, JobChecklistItemStatus
 from app.model.job_status_log import JobStatusLog
 from app.schemas.job import JobCreate, JobUpdate
 from app.utils.ip_assignment import is_admin_allowed_for_ip
@@ -75,39 +75,11 @@ def _upsert_customer(
     return customer
 
 
-def _upsert_job_rate(
-    db: Session, *, job_type: str | None, rate: Decimal | None, existing_rate: JobRate | None = None
-) -> JobRate | None:
-    if job_type is None and rate is None:
-        return existing_rate
-
-    target_type = job_type or (existing_rate.job_type_name if existing_rate else None) or "custom"
-    job_rate = db.query(JobRate).filter(JobRate.job_type_name == target_type).first()
-    if not job_rate:
-        job_rate = JobRate(job_type_name=target_type, base_rate=rate or Decimal("0"))
-        db.add(job_rate)
-        db.flush()
-        return job_rate
-
-    # Avoid mutating shared catalog rates when both type and rate are provided from job forms.
-    # Catalog updates should happen through explicit rate-management flows.
-    if rate is not None and job_type is None:
-        job_rate.base_rate = rate
-    return job_rate
-
-
 def _get_customer_by_id(db: Session, customer_id: int) -> Customer:
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
         raise HTTPException(status_code=404, detail=f"Customer with ID {customer_id} not found")
     return customer
-
-
-def _get_job_rate_by_id(db: Session, job_rate_id: int) -> JobRate:
-    job_rate = db.query(JobRate).filter(JobRate.id == job_rate_id).first()
-    if not job_rate:
-        raise HTTPException(status_code=404, detail=f"Job rate with ID {job_rate_id} not found")
-    return job_rate
 
 
 def get_job_by_id(db: Session, job_id: int, user_id: int = None):
@@ -142,8 +114,10 @@ def get_all_jobs(
             stmt = stmt.where(Job.user_id == user_id)
         if status:
             stmt = stmt.where(Job.status == status)
+        else:
+            stmt = stmt.where(Job.status.notin_(["pending_approval", "creation_rejected"]))
         if job_type:
-            stmt = stmt.join(Job.job_rate).where(JobRate.job_type_name == job_type)
+            stmt = stmt.where(Job.job_type == job_type)
         if search:
             search_pattern = f"%{search.strip()}%"
             stmt = stmt.join(Job.customer).where(
@@ -194,7 +168,7 @@ def get_ip_job_by_id(db: Session, job_id: int, ip_id: int):
 
 
 def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = False):
-    """Create a new job using canonical jobs/customers/job_rates tables."""
+    """Create a job draft; regular admins require superadmin approval before it becomes active."""
     try:
         if job.assigned_ip_id:
             ip_user = db.query(ip).filter(ip.id == job.assigned_ip_id).first()
@@ -236,27 +210,22 @@ def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = 
                 pincode=job_data.pop("pincode", None),
             )
 
-        job_rate_id = job_data.pop("job_rate_id", None)
-        if job_rate_id is not None:
-            job_rate = _get_job_rate_by_id(db, job_rate_id)
-            # Keep type/rate in payload backward compatible, but canonical reference comes from job_rate_id.
-            job_data.pop("type", None)
-            job_data.pop("rate", None)
-        else:
-            job_rate = _upsert_job_rate(
-                db,
-                job_type=job_data.pop("type", None),
-                rate=job_data.pop("rate", None),
-            )
+        job_data.pop("job_rate_id", None)
+        job_type = job_data.pop("type", None)
+        job_rate_val = job_data.pop("rate", None)
+        job_data.pop("status", None)
+
+        initial_status = "created" if is_superadmin else "pending_approval"
 
         db_job = Job(
             name=job_data.pop("name", None),
             customer_id=customer.id if customer else None,
             assigned_ip_id=job_data.pop("assigned_ip_id", None),
-            status=job_data.pop("status", "created"),
+            status=initial_status,
             delivery_date=job_data.pop("delivery_date", None),
             incentive=job_data.pop("incentive", Decimal("0.00")),
-            job_rate_id=job_rate.id if job_rate else None,
+            job_type=job_type,
+            rate_amount=job_rate_val,
             area=job_data.pop("size", None),
             admin_assigned=user_id,
             start_date=job_data.pop("start_date", None),
@@ -269,12 +238,14 @@ def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = 
         for checklist_id in checklist_ids or []:
             db.add(JobChecklist(job_id=db_job.id, checklist_id=checklist_id))
 
+        log_status = "created" if initial_status == "created" else "pending_approval"
+        log_notes = "Job created" if initial_status == "created" else "Job submitted for superadmin approval"
         db.add(
             JobStatusLog(
                 job_id=db_job.id,
-                status="created",
+                status=log_status,
                 created_at=datetime.utcnow(),
-                notes="Job created",
+                notes=log_notes,
             )
         )
 
@@ -290,7 +261,7 @@ def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = 
 
 
 def update_job(db: Session, job_id: int, job_update: JobUpdate, admin_id: int = None, is_superadmin: bool = False):
-    """Update job details, customer, and job rate references."""
+    """Update job details, customer, and manual type/rate fields."""
     try:
         db_job = get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
 
@@ -338,24 +309,17 @@ def update_job(db: Session, job_id: int, job_update: JobUpdate, admin_id: int = 
             if customer:
                 db_job.customer_id = customer.id
 
-        job_rate_id_provided = "job_rate_id" in update_data
-        job_rate_id = update_data.pop("job_rate_id", None)
-        if job_rate_id_provided:
-            db_job.job_rate_id = _get_job_rate_by_id(db, job_rate_id).id if job_rate_id is not None else None
-            update_data.pop("type", None)
-            update_data.pop("rate", None)
-        else:
-            job_rate = _upsert_job_rate(
-                db,
-                job_type=update_data.pop("type", None),
-                rate=update_data.pop("rate", None),
-                existing_rate=db_job.job_rate,
-            )
-            if job_rate:
-                db_job.job_rate_id = job_rate.id
+        update_data.pop("job_rate_id", None)
+        if "type" in update_data:
+            db_job.job_type = update_data.pop("type")
+        if "rate" in update_data:
+            db_job.rate_amount = update_data.pop("rate")
 
         if "size" in update_data:
             db_job.area = update_data.pop("size")
+
+        if not is_superadmin:
+            update_data.pop("status", None)
 
         field_map = {
             "name": "name",
@@ -408,6 +372,8 @@ def start_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: boo
         db_job = get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
 
         prev_status = db_job.status
+        if prev_status == "pending_approval":
+            raise HTTPException(status_code=400, detail="Job is pending superadmin approval and cannot be started yet.")
         if prev_status not in {"created", "paused"}:
             raise HTTPException(status_code=400, detail=f"Job cannot be started. Current status: {db_job.status}")
 
@@ -502,6 +468,44 @@ def finish_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bo
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error finishing job: {str(e)}") from e
+
+
+def approve_job_creation(db: Session, job_id: int):
+    """Superadmin approves a pending_approval job, moving it to created."""
+    try:
+        db_job = get_job_by_id(db, job_id, user_id=None)
+        if db_job.status != "pending_approval":
+            raise HTTPException(status_code=400, detail=f"Job is not pending approval. Current status: {db_job.status}")
+        db_job.status = "created"
+        db.add(JobStatusLog(job_id=job_id, status="created", created_at=datetime.utcnow(), notes="Approved by superadmin"))
+        db.commit()
+        db.refresh(db_job)
+        return db_job
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error approving job: {str(e)}") from e
+
+
+def reject_job_creation(db: Session, job_id: int, reason: str = ""):
+    """Superadmin rejects a pending_approval job."""
+    try:
+        db_job = get_job_by_id(db, job_id, user_id=None)
+        if db_job.status != "pending_approval":
+            raise HTTPException(status_code=400, detail=f"Job is not pending approval. Current status: {db_job.status}")
+        db_job.status = "creation_rejected"
+        db.add(JobStatusLog(job_id=job_id, status="creation_rejected", created_at=datetime.utcnow(), notes=reason or "Rejected by superadmin"))
+        db.commit()
+        db.refresh(db_job)
+        return db_job
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error rejecting job: {str(e)}") from e
 
 
 def get_job_status_history(db: Session, job_id: int, verify_exists: bool = True):

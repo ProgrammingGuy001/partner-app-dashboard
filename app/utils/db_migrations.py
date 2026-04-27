@@ -37,6 +37,7 @@ def _column_is_nullable(db: Session, table: str, column: str) -> bool:
 
 def run_migrations(db: Session) -> None:
     """Run all pending column migrations."""
+    _add_job_manual_type_rate_columns(db)
     _add_so_detail_odoo_columns(db)
     _add_site_requisite_export_columns(db)
     _drop_so_detail_sales_order_unique(db)
@@ -51,6 +52,53 @@ def run_migrations(db: Session) -> None:
     _add_admin_attendance_manual_location(db)
     _add_admin_attendance_photo_url(db)
     _add_invoice_request_multi_invoice_columns(db)
+
+
+def _add_job_manual_type_rate_columns(db: Session) -> None:
+    """Add manual job type/rate columns and backfill from legacy job_rates."""
+    columns = [
+        ("job_type", "VARCHAR"),
+        ("rate_amount", "NUMERIC(10, 2)"),
+    ]
+    changed = False
+
+    for col_name, col_type in columns:
+        if not _column_exists(db, "jobs", col_name):
+            try:
+                db.execute(text(f"ALTER TABLE jobs ADD COLUMN {col_name} {col_type} NULL"))
+                db.commit()
+                changed = True
+                logger.info("Migration: added column jobs.%s", col_name)
+            except Exception as exc:
+                db.rollback()
+                logger.error("Migration failed for jobs.%s: %s", col_name, exc)
+        else:
+            logger.debug("Migration: jobs.%s already exists, skipping.", col_name)
+
+    if not (_column_exists(db, "jobs", "job_type") and _column_exists(db, "jobs", "rate_amount")):
+        return
+
+    try:
+        db.execute(
+            text(
+                """
+                UPDATE jobs
+                SET
+                    job_type = COALESCE(jobs.job_type, job_rates.job_type_name),
+                    rate_amount = COALESCE(jobs.rate_amount, job_rates.base_rate)
+                FROM job_rates
+                WHERE jobs.job_rate_id = job_rates.id
+                  AND (jobs.job_type IS NULL OR jobs.rate_amount IS NULL)
+                """
+            )
+        )
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_jobs_job_type ON jobs (job_type)"))
+        db.commit()
+        if changed:
+            logger.info("Migration: backfilled jobs manual type/rate fields")
+    except Exception as exc:
+        db.rollback()
+        logger.error("Migration failed backfilling jobs manual type/rate fields: %s", exc)
 
 
 def _add_so_detail_odoo_columns(db: Session) -> None:

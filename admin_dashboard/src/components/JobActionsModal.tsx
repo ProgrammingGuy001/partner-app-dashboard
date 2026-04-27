@@ -146,7 +146,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
       if (result.success) {
         setOtpFlow('start');
         setOtpSent(true);
-        toast.success('OTP sent to customer phone');
+        toast.success(result.message || 'OTP request accepted');
       } else {
         setError(result.message || 'Failed to send OTP');
       }
@@ -167,7 +167,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
       if (result.success) {
         setOtpFlow('finish');
         setOtpSent(true);
-        toast.success('OTP sent to customer phone');
+        toast.success(result.message || 'OTP request accepted');
       } else {
         setError(result.message || 'Failed to send OTP');
       }

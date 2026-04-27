@@ -40,6 +40,15 @@ export const useJobs = (filters?: {
   });
 };
 
+export const usePendingApprovalJobs = (enabled = true) => {
+  return useQuery({
+    queryKey: ['jobs', 'pending-approval'],
+    queryFn: () => jobAPI.getPendingApprovalJobs(),
+    enabled,
+    staleTime: 1000 * 60,
+  });
+};
+
 export const useJob = (id?: number) => {
   return useQuery({
     queryKey: ['jobs', id],
@@ -54,9 +63,10 @@ export const useCreateJob = () => {
 
   return useMutation({
     mutationFn: (data: Omit<Job, 'id'>) => jobAPI.create(data),
-    onSuccess: () => {
+    onSuccess: (job) => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
-      toast.success("Job created successfully");
+      queryClient.invalidateQueries({ queryKey: ['jobs', 'pending-approval'] });
+      toast.success(job.status === 'pending_approval' ? "Job sent for superadmin approval" : "Job created successfully");
     },
     onError: (error: unknown) => {
       toast.error(getJobErrorMessage(error, "Failed to create job"));
@@ -96,10 +106,41 @@ export const useDeleteJob = () => {
     mutationFn: (id: number) => jobAPI.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['jobs', 'pending-approval'] });
       toast.success("Job deleted successfully");
     },
     onError: (error: unknown) => {
       toast.error(getJobErrorMessage(error, "Failed to delete job"));
+    },
+  });
+};
+
+export const useApproveJobCreation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => jobAPI.approveJobCreation(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['jobs', 'pending-approval'] });
+      toast.success("Job approved — now active");
+    },
+    onError: (error: unknown) => {
+      toast.error(getJobErrorMessage(error, "Failed to approve job"));
+    },
+  });
+};
+
+export const useRejectJobCreation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason?: string }) => jobAPI.rejectJobCreation(id, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['jobs', 'pending-approval'] });
+      toast.success("Job rejected");
+    },
+    onError: (error: unknown) => {
+      toast.error(getJobErrorMessage(error, "Failed to reject job"));
     },
   });
 };

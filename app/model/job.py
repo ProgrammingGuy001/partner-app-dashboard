@@ -67,6 +67,8 @@ class Job(Base):
         Integer, ForeignKey("job_rates.id"), nullable=True, index=True
     )
     area: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    job_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    rate_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), nullable=True)
     admin_assigned: Mapped[Optional[int]] = mapped_column(
         BigInteger, ForeignKey("admin.id"), nullable=True, index=True
     )
@@ -124,11 +126,11 @@ class Job(Base):
 
     @property
     def type(self) -> Optional[str]:
-        return self.job_rate.job_type_name if self.job_rate else None
+        return self.job_type or (self.job_rate.job_type_name if self.job_rate else None)
 
     @property
     def rate(self) -> Optional[Decimal]:
-        return self.job_rate.base_rate if self.job_rate else None
+        return self.rate_amount if self.rate_amount is not None else (self.job_rate.base_rate if self.job_rate else None)
 
     @property
     def size(self) -> Optional[int]:

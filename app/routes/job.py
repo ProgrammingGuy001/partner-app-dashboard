@@ -6,13 +6,14 @@ from pydantic import BaseModel, Field
 from app.database import get_db
 from app.schemas.job import (
     JobStart, JobPause, JobFinish, JobCreate, JobUpdate, JobResponse,
-    JobStartWithOTP, JobFinishWithOTP, OTPResponse, CustomerOptionResponse, JobRateResponse
+    JobStartWithOTP, JobFinishWithOTP, OTPResponse, CustomerOptionResponse
 )
 from app.schemas.job_status_log import JobStatusLogResponse
 from app.schemas.checklist import JobChecklistItemStatusUpdate, JobChecklistItemStatusResponse
 from app.crud.job import (
     get_job_by_id, get_all_jobs, create_job, update_job, delete_job,
-    start_job, pause_job, finish_job, get_job_status_history
+    start_job, pause_job, finish_job, get_job_status_history,
+    approve_job_creation, reject_job_creation,
 )
 from app.crud.checklist import update_job_checklist_item_status
 from app.core.security import get_current_user
@@ -46,7 +47,7 @@ def lookup_sales_order(so_number: str, current_user: models.User = Depends(get_c
 
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 def create_new_job(job: JobCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    """Create a new job. Validates that assigned IP has is_assigned=False before assignment."""
+    """Create a job. Regular admins submit it for superadmin approval before it becomes active."""
     is_superadmin = getattr(current_user, 'is_superadmin', False)
     result = create_job(db, job, user_id=current_user.id, is_superadmin=is_superadmin)
     background_tasks.add_task(trigger_polling_on_crud)
@@ -96,13 +97,55 @@ def get_customers(
     return query.order_by(models.Customer.created_at.desc(), models.Customer.id.desc()).limit(limit).all()
 
 
-@router.get("/job-rates", response_model=List[JobRateResponse])
-def get_job_rates(
+@router.get("/pending-approval", response_model=List[JobResponse])
+def list_pending_approval_jobs(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Get job type/rate catalog for job creation."""
-    return db.query(models.JobRate).order_by(models.JobRate.job_type_name.asc()).all()
+    """List all jobs pending superadmin approval."""
+    if not getattr(current_user, "is_superadmin", False):
+        raise HTTPException(status_code=403, detail="Only superadmins can view pending approval jobs")
+    from sqlalchemy import select as sa_select
+    from app.model.job import Job
+    from app.crud.job import JOB_LOAD_OPTIONS
+    stmt = (
+        sa_select(Job)
+        .options(*JOB_LOAD_OPTIONS)
+        .where(Job.status == "pending_approval")
+        .order_by(Job.created_at.desc())
+    )
+    return db.scalars(stmt).unique().all()
+
+
+@router.post("/{job_id}/approve-creation", response_model=JobResponse)
+def approve_job_creation_route(
+    job_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Superadmin approves a pending job, making it active."""
+    if not getattr(current_user, "is_superadmin", False):
+        raise HTTPException(status_code=403, detail="Only superadmins can approve job creation")
+    result = approve_job_creation(db, job_id)
+    background_tasks.add_task(trigger_polling_on_crud)
+    return result
+
+
+@router.post("/{job_id}/reject-creation", response_model=JobResponse)
+def reject_job_creation_route(
+    job_id: int,
+    background_tasks: BackgroundTasks,
+    reason: str = "",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Superadmin rejects a pending job with an optional reason."""
+    if not getattr(current_user, "is_superadmin", False):
+        raise HTTPException(status_code=403, detail="Only superadmins can reject job creation")
+    result = reject_job_creation(db, job_id, reason)
+    background_tasks.add_task(trigger_polling_on_crud)
+    return result
 
 
 @router.get("/{job_id}", response_model=JobResponse)
@@ -131,14 +174,26 @@ def delete_existing_job(job_id: int, background_tasks: BackgroundTasks, db: Sess
 # ============ OTP Flow Endpoints ============
 
 @router.post("/{job_id}/request-start-otp", response_model=OTPResponse)
-def request_start_otp(job_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def request_start_otp(
+    job_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Send OTP to customer phone for job start verification"""
     job = get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
     if not job.customer_phone:
         raise HTTPException(status_code=400, detail="Customer phone not set for this job")
 
-    result = CustomerOTPService.send_start_otp(db, job_id, job.customer_phone, job.customer_name)
-    return OTPResponse(success=result["success"], message=result["message"])
+    otp = CustomerOTPService.create_start_otp(db, job_id)
+    background_tasks.add_task(
+        CustomerOTPService.send_customer_sms,
+        job.customer_phone,
+        job.customer_name or "Customer",
+        otp,
+        "start",
+    )
+    return OTPResponse(success=True, message="OTP generated and SMS queued")
 
 @router.post("/{job_id}/verify-start-otp", response_model=JobResponse)
 def verify_start_otp_and_start(job_id: int, otp_data: JobStartWithOTP, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
@@ -154,14 +209,26 @@ def verify_start_otp_and_start(job_id: int, otp_data: JobStartWithOTP, db: Sessi
     return start_job(db, job_id, admin_id=current_user.id, is_superadmin=is_superadmin, notes=otp_data.notes)
 
 @router.post("/{job_id}/request-end-otp", response_model=OTPResponse)
-def request_end_otp(job_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def request_end_otp(
+    job_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Send OTP to customer phone for job completion verification"""
     job = get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
     if not job.customer_phone:
         raise HTTPException(status_code=400, detail="Customer phone not set for this job")
 
-    result = CustomerOTPService.send_end_otp(db, job_id, job.customer_phone, job.customer_name)
-    return OTPResponse(success=result["success"], message=result["message"])
+    otp = CustomerOTPService.create_end_otp(db, job_id)
+    background_tasks.add_task(
+        CustomerOTPService.send_customer_sms,
+        job.customer_phone,
+        job.customer_name or "Customer",
+        otp,
+        "complete",
+    )
+    return OTPResponse(success=True, message="OTP generated and SMS queued")
 
 @router.post("/{job_id}/verify-end-otp", response_model=JobResponse)
 def verify_end_otp_and_finish(job_id: int, otp_data: JobFinishWithOTP, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
@@ -417,7 +484,6 @@ def list_pending_invoice_requests(
 ):
     """List all pending invoice requests visible to the current admin."""
     from app.model.invoice_request import InvoiceRequest
-    from sqlalchemy import select as sa_select
 
     is_superadmin = getattr(current_user, "is_superadmin", False)
 

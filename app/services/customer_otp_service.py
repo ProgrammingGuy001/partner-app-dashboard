@@ -3,7 +3,6 @@ Customer OTP Service for job start/finish verification using otp_sessions.
 """
 import logging
 import requests
-import urllib.parse
 from datetime import datetime, timedelta, timezone
 
 from passlib.context import CryptContext
@@ -107,6 +106,7 @@ class CustomerOTPService:
 
         session.is_used = True
         setattr(job, verified_field, True)
+        db.add(job)
         db.commit()
         return True
 
@@ -138,16 +138,21 @@ class CustomerOTPService:
                 "Keep it safe and don't share it with anyone. - Team Modula"
             )
 
-            encoded_password = urllib.parse.quote(password)
-            encoded_message = urllib.parse.quote(message)
-            url = (
-                f"https://sms6.rmlconnect.net:8443/bulksms/bulksms?"
-                f"username={username}&password={encoded_password}&type=0&dlr=1&"
-                f"destination={formatted_number}&source={sender_id}&message={encoded_message}&"
-                f"entityid={entity_id}&tempid={template_id}"
+            response = requests.post(
+                "https://sms6.rmlconnect.net:8443/bulksms/bulksms",
+                data={
+                    "username": username,
+                    "password": password,
+                    "type": "0",
+                    "dlr": "1",
+                    "destination": formatted_number,
+                    "source": sender_id,
+                    "message": message,
+                    "entityid": entity_id,
+                    "tempid": template_id,
+                },
+                timeout=(3, 10),
             )
-
-            response = requests.get(url, timeout=10)
             response.raise_for_status()
             logger.info(f"Customer OTP sent successfully to {formatted_number[:4]}**** ({action_type})")
             return True
@@ -156,13 +161,21 @@ class CustomerOTPService:
             return False
 
     @staticmethod
+    def create_start_otp(db: Session, job_id: int) -> str:
+        return CustomerOTPService._generate_and_store(db, job_id, CustomerOTPService.START_PURPOSE)
+
+    @staticmethod
+    def create_end_otp(db: Session, job_id: int) -> str:
+        return CustomerOTPService._generate_and_store(db, job_id, CustomerOTPService.END_PURPOSE)
+
+    @staticmethod
     def send_start_otp(db: Session, job_id: int, phone_number: str, customer_name: str) -> dict:
-        otp = CustomerOTPService._generate_and_store(db, job_id, CustomerOTPService.START_PURPOSE)
+        otp = CustomerOTPService.create_start_otp(db, job_id)
         sms_sent = CustomerOTPService.send_customer_sms(phone_number, customer_name, otp, "start")
         return {"success": sms_sent, "message": "OTP sent successfully" if sms_sent else "Failed to send OTP"}
 
     @staticmethod
     def send_end_otp(db: Session, job_id: int, phone_number: str, customer_name: str) -> dict:
-        otp = CustomerOTPService._generate_and_store(db, job_id, CustomerOTPService.END_PURPOSE)
+        otp = CustomerOTPService.create_end_otp(db, job_id)
         sms_sent = CustomerOTPService.send_customer_sms(phone_number, customer_name, otp, "complete")
         return {"success": sms_sent, "message": "OTP sent successfully" if sms_sent else "Failed to send OTP"}

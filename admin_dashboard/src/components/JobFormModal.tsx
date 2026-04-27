@@ -3,7 +3,7 @@ import { type Job, type JobUpdate, type SOLookupResult, jobAPI } from '@/api/ser
 import { useCreateJob, useUpdateJob } from '@/hooks/useJobs';
 import { useApprovedIPUsers } from '@/hooks/useIPUsers';
 import { useChecklists } from '@/hooks/useChecklists';
-import { useCustomers, useJobRates } from '@/hooks/useCustomers';
+import { useCustomers } from '@/hooks/useCustomers';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -47,8 +47,7 @@ const jobSchema = z.object({
   pincode: z.string().min(6, "Pincode must be 6 digits").max(6, "Pincode must be 6 digits").regex(/^\d+$/, "Must be numbers"),
   google_map_link: z.string().url("Invalid URL").optional().or(z.literal("")),
   type: z.string().min(1, "Type is required"),
-  job_rate_id: z.string().optional(),
-  rate: z.string().refine((val) => !isNaN(Number(val)) && Number(val) >= 0, { message: "Rate must be a positive number" }),
+  rate: z.string().min(1, "Rate is required").refine((val) => !isNaN(Number(val)) && Number(val) >= 0, { message: "Rate must be a positive number" }),
   size: z.string().optional().refine((val) => !val || (!isNaN(Number(val)) && Number(val) >= 0), { message: "Size must be a positive number" }),
   assigned_ip_id: z.string().optional(),
   start_date: z.string().min(1, "Start Date is required"),
@@ -86,9 +85,10 @@ interface JobFormModalProps {
   job?: Job;
   onClose: () => void;
   onSuccess: () => void;
+  isSuperadmin?: boolean;
 }
 
-const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) => {
+const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess, isSuperadmin = false }) => {
   const [selectedChecklistIds, setSelectedChecklistIds] = useState<number[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [submitError, setSubmitError] = useState('');
@@ -105,7 +105,6 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
   const { data: ipUsers = [] } = useApprovedIPUsers();
   const { data: checklists = [] } = useChecklists();
   const { data: customers = [] } = useCustomers();
-  const { data: jobRates = [] } = useJobRates();
 
   const { register, handleSubmit, setValue, formState: { errors }, reset, watch } = useForm<JobFormValues>({
     resolver: zodResolver(jobSchema),
@@ -121,7 +120,6 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
       pincode: '',
       google_map_link: '',
       type: '',
-      job_rate_id: '',
       rate: '',
       size: '',
       assigned_ip_id: '',
@@ -133,12 +131,13 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
 
   const assignedIpId = watch('assigned_ip_id');
   const jobType = watch('type');
+  const normalizedJobType = (jobType || '').trim().toLowerCase();
 
   useEffect(() => {
-    if (jobType && jobType !== 'installation') {
+    if (jobType && normalizedJobType !== 'installation') {
       setValue('size', '1');
     }
-  }, [jobType, setValue]);
+  }, [jobType, normalizedJobType, setValue]);
 
   useEffect(() => {
     if (job) {
@@ -155,7 +154,6 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
         pincode: (job.pincode ?? '').toString(),
         google_map_link: job.google_map_link || '',
         type: job.type || '',
-        job_rate_id: job.job_rate_id?.toString() || '',
         rate: (job.rate ?? '').toString(),
         size: job.size?.toString() || '',
         assigned_ip_id: job.assigned_ip_id?.toString() || '',
@@ -250,19 +248,6 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
     }
   };
 
-  const handleTypeChange = (value: string) => {
-    setValue('type', value, { shouldValidate: true });
-
-    const selectedRate = jobRates.find((rate) => rate.job_type_name === value);
-    if (!selectedRate) {
-      setValue('job_rate_id', '');
-      return;
-    }
-
-    setValue('job_rate_id', selectedRate.id.toString());
-    setValue('rate', String(selectedRate.base_rate), { shouldValidate: true });
-  };
-
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -294,7 +279,6 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
         state: data.state,
         pincode: parseInt(data.pincode, 10),
         type: data.type,
-        job_rate_id: data.job_rate_id ? parseInt(data.job_rate_id, 10) : undefined,
         rate: parseFloat(data.rate),
         size: data.size ? parseInt(data.size, 10) : 0,
         assigned_ip_id: data.assigned_ip_id ? parseInt(data.assigned_ip_id, 10) : undefined,
@@ -390,9 +374,16 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
               </div>
             )}
 
+            {!job && !isSuperadmin && (
+              <Alert>
+                <AlertDescription>
+                  This job will be sent to the superadmin for approval. It will become an active created job only after approval.
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <input type="hidden" {...register("customer_id")} />
-              <input type="hidden" {...register("job_rate_id")} />
 
               <div className="space-y-2">
                 <Label htmlFor="name">Job Name *</Label>
@@ -450,41 +441,27 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
 
               <div className="space-y-2">
                 <Label htmlFor="type">Type *</Label>
-                <Select
-                  value={jobType}
-                  onValueChange={handleTypeChange}
-                >
-                  <SelectTrigger aria-invalid={!!errors.type}>
-                    <SelectValue placeholder="Select a type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {jobRates.length === 0 ? (
-                      <SelectItem value="loading" disabled>Loading job types...</SelectItem>
-                    ) : (
-                      jobRates.map((rate) => (
-                        <SelectItem key={rate.id} value={rate.job_type_name}>
-                          {rate.job_type_name.replace(/_/g, ' ')}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
+                <Input
+                  id="type"
+                  placeholder="e.g. installation, measurement, site validation"
+                  {...register("type")}
+                  aria-invalid={!!errors.type}
+                />
                 {errors.type && <p className="text-xs text-destructive">{errors.type.message}</p>}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="rate">Rate (₹) *</Label>
+                <Label htmlFor="rate">Rate per Unit *</Label>
                 <Input
                   id="rate"
                   type="number"
                   step="0.01"
-                  readOnly
-                  className="bg-gray-100"
+                  min="0"
+                  placeholder="Enter agreed job rate"
                   {...register("rate")}
                   aria-invalid={!!errors.rate}
                 />
                 {errors.rate && <p className="text-xs text-destructive">{errors.rate.message}</p>}
-                <p className="text-xs text-gray-500">Auto-filled from selected job type</p>
               </div>
 
               <div className="space-y-2">
@@ -564,13 +541,13 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="size">Size {jobType === 'installation' ? '' : '(Auto-set to 1 for non-installation jobs)'}</Label>
+                <Label htmlFor="size">Size {normalizedJobType === 'installation' ? '' : '(Auto-set to 1 for non-installation jobs)'}</Label>
                 <Input
                   id="size"
                   type="number"
                   {...register("size")}
-                  disabled={jobType !== 'installation'}
-                  className={jobType !== 'installation' ? 'bg-gray-100 cursor-not-allowed' : ''}
+                  disabled={normalizedJobType !== 'installation'}
+                  className={normalizedJobType !== 'installation' ? 'bg-gray-100 cursor-not-allowed' : ''}
                   aria-invalid={!!errors.size}
                 />
                 {errors.size && <p className="text-xs text-destructive">{errors.size.message}</p>}
@@ -703,7 +680,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
             Cancel
           </Button>
           <Button type="submit" form="job-form" disabled={isLoading} className="w-full sm:w-auto">
-            {isLoading ? 'Saving...' : job ? 'Update Job' : 'Create Job'}
+            {isLoading ? 'Saving...' : job ? 'Update Job' : isSuperadmin ? 'Create Job' : 'Submit for Approval'}
           </Button>
         </DialogFooter>
       </DialogContent>

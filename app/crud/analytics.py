@@ -60,7 +60,7 @@ def get_date_range(period: str, year: int = None, month: int = None, quarter: in
 
 
 def _payout_expression():
-    return func.coalesce(JobRate.base_rate, 0) * func.coalesce(Job.area, 0)
+    return func.coalesce(Job.rate_amount, JobRate.base_rate, 0) * func.coalesce(Job.area, 0)
 
 
 def get_payout_analytics(
