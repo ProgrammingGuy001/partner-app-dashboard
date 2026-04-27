@@ -25,11 +25,12 @@ export default function SignupPage() {
       await authAPI.signup({ email, password })
       toast.success("Account created. Sign in to continue.")
       navigate("/login")
-    } catch (err: any) {
-      if (err.response?.data?.detail) {
-        setError(err.response.data.detail);
-      } else if (err.message) {
-        setError(err.message);
+    } catch (err: unknown) {
+      const apiError = err as { response?: { data?: { detail?: string } }; message?: string };
+      if (apiError.response?.data?.detail) {
+        setError(apiError.response.data.detail);
+      } else if (apiError.message) {
+        setError(apiError.message);
       } else {
         setError('An error occurred while creating the account');
       }

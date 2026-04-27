@@ -7,7 +7,7 @@ export interface BOMItem {
     id: number;
     product_name_en: string; // Odoo field name
     product_uom_qty: number;
-    product_uom: Array<any>;
+    product_uom: Array<unknown>;
 }
 
 export interface BOMTreeNode {

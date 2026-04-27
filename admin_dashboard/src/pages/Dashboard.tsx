@@ -51,14 +51,14 @@ const Dashboard: React.FC = () => {
   const isLoading = jobsLoading || ipsLoading;
 
   return (
-    <div className="flex flex-col gap-8 p-6 lg:p-8 max-w-[1600px] mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 sm:gap-6 lg:gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <header className="flex flex-col gap-1">
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>
-        <p className="text-muted-foreground text-lg">Overview of your operations and daily activities.</p>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Dashboard</h1>
+        <p className="text-sm text-muted-foreground sm:text-lg">Overview of your operations and daily activities.</p>
       </header>
 
       {/* Quick Stats */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4 lg:gap-6">
         <StatCard
           title="Total Jobs"
           value={stats.totalJobs}
@@ -91,11 +91,11 @@ const Dashboard: React.FC = () => {
 
       {/* Quick Actions */}
       <section>
-        <h2 className="text-xl font-semibold mb-4 tracking-tight flex items-center gap-2 text-foreground">
+        <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground sm:mb-4 sm:text-xl">
           <TrendingUp className="h-5 w-5" />
           Quick Actions
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:gap-6">
           <QuickActionCard
             title="Jobs Management"
             description="Create, update, and track all jobs"
@@ -118,7 +118,7 @@ const Dashboard: React.FC = () => {
       </section>
 
       {/* Recent Activity */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6">
         <RecentJobsCard jobs={recentJobs} isLoading={isLoading} />
         <PendingApprovalsCard pendingCount={stats.pendingIPs} />
       </section>
@@ -135,12 +135,12 @@ const QuickActionCard: React.FC<{
 }> = ({ title, description, icon, to }) => (
   <Link to={to} className="group block focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded-xl">
     <Card className="h-full border shadow-none hover:bg-muted/40 transition-all duration-300">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-3 text-lg text-foreground">
+    <CardHeader className="pb-2 sm:pb-0">
+      <CardTitle className="flex items-start gap-3 text-base text-foreground sm:text-lg">
           {icon}
           {title}
         </CardTitle>
-        <CardDescription className="text-base text-muted-foreground">{description}</CardDescription>
+        <CardDescription className="text-sm text-muted-foreground sm:text-base">{description}</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="flex items-center text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">
@@ -153,7 +153,7 @@ const QuickActionCard: React.FC<{
 
 const RecentJobsCard: React.FC<{ jobs: Job[]; isLoading: boolean }> = ({ jobs, isLoading }) => (
   <Card className="border shadow-none">
-    <CardHeader className="flex flex-row items-center justify-between">
+    <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="space-y-1">
         <CardTitle className="text-xl">Recent Jobs</CardTitle>
         <CardDescription>Latest created jobs</CardDescription>
@@ -177,7 +177,7 @@ const RecentJobsCard: React.FC<{ jobs: Job[]; isLoading: boolean }> = ({ jobs, i
             <li key={job.id}>
               <Link
                 to={`/dashboard/jobs/${job.id}`}
-                className="flex items-center justify-between p-4 hover:bg-muted/40 transition-colors group"
+                className="flex flex-col gap-3 p-3 transition-colors hover:bg-muted/40 sm:flex-row sm:items-center sm:justify-between sm:p-4 group"
               >
                 <div className="flex items-center gap-3">
                   <div className="bg-muted p-2 rounded-md text-foreground">
@@ -194,7 +194,7 @@ const RecentJobsCard: React.FC<{ jobs: Job[]; isLoading: boolean }> = ({ jobs, i
                 </div>
                 <Badge
                   variant="outline"
-                  className="font-normal capitalize shadow-none text-muted-foreground border-border"
+                  className="w-fit border-border font-normal capitalize text-muted-foreground shadow-none"
                 >
                   {job.status?.replace('_', ' ') || 'created'}
                 </Badge>
@@ -214,7 +214,7 @@ const RecentJobsCard: React.FC<{ jobs: Job[]; isLoading: boolean }> = ({ jobs, i
 
 const PendingApprovalsCard: React.FC<{ pendingCount: number }> = ({ pendingCount }) => (
   <Card className="border shadow-none h-full">
-    <CardHeader className="flex flex-row items-center justify-between">
+    <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="space-y-1">
         <CardTitle className="text-xl">Pending Approvals</CardTitle>
         <CardDescription>Personnel waiting for verification</CardDescription>
@@ -228,7 +228,7 @@ const PendingApprovalsCard: React.FC<{ pendingCount: number }> = ({ pendingCount
     <CardContent className="h-[calc(100%-88px)]">
       {pendingCount > 0 ? (
         <div className="flex flex-col gap-4 h-full">
-          <div className="flex-1 flex flex-col items-center justify-center p-6 bg-muted/10 border border-border rounded-xl text-center">
+            <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-border bg-muted/10 p-5 text-center sm:p-6">
             <div className="bg-muted p-3 rounded-full mb-3">
               <Shield className="h-6 w-6 text-foreground" />
             </div>

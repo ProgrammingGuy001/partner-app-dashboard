@@ -125,23 +125,24 @@ const Jobs: React.FC = () => {
   const isLoading = jobsLoading || workersLoading;
 
   return (
-    <div className="flex flex-col gap-8 p-6 lg:p-8 max-w-[1600px] mx-auto">
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 sm:gap-6 lg:gap-8">
+      <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-primary">Jobs Management</h1>
-          <p className="text-muted-foreground">Manage all jobs and assignments</p>
+          <h1 className="text-2xl font-bold tracking-tight text-primary sm:text-3xl">Jobs Management</h1>
+          <p className="text-sm text-muted-foreground sm:text-base">Manage all jobs and assignments</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex w-full gap-2 sm:w-auto">
           <Button
             variant="outline"
             size="icon"
+            className="shrink-0"
             onClick={() => refetchJobs()}
             disabled={isLoading}
             aria-label="Refresh jobs"
           >
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
           </Button>
-          <Button onClick={() => setShowCreateModal(true)}>
+          <Button onClick={() => setShowCreateModal(true)} className="flex-1 sm:flex-none">
             <Plus className="mr-2 h-4 w-4" /> Create Job
           </Button>
         </div>
@@ -153,7 +154,7 @@ const Jobs: React.FC = () => {
           <CardDescription>A list of all jobs in the system.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col md:flex-row gap-4 mb-6">
+          <div className="mb-5 flex flex-col gap-3 md:flex-row md:gap-4 lg:mb-6">
             <div className="relative flex-1">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
@@ -165,9 +166,9 @@ const Jobs: React.FC = () => {
                 aria-label="Search jobs"
               />
             </div>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[180px]" aria-label="Filter by status">
+                <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by status">
                   <Filter className="mr-2 h-4 w-4" />
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
@@ -181,7 +182,7 @@ const Jobs: React.FC = () => {
               </Select>
 
               <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger className="w-[180px]" aria-label="Filter by type">
+                <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by type">
                   <Filter className="mr-2 h-4 w-4" />
                   <SelectValue placeholder="Type" />
                 </SelectTrigger>
@@ -196,7 +197,35 @@ const Jobs: React.FC = () => {
             </div>
           </div>
 
-          <div className="rounded-md border">
+          <div className="rounded-md border md:hidden">
+            {isLoading ? (
+              <TableSkeleton />
+            ) : jobs.length === 0 ? (
+              <div className="p-8 text-center">
+                <p className="text-muted-foreground">No jobs found. Create your first job!</p>
+              </div>
+            ) : (
+              <div className="divide-y">
+                {jobs.map((job) => (
+                  <JobMobileCard
+                    key={job.id}
+                    job={job}
+                    workers={workers}
+                    getWorkerName={getWorkerName}
+                    getStatusStyle={getStatusStyle}
+                    onEdit={() => setEditingJob(job)}
+                    onDelete={(id) => setDeleteJobId(id)}
+                    onAction={(tab) => {
+                      setActionJob(job);
+                      setActionModalTab(tab);
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="hidden rounded-md border md:block md:overflow-x-auto">
             {isLoading ? (
               <TableSkeleton />
             ) : jobs.length === 0 ? (
@@ -293,15 +322,111 @@ const Jobs: React.FC = () => {
 const TableSkeleton: React.FC = () => (
   <div className="p-4 space-y-4">
     {Array.from({ length: 5 }).map((_, i) => (
-      <div key={i} className="flex items-center justify-between">
-        <Skeleton className="h-4 w-1/4" />
-        <Skeleton className="h-4 w-1/6" />
-        <Skeleton className="h-4 w-1/6" />
-        <Skeleton className="h-4 w-1/6" />
+      <div key={i} className="flex flex-col gap-2 rounded-lg border p-3 md:flex-row md:items-center md:justify-between md:border-0 md:p-0">
+        <Skeleton className="h-4 w-3/4 md:w-1/4" />
+        <Skeleton className="h-4 w-1/2 md:w-1/6" />
+        <Skeleton className="h-4 w-2/3 md:w-1/6" />
+        <Skeleton className="h-4 w-20 md:w-1/6" />
       </div>
     ))}
   </div>
 );
+
+const JobMobileCard: React.FC<{
+  job: Job;
+  workers: IPUser[];
+  getWorkerName: (id?: number) => string | null;
+  getStatusStyle: (status?: string) => { variant: "default" | "secondary" | "destructive" | "outline"; className: string };
+  onEdit: () => void;
+  onDelete: (id: number) => void;
+  onAction: (tab: 'actions' | 'checklists') => void;
+}> = ({ job, workers, getWorkerName, getStatusStyle, onEdit, onDelete, onAction }) => {
+  const workerName = getWorkerName(job.assigned_ip_id);
+  const worker = workers.find(w => w.id === job.assigned_ip_id);
+  const statusStyle = getStatusStyle(job.status);
+  const isPastStartDate = (() => {
+    if (!job.start_date || job.status !== 'created') return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return new Date(job.start_date) < today;
+  })();
+
+  return (
+    <article className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="truncate text-sm font-semibold">{job.name || 'Untitled Job'}</h3>
+            {isPastStartDate && <span className="h-2 w-2 shrink-0 rounded-full bg-destructive" />}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {job.customer_name || 'Unknown customer'} · {job.city || 'No city'}
+          </p>
+        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="-mr-2 -mt-2 h-9 w-9" aria-label="Open job actions menu">
+              <MoreVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem onClick={() => onAction('actions')}>Actions</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onAction('checklists')}>Checklists</DropdownMenuItem>
+            <DropdownMenuItem onClick={onEdit}>Edit</DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link to={`/dashboard/jobs/${job.id}/history`}>
+                <History className="mr-2 h-4 w-4" />
+                History
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => onDelete(job.id!)}
+              className="text-destructive focus:text-destructive"
+            >
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+        <div>
+          <p className="text-muted-foreground">Type</p>
+          <p className="mt-0.5 font-medium capitalize">{job.type?.replace('_', ' ') || '-'}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">Rate</p>
+          <p className="mt-0.5 font-medium">₹{job.rate ?? '-'}</p>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-3">
+        {job.assigned_ip_id ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <Avatar className="h-8 w-8 shrink-0">
+              <AvatarFallback className="bg-muted text-xs text-muted-foreground">
+                {workerName?.split(' ').map(n => n[0]).join('') || '?'}
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-0">
+              <p className="truncate text-xs font-medium">{workerName}</p>
+              <p className="text-[11px] text-muted-foreground">{worker?.is_assigned ? 'Assigned' : 'Unassigned'}</p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <User className="h-4 w-4" />
+            Not assigned
+          </div>
+        )}
+        <Badge variant={statusStyle.variant} className={`shrink-0 ${statusStyle.className}`}>
+          {job.status?.replace('_', ' ').toUpperCase() || 'CREATED'}
+        </Badge>
+      </div>
+    </article>
+  );
+};
 
 const JobRow: React.FC<{
   job: Job;

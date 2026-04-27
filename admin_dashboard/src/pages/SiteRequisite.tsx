@@ -84,13 +84,13 @@ const SiteRequisite: React.FC = () => {
 
 
     return (
-        <div className="max-w-5xl mx-auto">
-            <div className="flex justify-between items-center mb-6">
+        <div className="mx-auto w-full max-w-5xl">
+            <div className="mb-5 flex flex-col gap-4 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight text-primary">Site Requisite</h1>
-                    <p className="text-muted-foreground mt-1">Search BOM and build requisite requests</p>
+                    <h1 className="text-2xl font-bold tracking-tight text-primary sm:text-3xl">Site Requisite</h1>
+                    <p className="mt-1 text-sm text-muted-foreground sm:text-base">Search BOM and build requisite requests</p>
                 </div>
-                <Button onClick={() => navigate('/dashboard/site-requisite/bucket')} className="relative h-10 px-5">
+                <Button onClick={() => navigate('/dashboard/site-requisite/bucket')} className="relative h-10 w-full px-5 sm:w-auto">
                     <ShoppingCart className="w-4 h-4 mr-2" />
                     Bucket
                     {state.bucket.length > 0 && (
@@ -103,7 +103,7 @@ const SiteRequisite: React.FC = () => {
 
             <Card className="mb-6">
                 <CardContent className="pt-6">
-                    <form onSubmit={handleFetchBOM} className="flex flex-col sm:flex-row items-end gap-4">
+                    <form onSubmit={handleFetchBOM} className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-end">
                         <div className="flex-1 w-full space-y-2">
                             <Label htmlFor="salesOrder">Sales Order</Label>
                             <Input
@@ -156,7 +156,7 @@ const SiteRequisite: React.FC = () => {
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="pt-4 pb-4 px-5">
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                        <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
                             {soDetails.customer_name && (
                                 <div className="flex items-start gap-2">
                                     <Building2 className="w-4 h-4 text-primary/70 shrink-0 mt-0.5" />
@@ -216,7 +216,7 @@ const SiteRequisite: React.FC = () => {
                         <CardTitle className="text-lg">BOM Hierarchy</CardTitle>
                     </CardHeader>
                     <CardContent className="pt-6">
-                        <div className="space-y-2">
+                        <div className="space-y-2 overflow-x-hidden">
                             {bomData.map((item, index) => (
                                 <BOMTreeNode
                                     key={`${item.product_name}-${index}`}

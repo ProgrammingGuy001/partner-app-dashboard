@@ -63,17 +63,17 @@ export function LoginForm({
       noValidate
     >
       <Card className="gap-0 overflow-hidden rounded-[1.75rem] border-border/70 bg-card/92 py-0 shadow-[0_24px_80px_-42px_rgba(58,26,26,0.4)] backdrop-blur">
-        <CardHeader className="space-y-4 border-b border-border/70 px-8 py-8 text-left">
+        <CardHeader className="space-y-4 border-b border-border/70 px-5 py-6 text-left sm:px-8 sm:py-8">
 
           <div className="space-y-2">
-            <CardTitle className="text-3xl font-semibold tracking-tight">Welcome back</CardTitle>
+            <CardTitle className="text-2xl font-semibold tracking-tight sm:text-3xl">Welcome back</CardTitle>
             <CardDescription className="max-w-sm text-[15px] leading-6">
               Sign in to manage jobs, workers, analytics, and site requisites from one place.
             </CardDescription>
           </div>
         </CardHeader>
 
-        <CardContent className="px-8 py-8">
+        <CardContent className="px-5 py-6 sm:px-8 sm:py-8">
           <FieldGroup className="gap-5">
             <Field className="gap-2.5">
               <FieldLabel htmlFor="email" className="text-sm font-medium text-foreground">
@@ -95,7 +95,7 @@ export function LoginForm({
             </Field>
 
             <Field className="gap-2.5">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                 <FieldLabel htmlFor="password" className="text-sm font-medium text-foreground">
                   Password
                 </FieldLabel>

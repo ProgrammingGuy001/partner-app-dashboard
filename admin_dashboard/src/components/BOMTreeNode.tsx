@@ -15,8 +15,8 @@ const BOMTreeNode: React.FC<Props> = ({ node, depth = 0, onAddToBucket }) => {
     return (
         <div className="select-none">
             <div
-                className={`flex items-center gap-2 py-2 px-3 hover:bg-secondary rounded-lg transition-colors ${depth === 0 ? 'bg-primary/5 font-semibold' : ''}`}
-                style={{ paddingLeft: `${depth * 24 + 12}px` }}
+                className={`flex min-w-0 items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-secondary ${depth === 0 ? 'bg-primary/5 font-semibold' : ''}`}
+                style={{ paddingLeft: `clamp(0.75rem, ${depth * 1.5 + 0.75}rem, 4rem)` }}
             >
                 <button
                     onClick={() => hasChildren && setIsExpanded(!isExpanded)}
@@ -29,10 +29,10 @@ const BOMTreeNode: React.FC<Props> = ({ node, depth = 0, onAddToBucket }) => {
                     )}
                 </button>
 
-                <span className="flex-1 text-sm">
+                <span className="min-w-0 flex-1 break-words text-sm">
                     {node.product_name}
                     {node.cabinet_position && (
-                        <span className="ml-2 text-xs text-muted-foreground">
+                        <span className="ml-2 inline-block text-xs text-muted-foreground">
                             (Position: {node.cabinet_position})
                         </span>
                     )}

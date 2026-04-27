@@ -49,6 +49,20 @@ interface ChecklistWithStatus {
 
 type OTPFlow = 'none' | 'start' | 'finish';
 
+type ApiErrorLike = {
+  response?: {
+    data?: {
+      detail?: string;
+    };
+  };
+  message?: string;
+};
+
+const getApiErrorMessage = (error: unknown, fallback: string) => {
+  const apiError = error as ApiErrorLike;
+  return apiError.response?.data?.detail || apiError.message || fallback;
+};
+
 const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSuccess, initialTab = 'actions' }) => {
   const [activeTab, setActiveTab] = useState<string>(initialTab);
   const [notes, setNotes] = useState('');
@@ -94,7 +108,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
     setBillingError('');
     jobAPI.getBilling(job.id)
       .then(setBillingData)
-      .catch((err: any) => setBillingError(err?.response?.data?.detail || err.message || 'Failed to load billing data'))
+      .catch((err: unknown) => setBillingError(getApiErrorMessage(err, 'Failed to load billing data')))
       .finally(() => setBillingLoading(false));
   }, [activeTab, job.id, isExternalIP]);
 
@@ -136,8 +150,8 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
       } else {
         setError(result.message || 'Failed to send OTP');
       }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to send OTP');
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, 'Failed to send OTP'));
     } finally {
       setOtpLoading(false);
     }
@@ -157,8 +171,8 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
       } else {
         setError(result.message || 'Failed to send OTP');
       }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to send OTP');
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, 'Failed to send OTP'));
     } finally {
       setOtpLoading(false);
     }
@@ -178,8 +192,8 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
         toast.success('Job completed successfully');
       }
       onSuccess();
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Invalid or expired OTP');
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, 'Invalid or expired OTP'));
     } finally {
       setOtpLoading(false);
     }
@@ -210,9 +224,9 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
       });
       await refetchChecklists();
       toast.success(action === 'approve' ? 'Checklist item approved' : 'Checklist item rejected');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error updating approval status:', err);
-      toast.error(err?.response?.data?.detail || 'Failed to update checklist item');
+      toast.error(getApiErrorMessage(err, 'Failed to update checklist item'));
     } finally {
       setItemActionLoading((prev) => {
         const next = { ...prev };
@@ -262,15 +276,15 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
-        <DialogHeader className="p-6 border-b shrink-0">
+      <DialogContent className="flex max-h-[calc(100svh-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="shrink-0 border-b p-4 sm:p-6">
           <DialogTitle className="flex justify-between items-center">
             <span>Job Management</span>
           </DialogTitle>
         </DialogHeader>
 
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-          <div className="bg-gray-50 p-4 border-b shrink-0">
+          <div className="shrink-0 border-b bg-gray-50 p-4 dark:bg-muted/30">
             <h3 className="font-semibold text-gray-800 mb-1">{job.name}</h3>
             <p className="text-sm text-gray-600">Customer: {job.customer_name}</p>
             {job.customer_phone && (
@@ -278,7 +292,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                 <Phone size={12} /> {job.customer_phone}
               </p>
             )}
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 flex flex-wrap gap-2">
               <Badge variant={job.status === 'completed' ? 'default' : 'secondary'}>
                 {job.status?.replace('_', ' ').toUpperCase()}
               </Badge>
@@ -291,18 +305,18 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden min-h-0">
-            <div className="px-6 pt-4 shrink-0">
+            <div className="shrink-0 px-4 pt-4 sm:px-6">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="actions" className="flex items-center gap-2">
-                  <Play size={16} /> Actions
+                  <Play size={16} /> <span>Actions</span>
                 </TabsTrigger>
                 <TabsTrigger value="checklists" className="flex items-center gap-2">
-                  <ListChecks size={16} /> Checklists & Status
+                  <ListChecks size={16} /> <span className="hidden sm:inline">Checklists & Status</span><span className="sm:hidden">Checklists</span>
                 </TabsTrigger>
               </TabsList>
             </div>
 
-            <TabsContent value="actions" className="flex-1 p-6 space-y-4 overflow-y-auto min-h-0">
+            <TabsContent value="actions" className="flex-1 space-y-4 overflow-y-auto p-4 sm:p-6 min-h-0">
               {error && (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
@@ -319,7 +333,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                       OTP sent to customer ({job.customer_phone})
                     </span>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <Input
                       type="text"
                       placeholder="Enter 6-digit OTP"
@@ -417,7 +431,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
             </TabsContent>
 
             <TabsContent value="checklists" className="flex-1 p-0 overflow-hidden flex flex-col min-h-0">
-              <div className="flex-1 overflow-y-auto p-6 min-h-0">
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
                 {loadingChecklists ? (
                   <div className="text-center py-8 text-gray-500">Loading checklists...</div>
                 ) : checklists.length === 0 ? (
@@ -458,12 +472,12 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                                   )}
                                 </div>
                                 <div className="flex-1 space-y-2">
-                                  <div className="flex justify-between items-start">
+                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                                     <p className={`text-sm ${item.status?.checked ? 'text-gray-900 font-medium' : 'text-gray-700'}`}>
                                       {item.text}
                                     </p>
 
-                                    <div className="flex items-center gap-2 shrink-0 ml-2">
+                                    <div className="flex shrink-0 items-center gap-2 sm:ml-2">
                                       <Badge variant={statusMeta.variant} className={statusMeta.className}>
                                         {statusMeta.icon}
                                         {statusMeta.label}
@@ -511,7 +525,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                                         />
                                       </div>
 
-                                      <div className="flex flex-wrap gap-2">
+                                      <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
                                         <Button
                                           onClick={() => handleReviewAction(item, 'approve')}
                                           size="sm"
@@ -597,8 +611,8 @@ const BillingSection: React.FC<{
       await jobAPI.requestInvoice(job.id);
       await refreshBilling();
       toast.success('Invoice request sent to admins');
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Failed to send invoice request');
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, 'Failed to send invoice request'));
     } finally {
       setActionLoading(null);
     }
@@ -611,8 +625,8 @@ const BillingSection: React.FC<{
       await jobAPI.approveInvoice(job.id);
       await refreshBilling();
       toast.success('Invoice approved');
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Failed to approve');
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, 'Failed to approve'));
     } finally {
       setActionLoading(null);
     }
@@ -627,8 +641,8 @@ const BillingSection: React.FC<{
       setShowRejectInput(false);
       setRejectReason('');
       toast.success('Invoice request rejected');
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Failed to reject');
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, 'Failed to reject'));
     } finally {
       setActionLoading(null);
     }
@@ -640,8 +654,8 @@ const BillingSection: React.FC<{
     try {
       await jobAPI.downloadInvoice(job.id, job.name);
       toast.success('Bill downloaded');
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Failed to download bill');
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, 'Failed to download bill'));
     } finally {
       setActionLoading(null);
     }
@@ -724,7 +738,7 @@ const BillingSection: React.FC<{
               </div>
             </div>
           ) : (
-            <div className="flex gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:flex">
               <Button
                 size="sm"
                 className="bg-green-600 hover:bg-green-700"
@@ -832,7 +846,7 @@ const BillingInvoice: React.FC<{
   return (
     <div className="border rounded-lg overflow-hidden text-sm bg-white print:shadow-none" id="billing-invoice">
       {/* Header */}
-      <div className="bg-gray-50 px-4 py-3 border-b flex justify-between items-center">
+      <div className="flex flex-col gap-3 border-b bg-gray-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-xs text-gray-600 space-y-0.5">
           <div>Date: {today}</div>
           {billingData.ip.city && <div>Add: {billingData.ip.city}</div>}
@@ -844,8 +858,8 @@ const BillingInvoice: React.FC<{
       </div>
 
       {/* Invoice meta + Bill to */}
-      <div className="grid grid-cols-2 gap-0 border-b">
-        <div className="px-4 py-3 space-y-1 border-r">
+      <div className="grid grid-cols-1 gap-0 border-b sm:grid-cols-2">
+        <div className="space-y-1 border-b px-4 py-3 sm:border-b-0 sm:border-r">
           <div className="flex gap-2">
             <span className="text-gray-500 w-28 shrink-0">Project ID:</span>
             <span className="font-medium">{billingData.job_id}</span>
@@ -883,7 +897,8 @@ const BillingInvoice: React.FC<{
       </div>
 
       {/* Line items table */}
-      <table className="w-full border-b text-xs">
+      <div className="overflow-x-auto border-b">
+      <table className="w-full min-w-[520px] text-xs">
         <thead>
           <tr className="bg-gray-100 text-gray-600">
             <th className="border-r px-2 py-2 text-left w-8">Sr.</th>
@@ -919,6 +934,7 @@ const BillingInvoice: React.FC<{
           </tr>
         </tfoot>
       </table>
+      </div>
 
       {/* Amounts in words */}
       <div className="px-4 py-2 border-b text-xs text-gray-700">
@@ -934,7 +950,7 @@ const BillingInvoice: React.FC<{
       {/* Bank Details */}
       <div className="px-4 py-3 text-xs space-y-1">
         <div className="font-semibold text-gray-700 mb-1">Bank Details</div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
           <div><span className="text-gray-500">Account Holder: </span>{billingData.ip.account_holder_name || '—'}</div>
           <div><span className="text-gray-500">Account No.: </span>{billingData.ip.account_number || '—'}</div>
           <div><span className="text-gray-500">IFSC Code: </span>{billingData.ip.ifsc_code || '—'}</div>
@@ -942,11 +958,11 @@ const BillingInvoice: React.FC<{
       </div>
 
       {/* Print button */}
-      <div className="px-4 py-3 border-t bg-gray-50 flex justify-end">
+      <div className="flex justify-end border-t bg-gray-50 px-4 py-3">
         <button
           onClick={onDownload}
           disabled={downloading}
-          className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700"
+          className="w-full rounded bg-blue-600 px-3 py-2 text-xs text-white hover:bg-blue-700 sm:w-auto sm:py-1.5"
         >
           {downloading ? 'Downloading...' : 'Download Bill XLSX'}
         </button>

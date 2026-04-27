@@ -2,6 +2,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminAttendanceAPI, attendanceAPI } from '@/api/services';
 import { toast } from 'sonner';
 
+type ApiErrorLike = {
+  response?: {
+    data?: {
+      detail?: string;
+    };
+  };
+};
+
 export const useAttendance = (filters?: {
   job_id?: number;
   phone?: string;
@@ -47,8 +55,8 @@ export const useMarkAdminAttendance = () => {
       queryClient.invalidateQueries({ queryKey: ['admin-attendance'] });
       toast.success('Attendance marked successfully');
     },
-    onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Failed to mark attendance');
+    onError: (error: unknown) => {
+      toast.error((error as ApiErrorLike).response?.data?.detail || 'Failed to mark attendance');
     },
   });
 };

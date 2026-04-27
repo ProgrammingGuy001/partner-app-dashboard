@@ -65,15 +65,17 @@ const DashboardLayout = () => {
       <SidebarProvider>
         <AppSidebar />
         <SidebarInset>
-          <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
-            <SidebarTrigger className="-ml-1" />
-            <Separator orientation="vertical" className="mr-2 h-4" />
-            <BreadcrumbNav />
+          <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:h-16 sm:px-4">
+            <SidebarTrigger className="-ml-1 size-9 sm:size-7" />
+            <Separator orientation="vertical" className="mr-2 hidden h-4 sm:block" />
+            <div className="hidden min-w-0 flex-1 sm:block">
+              <BreadcrumbNav />
+            </div>
             <div className="ml-auto flex items-center">
               <ThemeToggle />
             </div>
           </header>
-          <main className="flex flex-1 flex-col gap-4 p-4">
+          <main className="flex min-w-0 flex-1 flex-col gap-4 p-3 sm:p-4 lg:p-6">
             <Suspense fallback={<div className="flex items-center justify-center h-full min-h-[400px]"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>}>
               <Outlet />
             </Suspense>

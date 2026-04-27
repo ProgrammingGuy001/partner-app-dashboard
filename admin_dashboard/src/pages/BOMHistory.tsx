@@ -67,8 +67,8 @@ const BOMHistory: React.FC = () => {
             toast.success("Status updated successfully");
             setIsDetailsOpen(false);
         },
-        onError: (error: any) => {
-            toast.error(error.message || "Failed to update status");
+        onError: (error: unknown) => {
+            toast.error(error instanceof Error ? error.message : "Failed to update status");
         }
     });
 
@@ -78,7 +78,7 @@ const BOMHistory: React.FC = () => {
         }
     };
 
-    const getStatusVariant = (status: string) => {
+    const getStatusVariant = (status: string): 'default' | 'secondary' | 'outline' => {
         switch (status) {
             case 'pending': return 'secondary';
             case 'completed': return 'default'; // standard for completed
@@ -98,15 +98,16 @@ const BOMHistory: React.FC = () => {
     };
 
     return (
-        <div className="flex flex-col gap-8 p-6 lg:p-8 max-w-[1600px] mx-auto">
-            <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 sm:gap-6 lg:gap-8">
+            <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight text-primary">BOM Requisites</h1>
-                    <p className="text-muted-foreground">Manage site requisitions and material requests</p>
+                    <h1 className="text-2xl font-bold tracking-tight text-primary sm:text-3xl">BOM Requisites</h1>
+                    <p className="text-sm text-muted-foreground sm:text-base">Manage site requisitions and material requests</p>
                 </div>
                 <Button
                     variant="outline"
                     size="icon"
+                    className="self-start sm:self-auto"
                     onClick={() => refetch()}
                     disabled={isLoading}
                 >
@@ -122,7 +123,33 @@ const BOMHistory: React.FC = () => {
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <div className="rounded-md border">
+                    <div className="rounded-md border md:hidden">
+                        {isLoading ? (
+                            <div className="flex h-24 items-center justify-center">
+                                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                            </div>
+                        ) : history?.length === 0 ? (
+                            <div className="p-8 text-center text-muted-foreground">No requisitions found.</div>
+                        ) : (
+                            <div className="divide-y">
+                                {history?.map((item) => (
+                                    <BOMMobileCard
+                                        key={item.id}
+                                        item={item}
+                                        downloadingId={downloadingId}
+                                        getStatusVariant={getStatusVariant}
+                                        onDownload={handleDownload}
+                                        onDetails={() => {
+                                            setSelectedSO(item);
+                                            setIsDetailsOpen(true);
+                                        }}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="hidden rounded-md border md:block md:overflow-x-auto">
                         <Table>
                             <TableHeader>
                                 <TableRow>
@@ -164,7 +191,7 @@ const BOMHistory: React.FC = () => {
                                                 </Badge>
                                             </TableCell>
                                             <TableCell>
-                                                <Badge variant={getStatusVariant(item.status) as any}>
+                                                <Badge variant={getStatusVariant(item.status)}>
                                                     {item.status.toUpperCase()}
                                                 </Badge>
                                             </TableCell>
@@ -207,7 +234,8 @@ const BOMHistory: React.FC = () => {
 
             {/* Details Modal */}
             <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-                <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+                <DialogContent className="flex max-h-[calc(100svh-1rem)] flex-col p-0 sm:max-w-3xl">
+                    <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
                     <DialogHeader>
                         <DialogTitle>Requisition Details - {selectedSO?.sales_order}</DialogTitle>
                         <DialogDescription>
@@ -232,7 +260,7 @@ const BOMHistory: React.FC = () => {
                                 </div>
                                 <div>
                                     <span className="text-muted-foreground">Current Status:</span>
-                                    <Badge className="ml-2" variant={getStatusVariant(selectedSO.status) as any}>
+                                    <Badge className="ml-2" variant={getStatusVariant(selectedSO.status)}>
                                         {selectedSO.status.toUpperCase()}
                                     </Badge>
                                 </div>
@@ -270,7 +298,38 @@ const BOMHistory: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="border rounded-md">
+                            <div className="rounded-md border md:hidden">
+                                <div className="divide-y">
+                                    {selectedSO.site_requisites.map((req) => (
+                                        <article key={req.id} className="p-4">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <h4 className="min-w-0 break-words text-sm font-semibold">{req.product_name}</h4>
+                                                <Badge variant="outline" className="shrink-0">Qty {req.quantity}</Badge>
+                                            </div>
+                                            <div className="mt-3 grid grid-cols-1 gap-2 text-sm">
+                                                <div>
+                                                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Component Status</p>
+                                                    <p>{req.component_status || '-'}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Department</p>
+                                                    {req.responsible_department ? (
+                                                        <Badge variant="outline" className="capitalize">{req.responsible_department}</Badge>
+                                                    ) : (
+                                                        <p>-</p>
+                                                    )}
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Issue</p>
+                                                    <p className="break-words text-muted-foreground">{req.issue_description || '-'}</p>
+                                                </div>
+                                            </div>
+                                        </article>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="hidden rounded-md border md:block md:overflow-x-auto">
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
@@ -303,14 +362,14 @@ const BOMHistory: React.FC = () => {
                                 </Table>
                             </div>
 
-                            <div className="flex items-center gap-4 bg-muted/50 p-4 rounded-lg">
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-4 bg-muted/50 p-4 rounded-lg">
                                 <span className="font-medium text-sm">Update Status:</span>
                                 <Select
                                     defaultValue={selectedSO.status}
                                     onValueChange={(val) => handleStatusUpdate(val as 'pending' | 'completed')}
                                     disabled={updateStatusMutation.isPending}
                                 >
-                                    <SelectTrigger className="w-[180px]">
+                                    <SelectTrigger className="w-full sm:w-[180px]">
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -325,9 +384,11 @@ const BOMHistory: React.FC = () => {
                         </div>
                     )}
 
-                    <DialogFooter className="gap-2">
+                    </div>
+                    <DialogFooter className="gap-2 border-t p-4 sm:p-6">
                         <Button
                             variant="outline"
+                            className="w-full sm:w-auto"
                             disabled={downloadingId === selectedSO?.id}
                             onClick={() => selectedSO && handleDownload(selectedSO.id, selectedSO.sales_order)}
                         >
@@ -338,12 +399,65 @@ const BOMHistory: React.FC = () => {
                             )}
                             Download Repair Order
                         </Button>
-                        <Button variant="outline" onClick={() => setIsDetailsOpen(false)}>Close</Button>
+                        <Button variant="outline" className="w-full sm:w-auto" onClick={() => setIsDetailsOpen(false)}>Close</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
         </div>
     );
 };
+
+const BOMMobileCard: React.FC<{
+    item: SODetail;
+    downloadingId: number | null;
+    getStatusVariant: (status: string) => 'default' | 'secondary' | 'outline';
+    onDownload: (soId: number, salesOrder: string) => void;
+    onDetails: () => void;
+}> = ({ item, downloadingId, getStatusVariant, onDownload, onDetails }) => (
+    <article className="p-4">
+        <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+                <h3 className="truncate text-sm font-semibold">{item.sales_order}</h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                    {new Date(item.created_date).toLocaleDateString()} · {item.sr_poc || 'No POC'}
+                </p>
+            </div>
+            <Badge variant={getStatusVariant(item.status)} className="shrink-0">
+                {item.status.toUpperCase()}
+            </Badge>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+            <div>
+                <p className="text-muted-foreground">Cabinet</p>
+                <p className="mt-0.5 font-medium">{item.cabinet_position || '-'}</p>
+            </div>
+            <div>
+                <p className="text-muted-foreground">Items</p>
+                <p className="mt-0.5 font-medium">{item.site_requisites.length}</p>
+            </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+            <Button
+                variant="outline"
+                size="sm"
+                disabled={downloadingId === item.id}
+                onClick={() => onDownload(item.id, item.sales_order)}
+            >
+                {downloadingId === item.id ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                    <Download className="mr-2 h-4 w-4" />
+                )}
+                Order
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onDetails}>
+                <Eye className="mr-2 h-4 w-4" />
+                Details
+            </Button>
+        </div>
+    </article>
+);
 
 export default BOMHistory;

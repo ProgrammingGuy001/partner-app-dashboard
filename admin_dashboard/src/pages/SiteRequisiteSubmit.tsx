@@ -135,8 +135,8 @@ const SiteRequisiteSubmit: React.FC = () => {
     }
 
     return (
-        <div className="max-w-4xl mx-auto pb-10">
-            <div className="flex items-center gap-4 mb-8 border-b pb-6">
+        <div className="mx-auto w-full max-w-4xl pb-8 sm:pb-10">
+            <div className="mb-6 flex items-center gap-3 border-b pb-5 sm:mb-8 sm:gap-4 sm:pb-6">
                 <Button
                     variant="ghost"
                     size="icon"
@@ -145,7 +145,7 @@ const SiteRequisiteSubmit: React.FC = () => {
                 >
                     <ArrowLeft className="w-5 h-5" />
                 </Button>
-                <h1 className="text-3xl font-bold tracking-tight text-primary">Submit Site Requisite</h1>
+                <h1 className="text-2xl font-bold tracking-tight text-primary sm:text-3xl">Submit Site Requisite</h1>
             </div>
 
             {error && (
@@ -161,11 +161,11 @@ const SiteRequisiteSubmit: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
                     <Card>
-                        <CardContent className="p-6">
+                        <CardContent className="p-4 sm:p-6">
                             <h2 className="text-xl font-semibold mb-6">Requisite Details</h2>
                             <form onSubmit={handleSubmit} className="space-y-5">
                                 <div className="rounded-lg border bg-muted/30 p-4">
-                                    <div className="flex items-center justify-between gap-3">
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                         <div>
                                             <p className="text-sm font-semibold text-foreground">Sales-order details from Odoo</p>
                                             <p className="text-xs text-muted-foreground mt-1">
@@ -290,13 +290,13 @@ const SiteRequisiteSubmit: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <div className="flex gap-4 pt-4 border-t">
+                                <div className="grid grid-cols-1 gap-3 border-t pt-4 sm:grid-cols-2 sm:gap-4">
                                     <Button
                                         type="button"
                                         variant="outline"
                                         onClick={() => navigate('/dashboard/site-requisite/bucket')}
                                         size="lg"
-                                        className="flex-1"
+                                        className="w-full"
                                     >
                                         Back to Bucket
                                     </Button>
@@ -304,7 +304,7 @@ const SiteRequisiteSubmit: React.FC = () => {
                                         type="submit"
                                         disabled={loading || detailsLoading || bucket.length === 0 || !soDetails}
                                         size="lg"
-                                        className="flex-1"
+                                        className="w-full"
                                     >
                                         {loading ? (
                                             <>
@@ -325,21 +325,21 @@ const SiteRequisiteSubmit: React.FC = () => {
                 </div>
 
                 <div className="lg:col-span-1">
-                    <Card className="sticky top-6">
-                        <CardContent className="p-6">
+                    <Card className="lg:sticky lg:top-6">
+                        <CardContent className="p-4 sm:p-6">
                             <h2 className="text-xl font-semibold mb-5">Summary</h2>
                             <div className="space-y-3 mb-6 bg-secondary/30 p-4 rounded-md border">
-                                <div className="flex justify-between items-center text-sm">
+                                <div className="flex items-center justify-between gap-3 text-sm">
                                     <span className="text-muted-foreground">Total Items</span>
                                     <span className="font-semibold text-lg">{bucket.length}</span>
                                 </div>
                                 <div className="flex justify-between items-center text-sm pt-2 border-t">
                                     <span className="text-muted-foreground">Sales Order</span>
-                                    <span className="font-medium">{salesOrder || 'N/A'}</span>
+                                    <span className="min-w-0 truncate font-medium">{salesOrder || 'N/A'}</span>
                                 </div>
                                 <div className="flex justify-between items-center text-sm pt-2 border-t">
                                     <span className="text-muted-foreground">Cabinet</span>
-                                    <span className="font-medium">{cabinetPosition || 'N/A'}</span>
+                                    <span className="min-w-0 truncate font-medium">{cabinetPosition || 'N/A'}</span>
                                 </div>
                             </div>
 

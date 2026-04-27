@@ -74,17 +74,17 @@ export function SignupForm({
   return (
     <div className={cn("flex flex-col gap-6", className)}>
       <Card className="gap-0 overflow-hidden rounded-[1.75rem] border-border/70 bg-card/92 py-0 shadow-[0_24px_80px_-42px_rgba(58,26,26,0.4)] backdrop-blur">
-        <CardHeader className="space-y-4 border-b border-border/70 px-8 py-8 text-left">
+        <CardHeader className="space-y-4 border-b border-border/70 px-5 py-6 text-left sm:px-8 sm:py-8">
           
           <div className="space-y-2">
-            <CardTitle className="text-3xl font-semibold tracking-tight">Create your account</CardTitle>
+            <CardTitle className="text-2xl font-semibold tracking-tight sm:text-3xl">Create your account</CardTitle>
             <CardDescription className="max-w-sm text-[15px] leading-6">
               Set up a clean admin login for day-to-day operations, reporting, and worker coordination.
             </CardDescription>
           </div>
         </CardHeader>
 
-        <CardContent className="px-8 py-8">
+        <CardContent className="px-5 py-6 sm:px-8 sm:py-8">
           <form onSubmit={handleSubmit(onFormSubmit)} noValidate>
             <FieldGroup className="gap-5">
               <Field className="gap-2.5">

@@ -1,5 +1,6 @@
 import axiosInstance from './axios';
 import { clearAdminTokens, persistAdminTokens } from './authStorage';
+import type { AxiosResponse } from 'axios';
 
 // ============ Types ============
 export interface LoginRequest {
@@ -270,25 +271,31 @@ export interface ChecklistWithStatus {
 }
 
 // ============ API Response Helpers ============
-const handleResponse = <T>(response: any): T => {
+const handleResponse = <T>(response: AxiosResponse<T> | T): T => {
   // Check if response has data property (consistent API structure)
-  if (response.data !== undefined) {
+  if (
+    response &&
+    typeof response === 'object' &&
+    'data' in response &&
+    (response as AxiosResponse<T>).data !== undefined
+  ) {
     return response.data;
   }
   // Fallback to the entire response
-  return response;
+  return response as T;
 };
 
-const normalizeJob = (job: any): Job => {
+const normalizeJob = (job: unknown): Job => {
   if (!job || typeof job !== 'object') {
-    return job;
+    return job as Job;
   }
 
-  const rawIncentive = job.incentive ?? job.additional_expense ?? 0;
+  const source = job as Job;
+  const rawIncentive = source.incentive ?? source.additional_expense ?? 0;
   const incentive = Number(rawIncentive) || 0;
 
   return {
-    ...job,
+    ...source,
     incentive,
     additional_expense: incentive,
   };
@@ -310,28 +317,28 @@ const normalizeJobPayload = (job: Partial<Job>) => {
 
 // Auth APIs
 export const authAPI = {
-  login: (data: LoginRequest): Promise<any> =>
+  login: (data: LoginRequest): Promise<unknown> =>
     axiosInstance.post('/auth/login', data).then(res => {
       persistAdminTokens(res.data);
       return handleResponse(res);
     }),
 
-  signup: (data: SignupRequest): Promise<any> =>
+  signup: (data: SignupRequest): Promise<unknown> =>
     axiosInstance.post('/auth/signup', data).then(res => handleResponse(res)),
 
-  getCurrentUser: (): Promise<any> =>
+  getCurrentUser: (): Promise<User> =>
     axiosInstance.get('/auth/me').then(res => handleResponse(res)),
 
-  verifyToken: (): Promise<any> =>
+  verifyToken: (): Promise<unknown> =>
     axiosInstance.get('/auth/verify-token').then(res => handleResponse(res)),
 
-  refreshToken: (): Promise<any> =>
+  refreshToken: (): Promise<unknown> =>
     axiosInstance.post('/auth/refresh-token').then(res => {
       persistAdminTokens(res.data);
       return handleResponse(res);
     }),
 
-  logout: (): Promise<any> =>
+  logout: (): Promise<unknown> =>
     axiosInstance.post('/auth/logout').then(res => {
       clearAdminTokens();
       return handleResponse(res);
@@ -348,7 +355,7 @@ export const jobAPI = {
     search?: string;
   }): Promise<Job[] | PaginatedResponse<Job>> => {
     const { page = 1, limit = 100, ...rest } = params || {};
-    const mapJobResponse = (res: Awaited<ReturnType<typeof axiosInstance.get>>) => {
+    const mapJobResponse = (res: AxiosResponse<Job[] | PaginatedResponse<Job>>) => {
       const data = handleResponse<Job[] | PaginatedResponse<Job>>(res);
       if (Array.isArray(data)) {
         return data.map(normalizeJob);
@@ -523,7 +530,7 @@ export const analyticsAPI = {
   getJobStages: (): Promise<JobStageCount[]> =>
     axiosInstance.get('/analytics/job-stages').then(res => handleResponse(res)),
 
-  getIPPerformance: (): Promise<any> =>
+  getIPPerformance: (): Promise<unknown> =>
     axiosInstance.get('/analytics/ip-performance').then(res => handleResponse(res)),
 };
 

@@ -1,7 +1,6 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
-import debounce from 'lodash.debounce';
 import { adminAPI, authAPI, type IPUser, type AdminUser } from '@/api/services';
 import { useIPUsers, IP_USERS_QUERY_KEY } from '@/hooks/useIPUsers';
 import {
@@ -97,27 +96,22 @@ const Workers: React.FC = () => {
     },
   });
 
-  // Load existing admin assignments when worker is selected
-  useEffect(() => {
-    if (selectedWorker?.assigned_admin_ids) {
-      setSelectedAdminIds(selectedWorker.assigned_admin_ids);
-    } else {
-      setSelectedAdminIds([]);
-    }
-  }, [selectedWorker]);
+  const openWorkerDetails = (worker: IPUser) => {
+    setSelectedWorker(worker);
+    setSelectedAdminIds(worker.assigned_admin_ids || []);
+    setShowDetails(true);
+  };
 
-  // Debounced search handler
-  const handleSearch = useCallback(
-    debounce((value: string) => {
-      setDebouncedSearchTerm(value);
-    }, 300),
-    []
-  );
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [searchTerm]);
 
   const onSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setSearchTerm(value);
-    handleSearch(value);
+    setSearchTerm(e.target.value);
   };
 
   const workers = data || [];
@@ -182,7 +176,7 @@ const Workers: React.FC = () => {
 
   if (error) {
     return (
-      <div className="p-6">
+      <div className="p-3 sm:p-6">
         <Card className="max-w-md mx-auto">
           <CardContent className="pt-6 text-center">
             <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
@@ -198,19 +192,19 @@ const Workers: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col gap-8 p-6 lg:p-8 max-w-[1600px] mx-auto">
-      <header className="flex justify-between items-center">
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 sm:gap-6 lg:gap-8">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-primary">Personnel</h1>
-          <p className="text-muted-foreground mt-1">Manage personnel, verifications, and assignments</p>
+          <h1 className="text-2xl font-bold tracking-tight text-primary sm:text-3xl">Personnel</h1>
+          <p className="mt-1 text-sm text-muted-foreground sm:text-base">Manage personnel, verifications, and assignments</p>
         </div>
-        <Button variant="outline" size="icon" onClick={() => refetch()} disabled={isLoading}>
+        <Button variant="outline" size="icon" onClick={() => refetch()} disabled={isLoading} className="self-start sm:self-auto">
           <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
         </Button>
       </header>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <StatCard
           title="Total Personnel"
           value={stats.total}
@@ -244,7 +238,7 @@ const Workers: React.FC = () => {
           <CardDescription>Manage verified and pending workers</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col md:flex-row gap-4 mb-6">
+          <div className="mb-5 flex flex-col gap-3 md:flex-row md:gap-4 lg:mb-6">
             <div className="relative flex-1">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
@@ -255,7 +249,7 @@ const Workers: React.FC = () => {
                 aria-label="Search personnel"
               />
             </div>
-            <div className="flex gap-2 flex-wrap">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
               {(['all', 'verified', 'pending', 'unassigned'] as const).map((filter) => (
                 <Button
                   key={filter}
@@ -278,7 +272,23 @@ const Workers: React.FC = () => {
               <p>No personnel found</p>
             </div>
           ) : (
-            <div className="rounded-md border">
+            <>
+            <div className="rounded-md border md:hidden">
+              <div className="divide-y">
+                {filteredWorkers.map((worker) => (
+                  <WorkerMobileCard
+                    key={worker.id}
+                    worker={worker}
+                    getVerificationScore={getVerificationScore}
+                    onViewDetails={() => openWorkerDetails(worker)}
+                    onVerify={handleVerify}
+                    isVerifying={verifyMutation.isPending}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="hidden rounded-md border md:block md:overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -297,10 +307,7 @@ const Workers: React.FC = () => {
                       key={worker.id}
                       worker={worker}
                       getVerificationScore={getVerificationScore}
-                      onViewDetails={() => {
-                        setSelectedWorker(worker);
-                        setShowDetails(true);
-                      }}
+                      onViewDetails={() => openWorkerDetails(worker)}
                       onVerify={handleVerify}
                       isVerifying={verifyMutation.isPending}
                     />
@@ -308,6 +315,7 @@ const Workers: React.FC = () => {
                 </TableBody>
               </Table>
             </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -355,17 +363,93 @@ const Workers: React.FC = () => {
 const TableSkeleton: React.FC = () => (
   <div className="space-y-4">
     {Array.from({ length: 5 }).map((_, i) => (
-      <div key={i} className="flex items-center justify-between p-4 border rounded-lg">
+      <div key={i} className="flex items-center justify-between rounded-lg border p-4">
         <Skeleton className="h-10 w-10 rounded-full" />
-        <div className="space-y-2 flex-1 ml-4">
-          <Skeleton className="h-4 w-1/4" />
-          <Skeleton className="h-3 w-1/3" />
+        <div className="ml-4 flex-1 space-y-2">
+          <Skeleton className="h-4 w-2/3 sm:w-1/4" />
+          <Skeleton className="h-3 w-1/2 sm:w-1/3" />
         </div>
         <Skeleton className="h-6 w-16" />
       </div>
     ))}
   </div>
 );
+
+const WorkerMobileCard: React.FC<{
+  worker: IPUser;
+  getVerificationScore: (worker: IPUser) => number;
+  onViewDetails: () => void;
+  onVerify: (phoneNumber: string) => void;
+  isVerifying: boolean;
+}> = ({ worker, getVerificationScore, onViewDetails, onVerify, isVerifying }) => {
+  const score = getVerificationScore(worker);
+
+  return (
+    <article className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <Avatar className="h-10 w-10 shrink-0">
+            <AvatarFallback className="bg-muted font-medium text-muted-foreground">
+              {worker.first_name[0]}{worker.last_name[0]}
+            </AvatarFallback>
+          </Avatar>
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold">
+              {worker.first_name} {worker.last_name}
+            </h3>
+            <p className="mt-1 text-xs text-muted-foreground">ID: {worker.id}</p>
+          </div>
+        </div>
+        <Badge variant={worker.is_assigned ? "secondary" : "outline"} className="shrink-0">
+          {worker.is_assigned ? 'Assigned' : 'Unassigned'}
+        </Badge>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <Phone className="h-3.5 w-3.5" />
+          <span>{worker.phone_number}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <MapPin className="h-3.5 w-3.5" />
+          <span>{worker.city}, {worker.pincode}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <UserPlus className="h-3.5 w-3.5" />
+          <span>{worker.assigned_admin_ids?.length || 0} admin(s)</span>
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-1">
+        <div className="flex justify-between text-xs text-muted-foreground">
+          <span>Verification progress</span>
+          <span>{score}/4</span>
+        </div>
+        <Progress value={(score / 4) * 100} className="h-2" />
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <Button variant="outline" size="sm" onClick={onViewDetails}>
+          <Eye className="mr-2 h-4 w-4" />
+          Details
+        </Button>
+        {!worker.is_id_verified ? (
+          <Button
+            size="sm"
+            onClick={() => onVerify(worker.phone_number)}
+            disabled={isVerifying}
+          >
+            {isVerifying ? 'Verifying...' : 'Verify'}
+          </Button>
+        ) : (
+          <Button size="sm" variant="secondary" disabled>
+            Verified
+          </Button>
+        )}
+      </div>
+    </article>
+  );
+};
 
 const WorkerRow: React.FC<{
   worker: IPUser;
@@ -414,7 +498,7 @@ const WorkerRow: React.FC<{
         </div>
       </TableCell>
       <TableCell>
-        <div className="w-[120px] space-y-1">
+        <div className="w-full max-w-[120px] space-y-1">
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>Progress</span>
             <span>{score}/4</span>
@@ -479,27 +563,27 @@ const DetailsModal: React.FC<{
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
-        <DialogHeader className="p-6 border-b shrink-0">
+      <DialogContent className="flex max-h-[calc(100svh-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="shrink-0 border-b p-4 sm:p-6">
           <DialogTitle>Personnel Details</DialogTitle>
         </DialogHeader>
-        <div className="flex-1 overflow-y-auto p-6 min-h-0">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
           <div className="space-y-6">
             {/* Worker Header */}
-            <div className="bg-muted/30 rounded-xl p-6 flex gap-4 items-center border">
-              <Avatar className="h-16 w-16">
+            <div className="flex items-center gap-4 rounded-xl border bg-muted/30 p-4 sm:p-6">
+              <Avatar className="h-14 w-14 shrink-0 sm:h-16 sm:w-16">
                 <AvatarFallback className="text-xl">
                   {worker.first_name[0]}{worker.last_name[0]}
                 </AvatarFallback>
               </Avatar>
-              <div>
-                <h3 className="text-xl font-bold">{worker.first_name} {worker.last_name}</h3>
+              <div className="min-w-0">
+                <h3 className="truncate text-lg font-bold sm:text-xl">{worker.first_name} {worker.last_name}</h3>
                 <p className="text-muted-foreground">ID: {worker.id}</p>
               </div>
             </div>
 
             {/* Basic Info */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <InfoField label="Phone" value={worker.phone_number} icon={<Phone />} />
               <InfoField label="Location" value={`${worker.city}, ${worker.pincode}`} icon={<MapPin />} />
               <InfoField label="Registered" value={new Date(worker.registered_at).toLocaleDateString()} icon={<Calendar />} />
@@ -520,7 +604,7 @@ const DetailsModal: React.FC<{
               <h4 className="font-semibold mb-3 flex items-center gap-2 text-sm">
                 <Award className="h-4 w-4" /> Verification Status ({score}/4)
               </h4>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[
                   { label: 'ID Verified', value: worker.is_id_verified },
                   { label: 'Account Verified', value: worker.is_verified },
@@ -592,7 +676,7 @@ const DetailsModal: React.FC<{
             {/* Financial Details */}
             {(worker.pan_number || worker.account_number) && <Separator />}
 
-            <div className="grid md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {worker.pan_number && (
                 <DetailSection
                   title="PAN Details"
@@ -667,9 +751,9 @@ const DetailSection: React.FC<{
     </h4>
     <div className="bg-muted/30 border rounded-lg p-3 space-y-2 text-sm">
       {items.map((item, idx) => (
-        <div key={idx} className="flex justify-between">
+        <div key={idx} className="flex flex-col gap-1 sm:flex-row sm:justify-between">
           <span className="text-muted-foreground">{item.label}:</span>
-          <span className="font-medium font-mono">{item.value}</span>
+          <span className="break-all font-mono font-medium">{item.value}</span>
         </div>
       ))}
     </div>

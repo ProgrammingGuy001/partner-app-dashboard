@@ -23,9 +23,9 @@ const Checklists: React.FC = () => {
   });
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Checklists</h1>
+    <div className="flex flex-col gap-5 sm:gap-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-2xl font-bold sm:text-3xl">Checklists</h1>
         {/* <Button onClick={() => setShowCreateModal(true)}>
           <Plus className="mr-2 h-4 w-4" /> Create Checklist
         </Button> */}
@@ -33,6 +33,16 @@ const Checklists: React.FC = () => {
       {isLoading ? (
         <p>Loading...</p>
       ) : (
+        <>
+        <div className="divide-y rounded-md border md:hidden">
+          {checklists?.map((checklist) => (
+            <article key={checklist.id} className="p-4">
+              <p className="text-xs text-muted-foreground">ID: {checklist.id}</p>
+              <h3 className="mt-1 break-words text-sm font-semibold">{checklist.name}</h3>
+            </article>
+          ))}
+        </div>
+        <div className="hidden rounded-md border md:block md:overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
@@ -53,6 +63,8 @@ const Checklists: React.FC = () => {
             ))}
           </TableBody>
         </Table>
+        </div>
+        </>
       )}
     </div>
   );

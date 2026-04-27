@@ -1,5 +1,6 @@
 import React from 'react';
 import { useParams, Link } from 'react-router-dom';
+import type { JobStatusLog } from '@/api/services';
 import { useJobHistory } from '@/hooks/useJobs';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { formatDateTimeIST, formatDuration } from '@/lib/utils';
@@ -30,15 +31,15 @@ const JobHistory: React.FC = () => {
    }
 
    return (
-      <div className="flex flex-col gap-6 p-6">
-         <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-5 sm:gap-6">
+         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-               <h1 className="text-3xl font-bold tracking-tight">Job History</h1>
-               <p className="text-muted-foreground">View the status change history for a job</p>
+               <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Job History</h1>
+               <p className="text-sm text-muted-foreground sm:text-base">View the status change history for a job</p>
             </div>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-[1fr_auto] gap-2 sm:flex">
                <Link to="/dashboard/jobs">
-                  <Button variant="outline" className="gap-2">
+                  <Button variant="outline" className="w-full gap-2 sm:w-auto">
                      <ArrowLeft size={16} /> Back to Jobs
                   </Button>
                </Link>
@@ -58,6 +59,22 @@ const JobHistory: React.FC = () => {
                      Loading job history...
                   </div>
                ) : (
+                  <>
+                  <div className="divide-y md:hidden">
+                     {history.map((log, index) => (
+                        <HistoryMobileCard
+                           key={log.id}
+                           log={log}
+                           index={index}
+                           history={history}
+                           getStatusClass={getStatusClass}
+                        />
+                     ))}
+                     {history.length === 0 && (
+                        <div className="p-8 text-center text-muted-foreground">No history found for this job.</div>
+                     )}
+                  </div>
+                  <div className="hidden overflow-x-auto md:block">
                   <Table>
                      <TableHeader>
                         <TableRow>
@@ -104,10 +121,55 @@ const JobHistory: React.FC = () => {
                         )}
                      </TableBody>
                   </Table>
+                  </div>
+                  </>
                )}
             </CardContent>
          </Card>
       </div>
+   );
+};
+
+const HistoryMobileCard: React.FC<{
+   log: JobStatusLog;
+   index: number;
+   history: JobStatusLog[];
+   getStatusClass: (status?: string) => string;
+}> = ({ log, index, history, getStatusClass }) => {
+   const currentTs = log.timestamp || log.created_at;
+   const prevTs = history[index - 1]?.timestamp || history[index - 1]?.created_at;
+   let duration: number | null = null;
+   if (index === 0 && currentTs) {
+      if (log.status === 'in_progress' || log.status === 'paused') {
+         duration = new Date().getTime() - new Date(currentTs).getTime();
+      }
+   } else if (currentTs && prevTs) {
+      duration = new Date(prevTs).getTime() - new Date(currentTs).getTime();
+   }
+
+   return (
+      <article className="p-4">
+         <div className="flex items-start justify-between gap-3">
+            <Badge variant="outline" className={getStatusClass(log.status)}>
+               {log.status?.replace('_', ' ').toUpperCase()}
+            </Badge>
+            <span className="text-xs text-muted-foreground">#{index + 1}</span>
+         </div>
+         <div className="mt-3 space-y-2 text-sm">
+            <div>
+               <p className="text-xs uppercase tracking-wide text-muted-foreground">Timestamp</p>
+               <p className="mt-1">{currentTs ? formatDateTimeIST(currentTs) : '-'}</p>
+            </div>
+            <div>
+               <p className="text-xs uppercase tracking-wide text-muted-foreground">Duration</p>
+               <p className="mt-1 text-muted-foreground">{duration ? formatDuration(duration) : '-'}</p>
+            </div>
+            <div>
+               <p className="text-xs uppercase tracking-wide text-muted-foreground">Notes</p>
+               <p className="mt-1 break-words">{log.notes || <span className="italic text-muted-foreground">No notes</span>}</p>
+            </div>
+         </div>
+      </article>
    );
 };
 

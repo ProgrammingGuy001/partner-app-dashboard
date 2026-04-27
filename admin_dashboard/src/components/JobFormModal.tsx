@@ -67,6 +67,21 @@ const jobSchema = z.object({
 
 type JobFormValues = z.infer<typeof jobSchema>;
 
+type ValidationDetail = {
+  loc?: Array<string | number>;
+  msg?: string;
+};
+
+type ApiErrorLike = {
+  response?: {
+    data?: {
+      detail?: string | ValidationDetail[];
+      message?: string;
+    };
+  };
+  message?: string;
+};
+
 interface JobFormModalProps {
   job?: Job;
   onClose: () => void;
@@ -268,7 +283,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
     setSubmitError('');
 
     try {
-      const payload: any = {
+      const payload: JobUpdate = {
         name: data.name,
         customer_id: data.customer_id ? parseInt(data.customer_id, 10) : undefined,
         customer_name: data.customer_name,
@@ -292,22 +307,23 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
       if (data.checklist_link) payload.checklist_link = data.checklist_link;
 
       if (job?.id) {
-        await updateJobMutation.mutateAsync({ id: job.id, data: payload as JobUpdate });
+        await updateJobMutation.mutateAsync({ id: job.id, data: payload });
       } else {
-        await createJobMutation.mutateAsync(payload as Job);
+        await createJobMutation.mutateAsync(payload as Omit<Job, 'id'>);
       }
       onSuccess();
-    } catch (err: any) {
+    } catch (err: unknown) {
       
       // Extract detailed error message from backend response
       let errorMessage = 'Operation failed';
+      const apiError = err as ApiErrorLike;
       
-      if (err?.response?.data) {
-        const errorData = err.response.data;
+      if (apiError.response?.data) {
+        const errorData = apiError.response.data;
         
         // Handle Pydantic validation errors (FastAPI 422)
         if (errorData.detail && Array.isArray(errorData.detail)) {
-          errorMessage = errorData.detail.map((e: any) => 
+          errorMessage = errorData.detail.map((e) =>
             `${e.loc?.join(' → ') || 'Field'}: ${e.msg}`
           ).join('; ');
         } else if (errorData.detail && typeof errorData.detail === 'string') {
@@ -315,8 +331,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
         } else if (errorData.message) {
           errorMessage = errorData.message;
         }
-      } else if (err.message) {
-        errorMessage = err.message;
+      } else if (apiError.message) {
+        errorMessage = apiError.message;
       }
       
       setSubmitError(errorMessage);
@@ -328,12 +344,12 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-3xl max-h-[85vh] flex flex-col p-0 overflow-hidden">
-        <DialogHeader className="p-6 border-b shrink-0">
+      <DialogContent className="flex max-h-[calc(100svh-1rem)] flex-col overflow-hidden p-0 sm:max-w-3xl">
+        <DialogHeader className="shrink-0 border-b p-4 sm:p-6">
           <DialogTitle>{job ? 'Edit Job' : 'Create New Job'}</DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
           <form id="job-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             {submitError && (
               <Alert variant="destructive">
@@ -345,7 +361,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
             {!job && (
               <div className="rounded-lg border border-dashed border-blue-300 bg-blue-50/50 p-4 space-y-3">
                 <Label className="text-sm font-semibold text-blue-700">Auto-fill from Odoo Sales Order</Label>
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row">
                   <Input
                     placeholder="e.g. S00311"
                     value={soNumber}
@@ -358,7 +374,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
                     variant="outline"
                     onClick={handleSOLookup}
                     disabled={soLoading || !soNumber.trim()}
-                    className="shrink-0"
+                    className="w-full shrink-0 sm:w-auto"
                   >
                     {soLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                     {soLoading ? 'Looking up...' : 'Lookup'}
@@ -614,7 +630,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
                       <ChevronDown className="h-4 w-4 opacity-50" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)] max-h-[300px] overflow-y-auto" align="start">
+                  <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)] max-w-[calc(100vw-1rem)] max-h-[300px] overflow-y-auto" align="start">
                     <DropdownMenuLabel>Available Checklists</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     {checklists.length === 0 ? (
@@ -636,7 +652,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
 
               <div className="col-span-1 md:col-span-2 space-y-2">
                 <Label htmlFor="checklist_link">Final Drawing (Optional)</Label>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <Input
                     id="file-upload"
                     type="file"
@@ -655,13 +671,13 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
                 />
 
                 {watch('checklist_link') && (
-                  <div className="flex items-center gap-2 mt-1 p-2 bg-muted rounded-md border">
+                  <div className="mt-1 flex items-center gap-2 rounded-md border bg-muted p-2">
                     <span className="text-sm font-medium">Uploaded:</span>
                     <a
                       href={watch('checklist_link')}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-sm text-blue-500 hover:underline truncate max-w-[300px]"
+                      className="text-sm text-blue-500 hover:underline truncate max-w-full sm:max-w-[300px]"
                     >
                       View Final Drawing
                     </a>
@@ -682,11 +698,11 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess }) 
           </form>
         </div>
 
-        <DialogFooter className="p-6 border-t shrink-0">
-          <Button variant="outline" onClick={onClose} type="button">
+        <DialogFooter className="shrink-0 border-t p-4 sm:p-6">
+          <Button variant="outline" onClick={onClose} type="button" className="w-full sm:w-auto">
             Cancel
           </Button>
-          <Button type="submit" form="job-form" disabled={isLoading}>
+          <Button type="submit" form="job-form" disabled={isLoading} className="w-full sm:w-auto">
             {isLoading ? 'Saving...' : job ? 'Update Job' : 'Create Job'}
           </Button>
         </DialogFooter>

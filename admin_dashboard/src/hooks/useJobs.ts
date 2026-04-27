@@ -2,6 +2,18 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { jobAPI, type Job, type JobUpdate } from '@/api/services';
 import { toast } from 'sonner';
 
+type ApiErrorLike = {
+  response?: {
+    data?: {
+      message?: string;
+    };
+  };
+};
+
+const getJobErrorMessage = (error: unknown, fallback: string) => {
+  return (error as ApiErrorLike).response?.data?.message || fallback;
+};
+
 export const useJobs = (filters?: {
   status?: string;
   type?: string;
@@ -46,8 +58,8 @@ export const useCreateJob = () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       toast.success("Job created successfully");
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.message || "Failed to create job");
+    onError: (error: unknown) => {
+      toast.error(getJobErrorMessage(error, "Failed to create job"));
     },
   });
 };
@@ -69,8 +81,8 @@ export const useUpdateJob = () => {
 
       toast.success("Job updated successfully");
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.message || "Failed to update job");
+    onError: (error: unknown) => {
+      toast.error(getJobErrorMessage(error, "Failed to update job"));
 
     },
 
@@ -86,8 +98,8 @@ export const useDeleteJob = () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       toast.success("Job deleted successfully");
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.message || "Failed to delete job");
+    onError: (error: unknown) => {
+      toast.error(getJobErrorMessage(error, "Failed to delete job"));
     },
   });
 };
@@ -121,8 +133,8 @@ export const useJobAction = () => {
 
       toast.success(`Job ${variables.action}ed successfully`);
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.message || "Action failed");
+    onError: (error: unknown) => {
+      toast.error(getJobErrorMessage(error, "Action failed"));
     },
   });
 };

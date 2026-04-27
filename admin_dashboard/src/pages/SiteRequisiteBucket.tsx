@@ -75,9 +75,9 @@ const SiteRequisiteBucket: React.FC = () => {
 
     return (
         <>
-            <div className="max-w-6xl mx-auto pb-10">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4 border-b pb-6">
-                    <div className="flex items-center gap-4">
+            <div className="mx-auto w-full max-w-6xl pb-8 sm:pb-10">
+                <div className="mb-6 flex flex-col justify-between gap-4 border-b pb-5 sm:mb-8 sm:flex-row sm:items-center sm:pb-6">
+                    <div className="flex min-w-0 items-center gap-3 sm:gap-4">
                         <Button
                             variant="ghost"
                             size="icon"
@@ -86,13 +86,13 @@ const SiteRequisiteBucket: React.FC = () => {
                         >
                             <ArrowLeft className="w-5 h-5" />
                         </Button>
-                        <div>
-                            <h1 className="text-3xl font-bold tracking-tight text-primary flex items-center gap-3">
-                                <ShoppingCart className="w-8 h-8" />
+                        <div className="min-w-0">
+                            <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-primary sm:gap-3 sm:text-3xl">
+                                <ShoppingCart className="h-6 w-6 sm:h-8 sm:w-8" />
                                 Bucket List
                             </h1>
                             {salesOrder && cabinetPosition && (
-                                <p className="text-sm text-muted-foreground mt-1 font-medium bg-secondary/50 inline-block px-3 py-1 rounded-full border mt-2">
+                                <p className="mt-2 inline-block max-w-full truncate rounded-full border bg-secondary/50 px-3 py-1 text-sm font-medium text-muted-foreground">
                                     SO: <span className="text-foreground">{salesOrder}</span> | Cabinet: <span className="text-foreground">{cabinetPosition}</span>
                                 </p>
                             )}
@@ -111,11 +111,11 @@ const SiteRequisiteBucket: React.FC = () => {
 
                 {bucket.length === 0 ? (
                     <Card className="border-dashed border-2 bg-transparent shadow-none">
-                        <CardContent className="flex flex-col items-center justify-center p-16 text-center">
-                            <div className="h-24 w-24 rounded-full bg-secondary flex items-center justify-center mb-6">
-                                <ShoppingCart className="w-12 h-12 text-muted-foreground" />
+                        <CardContent className="flex flex-col items-center justify-center px-4 py-12 text-center sm:p-16">
+                            <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-secondary sm:h-24 sm:w-24">
+                                <ShoppingCart className="h-10 w-10 text-muted-foreground sm:h-12 sm:w-12" />
                             </div>
-                            <h3 className="text-2xl font-semibold mb-2">Your bucket is empty</h3>
+                            <h3 className="mb-2 text-xl font-semibold sm:text-2xl">Your bucket is empty</h3>
                             <p className="text-muted-foreground mb-8 max-w-md">
                                 Add items from the BOM hierarchy to create a site requisite.
                             </p>
@@ -126,7 +126,24 @@ const SiteRequisiteBucket: React.FC = () => {
                     </Card>
                 ) : (
                     <Card className="overflow-hidden">
-                        <div className="overflow-x-auto">
+                        <div className="divide-y md:hidden">
+                            {bucket.map((item, index) => (
+                                <BucketMobileCard
+                                    key={item.product_name}
+                                    item={item}
+                                    index={index}
+                                    isEditing={editingItem === item.product_name}
+                                    editForm={editForm}
+                                    setEditForm={setEditForm}
+                                    onEdit={() => handleEdit(item)}
+                                    onSave={() => handleSaveEdit(item.product_name)}
+                                    onCancel={handleCancelEdit}
+                                    onRemove={() => setItemToRemove(item.product_name)}
+                                />
+                            ))}
+                        </div>
+
+                        <div className="hidden overflow-x-auto md:block">
                             <Table>
                                 <TableHeader className="bg-secondary/40">
                                     <TableRow>
@@ -266,15 +283,15 @@ const SiteRequisiteBucket: React.FC = () => {
                             </Table>
                         </div>
 
-                        <div className="bg-secondary/30 px-6 py-4 border-t">
-                            <div className="flex items-center justify-between">
+                        <div className="border-t bg-secondary/30 px-4 py-4 sm:px-6">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div className="text-sm text-muted-foreground font-medium">
                                     Total Items: <span className="font-bold text-foreground ml-1">{bucket.length}</span>
                                 </div>
                                 <Button
                                     onClick={() => navigate('/dashboard/site-requisite/submit')}
                                     size="lg"
-                                    className="px-8"
+                                    className="w-full px-8 sm:w-auto"
                                 >
                                     <Send className="w-4 h-4 mr-2" />
                                     Proceed to Submit
@@ -312,5 +329,148 @@ const SiteRequisiteBucket: React.FC = () => {
         </>
     );
 };
+
+const BucketMobileCard: React.FC<{
+    item: BucketItem;
+    index: number;
+    isEditing: boolean;
+    editForm: Partial<BucketItem>;
+    setEditForm: React.Dispatch<React.SetStateAction<Partial<BucketItem>>>;
+    onEdit: () => void;
+    onSave: () => void;
+    onCancel: () => void;
+    onRemove: () => void;
+}> = ({
+    item,
+    index,
+    isEditing,
+    editForm,
+    setEditForm,
+    onEdit,
+    onSave,
+    onCancel,
+    onRemove,
+}) => (
+    <article className={`p-4 ${isEditing ? 'bg-primary/5' : ''}`}>
+        <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+                <p className="text-xs font-medium text-muted-foreground">Item {index + 1}</p>
+                <h3 className="mt-1 break-words text-sm font-semibold">{item.product_name}</h3>
+            </div>
+            <div className="flex shrink-0 gap-1">
+                {isEditing ? (
+                    <>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={onSave}
+                            className="h-8 w-8 text-green-600 hover:bg-green-50 hover:text-green-600"
+                            title="Save"
+                        >
+                            <Check className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={onCancel} className="h-8 w-8" title="Cancel">
+                            <X className="h-4 w-4" />
+                        </Button>
+                    </>
+                ) : (
+                    <>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={onEdit}
+                            className="h-8 w-8 text-primary hover:bg-primary/10 hover:text-primary"
+                            title="Edit"
+                        >
+                            <Edit2 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={onRemove}
+                            className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            title="Remove"
+                        >
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
+                    </>
+                )}
+            </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+            <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Quantity</p>
+                {isEditing ? (
+                    <Input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={editForm.quantity}
+                        onChange={(e) => setEditForm({ ...editForm, quantity: parseFloat(e.target.value) || 0 })}
+                        className="mt-1 h-9"
+                    />
+                ) : (
+                    <p className="mt-1 font-medium">{item.quantity || 1}</p>
+                )}
+            </div>
+
+            <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Component Status</p>
+                {isEditing ? (
+                    <Input
+                        value={editForm.component_status || ''}
+                        onChange={(e) => setEditForm({ ...editForm, component_status: e.target.value })}
+                        placeholder="Available, damaged..."
+                        className="mt-1 h-9"
+                    />
+                ) : item.component_status ? (
+                    <p className="mt-1">{item.component_status}</p>
+                ) : (
+                    <p className="mt-1 italic text-muted-foreground/60">Not specified</p>
+                )}
+            </div>
+
+            <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Department</p>
+                {isEditing ? (
+                    <div className="relative mt-1">
+                        <select
+                            value={editForm.responsible_department || ''}
+                            onChange={(e) => setEditForm({ ...editForm, responsible_department: e.target.value })}
+                            className="flex h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pr-8 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        >
+                            {DEPARTMENTS.map((d) => (
+                                <option key={d.value} value={d.value}>{d.label}</option>
+                            ))}
+                        </select>
+                        <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    </div>
+                ) : item.responsible_department ? (
+                    <Badge variant="outline" className="mt-1 capitalize">{item.responsible_department}</Badge>
+                ) : (
+                    <p className="mt-1 italic text-muted-foreground/60">None</p>
+                )}
+            </div>
+
+            <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Issue Description</p>
+                {isEditing ? (
+                    <textarea
+                        value={editForm.issue_description || ''}
+                        onChange={(e) => setEditForm({ ...editForm, issue_description: e.target.value })}
+                        rows={3}
+                        className="mt-1 flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        placeholder="Describe..."
+                    />
+                ) : (
+                    <p className="mt-1 break-words text-muted-foreground">
+                        {item.issue_description || <span className="italic text-muted-foreground/60">Not specified</span>}
+                    </p>
+                )}
+            </div>
+        </div>
+    </article>
+);
 
 export default SiteRequisiteBucket;

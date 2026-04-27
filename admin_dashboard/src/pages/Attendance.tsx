@@ -107,7 +107,7 @@ function CompletionCard({
   return (
     <Card>
       <CardContent className="pt-4">
-        <div className="text-xs text-muted-foreground uppercase tracking-wide">{title}</div>
+        <div className="break-words text-xs uppercase tracking-wide text-muted-foreground">{title}</div>
         <div className="text-3xl font-bold mt-1">
           {completion.completed_days}/{completion.total_days}
         </div>
@@ -167,70 +167,135 @@ function AttendanceTable({
     );
   }
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead className="w-10">#</TableHead>
-          {showAdmin && <TableHead>Admin</TableHead>}
-          <TableHead>Date & Time</TableHead>
-          <TableHead>Location</TableHead>
-          <TableHead>Photo</TableHead>
-          <TableHead>Notes</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
+    <>
+      <div className="divide-y md:hidden">
         {records.map((r, idx) => (
-          <TableRow key={r.id}>
-            <TableCell className="text-muted-foreground text-sm">{idx + 1}</TableCell>
-            {showAdmin && (
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center">
-                    <IconUser className="h-3.5 w-3.5 text-primary" />
-                  </div>
-                  <span className="text-sm font-medium">{r.admin_email}</span>
-                </div>
-              </TableCell>
-            )}
-            <TableCell>
-              <div className="text-sm font-medium">{formatDateOnly(r.marked_at)}</div>
-              <div className="text-xs text-muted-foreground">{formatDate(r.marked_at)}</div>
-            </TableCell>
-            <TableCell className="text-sm text-muted-foreground">
-              {r.manual_location || formatCoordinates(r) ? (
-                <div className="flex items-start gap-1.5 text-foreground">
-                  <IconMapPin className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
-                  <div>
-                    {r.manual_location && <div>{r.manual_location}</div>}
-                    {formatCoordinates(r) && (
-                      <CoordinateLink record={r} />
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <span className="italic">—</span>
-              )}
-            </TableCell>
-            <TableCell>
-              {r.photo_url ? (
-                <a href={r.photo_url} target="_blank" rel="noreferrer" className="inline-block">
-                  <img
-                    src={r.photo_url}
-                    alt="Attendance"
-                    className="h-12 w-16 rounded border object-cover"
-                  />
-                </a>
-              ) : (
-                <span className="text-sm text-muted-foreground italic">—</span>
-              )}
-            </TableCell>
-            <TableCell className="text-sm text-muted-foreground">
-              {r.notes || <span className="italic">—</span>}
-            </TableCell>
-          </TableRow>
+          <AdminAttendanceCard key={r.id} record={r} index={idx} showAdmin={showAdmin} />
         ))}
-      </TableBody>
-    </Table>
+      </div>
+      <div className="hidden overflow-x-auto md:block">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-10">#</TableHead>
+              {showAdmin && <TableHead>Admin</TableHead>}
+              <TableHead>Date & Time</TableHead>
+              <TableHead>Location</TableHead>
+              <TableHead>Photo</TableHead>
+              <TableHead>Notes</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {records.map((r, idx) => (
+              <TableRow key={r.id}>
+                <TableCell className="text-muted-foreground text-sm">{idx + 1}</TableCell>
+                {showAdmin && (
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center">
+                        <IconUser className="h-3.5 w-3.5 text-primary" />
+                      </div>
+                      <span className="text-sm font-medium">{r.admin_email}</span>
+                    </div>
+                  </TableCell>
+                )}
+                <TableCell>
+                  <div className="text-sm font-medium">{formatDateOnly(r.marked_at)}</div>
+                  <div className="text-xs text-muted-foreground">{formatDate(r.marked_at)}</div>
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">
+                  {r.manual_location || formatCoordinates(r) ? (
+                    <div className="flex items-start gap-1.5 text-foreground">
+                      <IconMapPin className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
+                      <div>
+                        {r.manual_location && <div>{r.manual_location}</div>}
+                        {formatCoordinates(r) && (
+                          <CoordinateLink record={r} />
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="italic">—</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {r.photo_url ? (
+                    <a href={r.photo_url} target="_blank" rel="noreferrer" className="inline-block">
+                      <img
+                        src={r.photo_url}
+                        alt="Attendance"
+                        className="h-12 w-16 rounded border object-cover"
+                      />
+                    </a>
+                  ) : (
+                    <span className="text-sm text-muted-foreground italic">—</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">
+                  {r.notes || <span className="italic">—</span>}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </>
+  );
+}
+
+function AdminAttendanceCard({
+  record,
+  index,
+  showAdmin,
+}: {
+  record: AdminAttendanceRecord;
+  index: number;
+  showAdmin: boolean;
+}) {
+  return (
+    <article className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold">{formatDateOnly(record.marked_at)}</p>
+          <p className="text-xs text-muted-foreground">{formatDate(record.marked_at)}</p>
+        </div>
+        <Badge variant="outline">#{index + 1}</Badge>
+      </div>
+
+      {showAdmin && (
+        <div className="mt-3 flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10">
+            <IconUser className="h-3.5 w-3.5 text-primary" />
+          </div>
+          <span className="min-w-0 truncate text-sm font-medium">{record.admin_email}</span>
+        </div>
+      )}
+
+      <div className="mt-3 flex items-start gap-2 text-sm">
+        <IconMapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0">
+          {record.manual_location ? <p className="break-words">{record.manual_location}</p> : null}
+          {formatCoordinates(record) ? <CoordinateLink record={record} /> : null}
+          {!record.manual_location && !formatCoordinates(record) ? (
+            <p className="italic text-muted-foreground">No location</p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-[5rem_1fr] gap-3">
+        {record.photo_url ? (
+          <a href={record.photo_url} target="_blank" rel="noreferrer" className="block">
+            <img src={record.photo_url} alt="Attendance" className="h-16 w-20 rounded border object-cover" />
+          </a>
+        ) : (
+          <div className="flex h-16 w-20 items-center justify-center rounded border text-xs italic text-muted-foreground">No photo</div>
+        )}
+        <div className="min-w-0 text-sm text-muted-foreground">
+          <p className="text-xs font-medium uppercase tracking-wide">Notes</p>
+          <p className="mt-1 break-words">{record.notes || <span className="italic">No notes</span>}</p>
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -242,6 +307,13 @@ function IPAttendanceTable({ records }: { records: DailyAttendance[] }) {
   }
 
   return (
+    <>
+    <div className="divide-y md:hidden">
+      {records.map((r, idx) => (
+        <IPAttendanceCard key={r.id} record={r} index={idx} />
+      ))}
+    </div>
+    <div className="hidden overflow-x-auto md:block">
     <Table>
       <TableHeader>
         <TableRow>
@@ -304,6 +376,50 @@ function IPAttendanceTable({ records }: { records: DailyAttendance[] }) {
         ))}
       </TableBody>
     </Table>
+    </div>
+    </>
+  );
+}
+
+function IPAttendanceCard({ record, index }: { record: DailyAttendance; index: number }) {
+  return (
+    <article className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold">{record.phone}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {record.job_name || (record.job_id ? `Job #${record.job_id}` : 'Independent')}
+          </p>
+        </div>
+        <Badge variant="outline">#{index + 1}</Badge>
+      </div>
+
+      <div className="mt-3 text-sm">
+        <p className="font-medium">{formatDateOnly(record.recorded_at)}</p>
+        <p className="text-xs text-muted-foreground">{formatDate(record.recorded_at)}</p>
+      </div>
+
+      <div className="mt-3 flex items-start gap-2 text-sm">
+        <IconMapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0">
+          {record.manual_location ? <p className="break-words">{record.manual_location}</p> : null}
+          {formatCoordinates(record) ? <CoordinateLink record={record} /> : null}
+          {!record.manual_location && !formatCoordinates(record) ? (
+            <p className="italic text-muted-foreground">No location</p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-3">
+        {record.photo_url ? (
+          <a href={record.photo_url} target="_blank" rel="noreferrer" className="inline-block">
+            <img src={record.photo_url} alt="IP attendance" className="h-16 w-20 rounded border object-cover" />
+          </a>
+        ) : (
+          <span className="text-sm italic text-muted-foreground">No photo</span>
+        )}
+      </div>
+    </article>
   );
 }
 
@@ -460,11 +576,11 @@ const MarkAttendanceDialog: React.FC<{
 
   return (
     <Dialog open={open} onOpenChange={v => !v && handleClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="flex max-h-[calc(100svh-1rem)] flex-col sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Mark Attendance</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
           <p className="text-sm text-muted-foreground">
             Recording attendance for <strong>{new Date().toDateString()}</strong>
           </p>
@@ -508,7 +624,7 @@ const MarkAttendanceDialog: React.FC<{
                   autoPlay
                   playsInline
                   muted
-                  className="h-64 w-full rounded-lg border bg-black object-cover"
+                  className="h-48 sm:h-64 w-full rounded-lg border bg-black object-cover"
                 />
                 <div className="grid grid-cols-2 gap-2">
                   <Button type="button" onClick={capturePhoto}>
@@ -544,7 +660,7 @@ const MarkAttendanceDialog: React.FC<{
             />
           </div>
         </div>
-        <DialogFooter>
+        <DialogFooter className="shrink-0">
           <Button variant="outline" onClick={handleClose}>Cancel</Button>
           <Button onClick={handleMark} disabled={markMutation.isPending || locating || !photo}>
             {locating ? 'Getting location...' : markMutation.isPending ? 'Marking...' : 'Mark Attendance'}
@@ -580,13 +696,13 @@ const AdminView: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-5 sm:gap-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">My Attendance</h1>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">My Attendance</h1>
           <p className="text-muted-foreground text-sm mt-1">Mark and view your attendance history</p>
         </div>
-        <div className="flex gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:flex">
           <Button variant="outline" size="sm" onClick={refreshAll}>
             <IconRefresh className="h-4 w-4 mr-2" />
             Refresh
@@ -601,7 +717,7 @@ const AdminView: React.FC = () => {
       {/* Today status */}
       <Card className={markedToday ? 'border-green-500/50 bg-green-50/50 dark:bg-green-950/20' : 'border-orange-400/50 bg-orange-50/50 dark:bg-orange-950/20'}>
         <CardContent className="pt-4 pb-4">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className={`h-10 w-10 rounded-full flex items-center justify-center ${markedToday ? 'bg-green-500/20' : 'bg-orange-400/20'}`}>
               <IconCalendarCheck className={`h-5 w-5 ${markedToday ? 'text-green-600' : 'text-orange-500'}`} />
             </div>
@@ -612,7 +728,7 @@ const AdminView: React.FC = () => {
               <div className="text-xs text-muted-foreground">{new Date().toDateString()}</div>
             </div>
             {!markedToday && (
-              <Button size="sm" className="ml-auto" onClick={() => setShowMarkDialog(true)}>
+              <Button size="sm" className="sm:ml-auto" onClick={() => setShowMarkDialog(true)}>
                 Mark Now
               </Button>
             )}
@@ -729,10 +845,10 @@ const SuperAdminView: React.FC = () => {
   }, {});
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-5 sm:gap-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Attendance</h1>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Attendance</h1>
           <p className="text-muted-foreground text-sm mt-1">Admin and IP attendance records</p>
         </div>
         <Button variant="outline" size="sm" onClick={refreshAll}>
@@ -796,21 +912,21 @@ const SuperAdminView: React.FC = () => {
       {/* Filters */}
       <Card>
         <CardContent className="pt-4">
-          <div className="flex flex-wrap gap-3 items-end">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-end">
             <div className="flex flex-col gap-1">
               <label className="text-xs text-muted-foreground font-medium">From date</label>
-              <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-40" />
+              <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-full lg:w-40" />
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-xs text-muted-foreground font-medium">To date</label>
-              <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-40" />
+              <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-full lg:w-40" />
             </div>
-            <Button onClick={applyFilters} size="sm">
+            <Button onClick={applyFilters} size="sm" className="w-full lg:w-auto">
               <IconSearch className="h-4 w-4 mr-2" />
               Filter
             </Button>
             {hasFilters && (
-              <Button variant="ghost" size="sm" onClick={clearFilters}>
+              <Button variant="ghost" size="sm" onClick={clearFilters} className="w-full lg:w-auto">
                 Clear
               </Button>
             )}

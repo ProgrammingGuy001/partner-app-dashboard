@@ -37,8 +37,8 @@ export const BreadcrumbNav = () => {
   });
 
   return (
-    <Breadcrumb>
-      <BreadcrumbList>
+    <Breadcrumb className="min-w-0 overflow-hidden">
+      <BreadcrumbList className="flex-nowrap overflow-hidden">
         {breadcrumbItems}
       </BreadcrumbList>
     </Breadcrumb>
