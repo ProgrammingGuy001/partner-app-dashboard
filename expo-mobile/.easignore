@@ -1,0 +1,9 @@
+# Exclude source maps from builds
+*.map
+**/*.map
+
+# Exclude development files
+.expo/
+.vscode/
+.idea/
+*.log

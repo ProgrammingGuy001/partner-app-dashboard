@@ -1,15 +1,6 @@
 flutter_partner_app/*
 flutter_partner_app.zip
 .idea/*
-expo-mobile/
-expo-mobile/node_modules/
-expo-mobile/.expo/
-expo-mobile/dist/
-expo-mobile/web-build/
-expo-mobile/.env
-expo-mobile/.env*.local
-expo-mobile/ios/
-expo-mobile/android/
 Billing format.xlsx
 billing_invoice_ayush mishra.xlsx
 Repair Order (repair.order) (1).xlsx

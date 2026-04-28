@@ -1,0 +1,162 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.75rem;
+    --radius-lg: 1rem;
+    --radius-xl: 1.25rem;
+    --radius-2xl: 1.5rem;
+
+    /* Core */
+    --background: 40 33% 98%;
+    --foreground: 0 38% 16%;
+
+    /* Surfaces */
+    --card: 30 100% 99%;
+    --card-foreground: 0 38% 16%;
+    --surface: 0 0% 100%;
+    --surface-alt: 30 25% 96%;
+    --surface-elevated: 0 0% 100%;
+    --popover: 30 100% 99%;
+    --popover-foreground: 0 38% 16%;
+
+    /* Primary brand (warm brown) */
+    --primary: 15 28% 32%;
+    --primary-foreground: 40 33% 98%;
+    --primary-light: 15 28% 90%;
+
+    /* Secondary / neutral */
+    --secondary: 43 20% 93%;
+    --secondary-foreground: 0 38% 16%;
+
+    /* Muted */
+    --muted: 43 18% 93%;
+    --muted-foreground: 18 13% 46%;
+
+    /* Accent */
+    --accent: 30 18% 88%;
+    --accent-foreground: 0 38% 16%;
+
+    /* Semantic — success */
+    --success: 152 55% 35%;
+    --success-foreground: 0 0% 100%;
+    --success-muted: 152 55% 95%;
+    --success-muted-foreground: 152 55% 25%;
+
+    /* Semantic — warning */
+    --warning: 38 92% 42%;
+    --warning-foreground: 0 0% 100%;
+    --warning-muted: 38 92% 95%;
+    --warning-muted-foreground: 38 92% 28%;
+
+    /* Semantic — info */
+    --info: 204 80% 40%;
+    --info-foreground: 0 0% 100%;
+    --info-muted: 204 80% 95%;
+    --info-muted-foreground: 204 80% 28%;
+
+    /* Destructive */
+    --destructive: 346 77% 48%;
+    --destructive-foreground: 40 33% 98%;
+    --destructive-muted: 346 77% 96%;
+    --destructive-muted-foreground: 346 77% 35%;
+
+    /* Borders & inputs */
+    --border: 30 14% 86%;
+    --border-strong: 30 14% 76%;
+    --input: 30 14% 86%;
+    --ring: 15 28% 50%;
+
+    /* Charts */
+    --chart-1: 15 28% 32%;
+    --chart-2: 14 18% 53%;
+    --chart-3: 18 13% 43%;
+    --chart-4: 30 23% 70%;
+    --chart-5: 30 12% 84%;
+
+    /* Sidebar */
+    --sidebar: 40 33% 98%;
+    --sidebar-foreground: 0 38% 16%;
+    --sidebar-primary: 15 28% 32%;
+    --sidebar-primary-foreground: 40 33% 98%;
+    --sidebar-accent: 43 18% 91%;
+    --sidebar-accent-foreground: 0 38% 16%;
+    --sidebar-border: 30 14% 86%;
+    --sidebar-ring: 15 28% 50%;
+  }
+
+  .dark {
+    /* #1 Deeper background so cards lift off clearly */
+    --background: 0 30% 9%;           /* #140b0a — darker base */
+    --foreground: 42 22% 93%;
+
+    /* #1 Cards are now noticeably lighter than background */
+    --card: 0 26% 14%;                /* #231513 — clear layer step */
+    --card-foreground: 42 22% 93%;
+    --surface: 0 24% 17%;
+    --surface-alt: 14 22% 20%;
+    --surface-elevated: 0 24% 19%;    /* #301b19 — elevated popover/sheet */
+    --popover: 0 26% 14%;
+    --popover-foreground: 42 22% 93%;
+
+    /* #2 Slightly more saturated primary — warm, not washed out */
+    --primary: 15 28% 62%;            /* #b8897f — up from 22% to 28% sat */
+    --primary-foreground: 0 30% 9%;
+    --primary-light: 15 26% 20%;      /* deeper tinted surface for highlights */
+
+    --secondary: 14 22% 20%;
+    --secondary-foreground: 42 22% 93%;
+
+    --muted: 14 22% 20%;
+    /* #4 Lighter muted text — better readability, still clearly secondary */
+    --muted-foreground: 30 20% 68%;   /* #9e8f89 — up from 65% */
+
+    --accent: 14 22% 24%;
+    --accent-foreground: 42 22% 93%;
+
+    /* #6 Semantic muted backgrounds raised to 22-24% lightness */
+    --success: 152 48% 48%;
+    --success-foreground: 0 0% 100%;
+    --success-muted: 152 28% 22%;     /* was 18% */
+    --success-muted-foreground: 152 50% 72%;
+
+    --warning: 38 80% 52%;
+    --warning-foreground: 0 0% 100%;
+    --warning-muted: 38 35% 22%;      /* was 18% */
+    --warning-muted-foreground: 38 82% 74%;
+
+    --info: 204 70% 52%;
+    --info-foreground: 0 0% 100%;
+    --info-muted: 204 35% 22%;        /* was 18% */
+    --info-muted-foreground: 204 72% 74%;
+
+    --destructive: 346 60% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --destructive-muted: 346 35% 22%; /* was 18% */
+    --destructive-muted-foreground: 346 62% 74%;
+
+    /* #3 Higher border contrast — edges visible against dark cards */
+    --border: 14 26% 30%;             /* #4a3530 — up from 28% */
+    --border-strong: 14 26% 40%;      /* up from 38% */
+    --input: 14 26% 30%;
+    --ring: 15 28% 62%;
+
+    --chart-1: 15 28% 62%;
+    --chart-2: 30 25% 69%;
+    --chart-3: 19 13% 43%;
+    --chart-4: 14 22% 28%;
+    --chart-5: 0 30% 9%;
+
+    /* Sidebar slightly deeper than background for visual anchoring */
+    --sidebar: 0 30% 7%;
+    --sidebar-foreground: 42 22% 93%;
+    --sidebar-primary: 15 28% 62%;
+    --sidebar-primary-foreground: 0 30% 9%;
+    --sidebar-accent: 14 22% 20%;
+    --sidebar-accent-foreground: 42 22% 93%;
+    --sidebar-border: 14 26% 30%;
+    --sidebar-ring: 15 28% 62%;
+  }
+}
