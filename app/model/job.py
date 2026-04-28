@@ -162,6 +162,7 @@ class JobChecklist(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), index=True)
     checklist_id: Mapped[int] = mapped_column(ForeignKey("checklists.id"), index=True)
+    document_link: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
 
     job: Mapped["Job"] = relationship("Job", back_populates="job_checklists")

@@ -52,6 +52,7 @@ def run_migrations(db: Session) -> None:
     _add_admin_attendance_manual_location(db)
     _add_admin_attendance_photo_url(db)
     _add_invoice_request_multi_invoice_columns(db)
+    _add_job_checklist_document_link(db)
 
 
 def _add_job_manual_type_rate_columns(db: Session) -> None:
@@ -393,6 +394,20 @@ def _add_invoice_request_multi_invoice_columns(db: Session) -> None:
                 logger.error("Migration failed for invoice_requests.%s: %s", col_name, exc)
         else:
             logger.debug("Migration: invoice_requests.%s already exists, skipping.", col_name)
+
+
+def _add_job_checklist_document_link(db: Session) -> None:
+    """Add document_link to jobs_checklists for checklist-level document uploads."""
+    if not _column_exists(db, "jobs_checklists", "document_link"):
+        try:
+            db.execute(text("ALTER TABLE jobs_checklists ADD COLUMN document_link VARCHAR NULL"))
+            db.commit()
+            logger.info("Migration: added column jobs_checklists.document_link")
+        except Exception as exc:
+            db.rollback()
+            logger.error("Migration failed for jobs_checklists.document_link: %s", exc)
+    else:
+        logger.debug("Migration: jobs_checklists.document_link already exists, skipping.")
 
 
 def _add_site_requisite_export_columns(db: Session) -> None:

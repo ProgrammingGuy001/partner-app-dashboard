@@ -30,6 +30,7 @@ import {
 import {
   IconCalendarCheck,
   IconCamera,
+  IconCameraRotate,
   IconMapPin,
   IconRefresh,
   IconSearch,
@@ -433,6 +434,7 @@ const MarkAttendanceDialog: React.FC<{
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [openingCamera, setOpeningCamera] = useState(false);
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [locating, setLocating] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -452,7 +454,7 @@ const MarkAttendanceDialog: React.FC<{
     };
   }, [photoPreview]);
 
-  async function openCamera() {
+  async function startCamera(facing: 'environment' | 'user') {
     if (!navigator.mediaDevices?.getUserMedia) {
       toast.error('Camera is not supported in this browser');
       return;
@@ -462,7 +464,7 @@ const MarkAttendanceDialog: React.FC<{
     try {
       stopCameraStream();
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
+        video: { facingMode: { ideal: facing } },
         audio: false,
       });
       streamRef.current = stream;
@@ -478,6 +480,16 @@ const MarkAttendanceDialog: React.FC<{
     } finally {
       setOpeningCamera(false);
     }
+  }
+
+  async function openCamera() {
+    await startCamera(facingMode);
+  }
+
+  async function flipCamera() {
+    const newFacing = facingMode === 'environment' ? 'user' : 'environment';
+    setFacingMode(newFacing);
+    await startCamera(newFacing);
   }
 
   async function capturePhoto() {
@@ -619,13 +631,26 @@ const MarkAttendanceDialog: React.FC<{
             )}
             {cameraOpen && (
               <div className="mt-3 space-y-3">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="h-48 sm:h-64 w-full rounded-lg border bg-black object-cover"
-                />
+                <div className="relative">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="h-48 sm:h-64 w-full rounded-lg border bg-black object-cover"
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="secondary"
+                    className="absolute top-2 right-2 h-8 w-8 bg-black/60 hover:bg-black/80 text-white border-0"
+                    onClick={flipCamera}
+                    disabled={openingCamera}
+                    title={facingMode === 'environment' ? 'Switch to front camera' : 'Switch to back camera'}
+                  >
+                    <IconCameraRotate className="h-4 w-4" />
+                  </Button>
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <Button type="button" onClick={capturePhoto}>
                     Capture

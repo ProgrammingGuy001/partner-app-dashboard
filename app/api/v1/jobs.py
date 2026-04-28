@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from app.database import get_db
 from app.model.ip import ip
-from app.model.job import ChecklistItem
+from app.model.job import ChecklistItem, JobChecklist
 from app.schemas.job import JobResponse
 from app.schemas.checklist import (
     JobChecklistItemStatusUpdate,
@@ -315,6 +315,11 @@ def get_job_checklist_items(
     get_ip_job_by_id(db, job_id, current_user.id)
     checklist, items_with_status = get_job_checklist_items_with_status(db, job_id, checklist_id)
 
+    job_checklist = db.query(JobChecklist).filter(
+        JobChecklist.job_id == job_id,
+        JobChecklist.checklist_id == checklist_id
+    ).first()
+
     return {
         "message": "Checklist items fetched successfully",
         "job_id": job_id,
@@ -322,9 +327,40 @@ def get_job_checklist_items(
             "id": checklist.id,
             "name": checklist.name,
             "description": checklist.description,
+            "document_link": job_checklist.document_link if job_checklist else None,
             "items": items_with_status
         }
     }
+
+
+# ✅ Save checklist-level document link
+@router.put("/{job_id}/checklists/{checklist_id}/document", response_model=dict)
+def update_checklist_document(
+    job_id: int,
+    checklist_id: int,
+    body: dict,
+    current_user: ip = Depends(get_fully_verified_user),
+    db: Session = Depends(get_db)
+):
+    """Store a document URL against the job's checklist record"""
+    get_ip_job_by_id(db, job_id, current_user.id)
+
+    document_link = body.get("document_link")
+    if not document_link:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="document_link is required")
+
+    job_checklist = db.query(JobChecklist).filter(
+        JobChecklist.job_id == job_id,
+        JobChecklist.checklist_id == checklist_id
+    ).first()
+
+    if not job_checklist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Checklist not found for this job")
+
+    job_checklist.document_link = document_link
+    db.commit()
+
+    return {"message": "Checklist document updated", "document_link": document_link}
 
 
 # ✅ Update checklist item status (for IP user)
