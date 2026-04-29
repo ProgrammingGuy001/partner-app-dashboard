@@ -2,12 +2,38 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { View, ActivityIndicator, Image, TouchableOpacity, Alert, TextInput } from 'react-native';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
 import { useToast } from '../../hooks/useToast';
 import { useTheme } from '../../hooks/useTheme';
 import { dashboardApi } from '../../api/dashboardApi';
 import Ionicons from '@react-native-vector-icons/ionicons';
+
+const LOCATION_TIMEOUT_MS = 8000;
+const LOCATION_FALLBACK_TIMEOUT_MS = 12000;
+
+const withTimeout = (promise, timeoutMs) => {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('Location request timed out')), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+};
+
+const getAttendanceLocation = async () => {
+  try {
+    return await withTimeout(
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+      LOCATION_TIMEOUT_MS
+    );
+  } catch {
+    return withTimeout(
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+      LOCATION_FALLBACK_TIMEOUT_MS
+    );
+  }
+};
 
 const DailyAttendance = () => {
   const toast = useToast();
@@ -45,13 +71,18 @@ const DailyAttendance = () => {
 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ['images'],
-      quality: 0.7,
+      quality: 0.65,
       allowsEditing: false,
+      exif: false,
       cameraType: cameraFacing,
     });
 
     if (!result.canceled && result.assets?.[0]?.uri) {
-      setPhotoUri(result.assets[0].uri);
+      const manipulator = ImageManipulator.manipulate(result.assets[0].uri);
+      manipulator.resize({ width: 1024 });
+      const ref = await manipulator.renderAsync();
+      const compressed = await ref.saveAsync({ compress: 0.7, format: SaveFormat.JPEG });
+      setPhotoUri(compressed.uri);
     }
   };
 
@@ -70,9 +101,9 @@ const DailyAttendance = () => {
     setLocating(true);
     let loc;
     try {
-      loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      loc = await getAttendanceLocation();
     } catch {
-      toast.error('Could not get location. Please allow location access.');
+      toast.error('Could not get location. Please check GPS and location access.');
       setLocating(false);
       return;
     } finally {

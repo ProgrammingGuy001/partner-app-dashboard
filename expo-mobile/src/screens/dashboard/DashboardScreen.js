@@ -105,7 +105,7 @@ const DashboardScreen = ({ navigation }) => {
       >
         <View>
           <Text className="text-[13px] font-semibold text-muted-foreground uppercase tracking-wide">
-            {getGreeting()}
+            {getGreeting()} · OTA ✓
           </Text>
           <Text className="text-[22px] font-extrabold text-foreground tracking-tight">
             {firstName} 👋

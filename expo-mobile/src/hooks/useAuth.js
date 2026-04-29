@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { authApi } from '../api/authApi';
+import { setTokenCache } from '../api/axiosConfig';
 import { useAuthStore } from '../store/authStore';
 import { STORAGE_KEYS } from '../util/constants';
 import { logger } from '../util/helpers';
@@ -54,12 +55,14 @@ export const useAuth = () => {
 
         if (response?.access_token && typeof response.access_token === 'string') {
           await SecureStore.setItemAsync(STORAGE_KEYS.AUTH_TOKEN, response.access_token);
+          setTokenCache({ accessToken: response.access_token });
         } else {
           logger.warn('useAuth', 'No valid access_token in OTP response');
         }
 
         if (response?.refresh_token && typeof response.refresh_token === 'string') {
           await SecureStore.setItemAsync(STORAGE_KEYS.REFRESH_TOKEN, response.refresh_token);
+          setTokenCache({ refreshToken: response.refresh_token });
         } else {
           logger.warn('useAuth', 'No valid refresh_token in OTP response');
         }

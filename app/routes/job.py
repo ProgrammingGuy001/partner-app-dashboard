@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File, Path, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
-from typing import List, Optional
+from typing import Annotated, List, Optional
 from pydantic import BaseModel, Field
 from app.database import get_db
 from app.schemas.job import (
@@ -39,7 +39,10 @@ def _scoped_admin_id(current_user: models.User) -> int | None:
     return None if getattr(current_user, "is_superadmin", False) else current_user.id
 
 @router.get("/lookup-so/{so_number}", response_model=dict)
-def lookup_sales_order(so_number: str, current_user: models.User = Depends(get_current_user)):
+def lookup_sales_order(
+    so_number: Annotated[str, Path(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")],
+    current_user: models.User = Depends(get_current_user),
+):
     """Fetch customer and project details from Odoo by Sales Order number.
     Used to auto-populate job creation forms."""
     from app.services.odoo_service import OdooService
@@ -56,7 +59,7 @@ def create_new_job(job: JobCreate, background_tasks: BackgroundTasks, db: Sessio
 @router.get("", response_model=List[JobResponse])
 def read_jobs(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=200),
+    limit: int = Query(100, ge=1, le=1000),
     status: Optional[str] = None,
     job_type: Optional[str] = Query(None, alias="type"),
     search: Optional[str] = None,
@@ -119,7 +122,7 @@ def list_pending_approval_jobs(
 
 @router.post("/{job_id}/approve-creation", response_model=JobResponse)
 def approve_job_creation_route(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
@@ -134,9 +137,9 @@ def approve_job_creation_route(
 
 @router.post("/{job_id}/reject-creation", response_model=JobResponse)
 def reject_job_creation_route(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     background_tasks: BackgroundTasks,
-    reason: str = "",
+    reason: str = Query("", max_length=1000),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -149,12 +152,22 @@ def reject_job_creation_route(
 
 
 @router.get("/{job_id}", response_model=JobResponse)
-def read_job(job_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def read_job(
+    job_id: Annotated[int, Path(gt=0)],
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Get a specific job by ID."""
     return get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
 
 @router.put("/{job_id}", response_model=JobResponse)
-def update_existing_job(job_id: int, job_update: JobUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def update_existing_job(
+    job_id: Annotated[int, Path(gt=0)],
+    job_update: JobUpdate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Update a job. Handles IP reassignment and validates is_assigned=False for new IPs."""
     get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
     is_superadmin = getattr(current_user, 'is_superadmin', False)
@@ -163,7 +176,12 @@ def update_existing_job(job_id: int, job_update: JobUpdate, background_tasks: Ba
     return result
 
 @router.delete("/{job_id}", status_code=status.HTTP_200_OK)
-def delete_existing_job(job_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def delete_existing_job(
+    job_id: Annotated[int, Path(gt=0)],
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Delete a job and unassign its IP."""
     get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
     is_superadmin = getattr(current_user, 'is_superadmin', False)
@@ -175,7 +193,7 @@ def delete_existing_job(job_id: int, background_tasks: BackgroundTasks, db: Sess
 
 @router.post("/{job_id}/request-start-otp", response_model=OTPResponse)
 def request_start_otp(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
@@ -196,7 +214,12 @@ def request_start_otp(
     return OTPResponse(success=True, message="OTP generated and SMS queued")
 
 @router.post("/{job_id}/verify-start-otp", response_model=JobResponse)
-def verify_start_otp_and_start(job_id: int, otp_data: JobStartWithOTP, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def verify_start_otp_and_start(
+    job_id: Annotated[int, Path(gt=0)],
+    otp_data: JobStartWithOTP,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Verify start OTP and start the job"""
     job = get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
 
@@ -210,7 +233,7 @@ def verify_start_otp_and_start(job_id: int, otp_data: JobStartWithOTP, db: Sessi
 
 @router.post("/{job_id}/request-end-otp", response_model=OTPResponse)
 def request_end_otp(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
@@ -231,7 +254,12 @@ def request_end_otp(
     return OTPResponse(success=True, message="OTP generated and SMS queued")
 
 @router.post("/{job_id}/verify-end-otp", response_model=JobResponse)
-def verify_end_otp_and_finish(job_id: int, otp_data: JobFinishWithOTP, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def verify_end_otp_and_finish(
+    job_id: Annotated[int, Path(gt=0)],
+    otp_data: JobFinishWithOTP,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Verify end OTP and complete the job"""
     job = get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
 
@@ -246,7 +274,12 @@ def verify_end_otp_and_finish(job_id: int, otp_data: JobFinishWithOTP, db: Sessi
 # ============ Legacy Endpoints (without OTP) ============
 
 @router.post("/{job_id}/start", response_model=JobResponse)
-def start_existing_job(job_id: int, job_start: JobStart = JobStart(), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def start_existing_job(
+    job_id: Annotated[int, Path(gt=0)],
+    job_start: JobStart = JobStart(),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Start or resume a job (legacy - no OTP). Use verify-start-otp for OTP flow."""
     job = get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
     # If customer phone is set, require OTP flow
@@ -259,14 +292,24 @@ def start_existing_job(job_id: int, job_start: JobStart = JobStart(), db: Sessio
     return start_job(db, job_id, admin_id=current_user.id, is_superadmin=is_superadmin, notes=job_start.notes)
 
 @router.post("/{job_id}/pause", response_model=JobResponse)
-def pause_existing_job(job_id: int, job_pause: JobPause = JobPause(), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def pause_existing_job(
+    job_id: Annotated[int, Path(gt=0)],
+    job_pause: JobPause = JobPause(),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Pause a job. Changes status to 'paused' and tracks paused_date. Logs the action with optional notes."""
     get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
     is_superadmin = getattr(current_user, 'is_superadmin', False)
     return pause_job(db, job_id, admin_id=current_user.id, is_superadmin=is_superadmin, notes=job_pause.notes)
 
 @router.post("/{job_id}/finish", response_model=JobResponse)
-def finish_existing_job(job_id: int, job_finish: JobFinish = JobFinish(), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def finish_existing_job(
+    job_id: Annotated[int, Path(gt=0)],
+    job_finish: JobFinish = JobFinish(),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Finish a job (legacy - no OTP). Use verify-end-otp for OTP flow."""
     job = get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
     # If customer phone is set, require OTP flow
@@ -279,15 +322,19 @@ def finish_existing_job(job_id: int, job_finish: JobFinish = JobFinish(), db: Se
     return finish_job(db, job_id, admin_id=current_user.id, is_superadmin=is_superadmin, notes=job_finish.notes)
 
 @router.get("/{job_id}/history", response_model=List[JobStatusLogResponse])
-def get_job_history(job_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def get_job_history(
+    job_id: Annotated[int, Path(gt=0)],
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Get complete status change history for a job, including all pauses and resumes."""
     get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
     return get_job_status_history(db, job_id, verify_exists=False)
 
 @router.put("/{job_id}/checklists/items/{item_id}/approve", response_model=JobChecklistItemStatusResponse)
 def approve_checklist_item(
-    job_id: int,
-    item_id: int,
+    job_id: Annotated[int, Path(gt=0)],
+    item_id: Annotated[int, Path(gt=0)],
     status_update: JobChecklistItemStatusUpdate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
@@ -310,12 +357,12 @@ def _serialize_invoice_request(req) -> dict | None:
 
 class CreateInvoiceRequestRequest(BaseModel):
     completion_percentage: int | None = Field(default=None, ge=0, le=100)
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=1000)
 
 
 @router.get("/{job_id}/billing", response_model=dict)
 def get_job_billing(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -355,7 +402,7 @@ def get_job_billing(
 
 @router.post("/{job_id}/invoice-request", response_model=dict)
 def create_invoice_request(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -379,7 +426,7 @@ def create_invoice_request(
 
 @router.post("/{job_id}/invoice-requests", response_model=dict)
 def create_additional_invoice_request(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     body: CreateInvoiceRequestRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
@@ -406,7 +453,7 @@ def create_additional_invoice_request(
 
 @router.put("/{job_id}/invoice-request/approve", response_model=dict)
 def approve_invoice_request(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -433,8 +480,8 @@ def approve_invoice_request(
 
 @router.put("/{job_id}/invoice-request/reject", response_model=dict)
 def reject_invoice_request(
-    job_id: int,
-    reason: str = "",
+    job_id: Annotated[int, Path(gt=0)],
+    reason: str = Query("", max_length=1000),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -458,7 +505,7 @@ def reject_invoice_request(
 
 @router.get("/{job_id}/invoice-request/download")
 def download_invoice_bill(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):

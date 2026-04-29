@@ -1,9 +1,9 @@
 from datetime import datetime, date
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Path, Query
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, ConfigDict
-from typing import List, Optional
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated, List, Optional
 from app.database import get_db
 from app.crud.ip import verify_ip_user, get_ip_by_phone, get_all_ips, get_approved_ips
 from app.core.security import get_current_user
@@ -20,6 +20,9 @@ from app.utils.attendance_policy import (
 )
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
+
+ATTENDANCE_PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+ATTENDANCE_PHOTO_CONTENT_TYPES = {"image/jpeg", "image/png"}
 
 
 class VerifyIPRequest(BaseModel):
@@ -128,7 +131,7 @@ def _serialize_ip_user(ip_user: ip) -> dict:
 
 @router.post("/verify-ip/{phone_number}")
 def verify_ip(
-    phone_number: str,
+    phone_number: Annotated[str, Path(min_length=10, max_length=15, pattern=r"^\+?\d+$")],
     request: VerifyIPRequest = VerifyIPRequest(),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -210,7 +213,7 @@ def get_admin_users(db: Session = Depends(get_db), current_user: User = Depends(
 
 @router.post("/ips/{ip_id}/assign-admins")
 def assign_admins_to_ip(
-    ip_id: int,
+    ip_id: Annotated[int, Path(gt=0)],
     request: AssignAdminRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -242,7 +245,11 @@ def assign_admins_to_ip(
 
 
 @router.get("/ips/{ip_id}/admins")
-def get_ip_admins(ip_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_ip_admins(
+    ip_id: Annotated[int, Path(gt=0)],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Get list of admins assigned to an IP"""
     ip_user = db.query(ip).filter(ip.id == ip_id).first()
     if not ip_user:
@@ -272,8 +279,8 @@ class AttendanceRecord(BaseModel):
 
 @router.get("/attendance", response_model=dict)
 def get_all_attendance(
-    job_id: Optional[int] = Query(None),
-    phone: Optional[str] = Query(None),
+    job_id: Optional[int] = Query(None, gt=0),
+    phone: Optional[str] = Query(None, min_length=3, max_length=15),
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     skip: int = Query(0, ge=0),
@@ -305,11 +312,10 @@ def get_all_attendance(
     total = query.count()
     records = query.order_by(DailyAttendance.recorded_at.desc()).offset(skip).limit(limit).all()
 
-    job_names: dict[Optional[int], Optional[str]] = {}
-    for r in records:
-        if r.job_id not in job_names:
-            job = db.query(Job).filter(Job.id == r.job_id).first() if r.job_id else None
-            job_names[r.job_id] = job.name if job else None
+    job_ids = {r.job_id for r in records if r.job_id}
+    job_names: dict[Optional[int], Optional[str]] = {
+        job.id: job.name for job in db.query(Job.id, Job.name).filter(Job.id.in_(job_ids)).all()
+    } if job_ids else {}
 
     return {
         "total": total,
@@ -334,10 +340,24 @@ def get_all_attendance(
 
 
 class MarkAdminAttendanceRequest(BaseModel):
-    notes: Optional[str] = None
-    manual_location: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    notes: Optional[str] = Field(default=None, max_length=1000)
+    manual_location: Optional[str] = Field(default=None, max_length=255)
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+
+
+def _validate_coordinates(latitude: float, longitude: float) -> None:
+    if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+        raise HTTPException(status_code=422, detail="Latitude or longitude is out of range")
+
+
+def _limited_form_text(value, field_name: str, max_length: int) -> str | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    if len(text) > max_length:
+        raise HTTPException(status_code=422, detail=f"{field_name} must be at most {max_length} characters")
+    return text or None
 
 
 @router.post("/my-attendance", response_model=dict)
@@ -363,8 +383,8 @@ async def mark_admin_attendance(
     content_type = request.headers.get("content-type", "")
     if content_type.startswith("multipart/form-data"):
         form = await request.form()
-        notes = form.get("notes") or None
-        manual_location = form.get("manual_location") or None
+        notes = _limited_form_text(form.get("notes"), "notes", 1000)
+        manual_location = _limited_form_text(form.get("manual_location"), "manual_location", 255)
         latitude_value = form.get("latitude")
         longitude_value = form.get("longitude")
         if latitude_value in (None, "") or longitude_value in (None, ""):
@@ -374,10 +394,17 @@ async def mark_admin_attendance(
             longitude = float(str(longitude_value))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="Invalid latitude or longitude") from exc
+        _validate_coordinates(latitude, longitude)
+
         photo = form.get("photo")
         if not photo or not getattr(photo, "filename", ""):
             raise HTTPException(status_code=422, detail="Attendance photo is required")
-        upload = await read_validated_upload(photo)
+        upload = await read_validated_upload(
+            photo,
+            allowed_extensions=ATTENDANCE_PHOTO_EXTENSIONS,
+            allowed_content_types=ATTENDANCE_PHOTO_CONTENT_TYPES,
+            max_size_mb=5,
+        )
         photo_url = upload_file_to_s3(
             file_content=upload.content,
             filename=upload.filename,
@@ -442,8 +469,8 @@ def get_my_admin_attendance(
         .limit(limit)
         .all()
     )
-    all_records = (
-        db.query(AdminAttendance)
+    all_marked_at = (
+        db.query(AdminAttendance.marked_at)
         .filter(AdminAttendance.admin_id == current_user.id)
         .all()
     )
@@ -451,7 +478,7 @@ def get_my_admin_attendance(
         "total": total,
         "completion": build_attendance_completion(
             current_user.created_at,
-            [r.marked_at for r in all_records],
+            [row.marked_at for row in all_marked_at],
         ),
         "records": [
             {
@@ -472,7 +499,7 @@ def get_my_admin_attendance(
 
 @router.get("/all-attendance", response_model=dict)
 def get_all_admin_attendance(
-    admin_id: Optional[int] = Query(None),
+    admin_id: Optional[int] = Query(None, gt=0),
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     skip: int = Query(0, ge=0),
@@ -501,11 +528,11 @@ def get_all_admin_attendance(
     total = query.count()
     records = query.order_by(AdminAttendance.marked_at.desc()).offset(skip).limit(limit).all()
 
-    admin_emails: dict[int, str] = {}
-    for r in records:
-        if r.admin_id not in admin_emails:
-            admin = db.query(User).filter(User.id == r.admin_id).first()
-            admin_emails[r.admin_id] = admin.email if admin else f"admin#{r.admin_id}"
+    record_admin_ids = {r.admin_id for r in records}
+    admin_emails = {
+        admin.id: admin.email
+        for admin in db.query(User.id, User.email).filter(User.id.in_(record_admin_ids)).all()
+    } if record_admin_ids else {}
 
     return {
         "total": total,

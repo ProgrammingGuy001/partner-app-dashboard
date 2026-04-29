@@ -47,9 +47,34 @@ const apiClient = axios.create({
   withCredentials: false,
 });
 
+let accessTokenCache;
+let refreshTokenCache;
+
+export const setTokenCache = ({ accessToken, refreshToken } = {}) => {
+  if (accessToken !== undefined) accessTokenCache = accessToken || null;
+  if (refreshToken !== undefined) refreshTokenCache = refreshToken || null;
+};
+
+export const clearTokenCache = () => {
+  accessTokenCache = null;
+  refreshTokenCache = null;
+};
+
+const getAccessToken = async () => {
+  if (accessTokenCache !== undefined) return accessTokenCache;
+  accessTokenCache = await SecureStore.getItemAsync(STORAGE_KEYS.AUTH_TOKEN);
+  return accessTokenCache;
+};
+
+const getRefreshToken = async () => {
+  if (refreshTokenCache !== undefined) return refreshTokenCache;
+  refreshTokenCache = await SecureStore.getItemAsync(STORAGE_KEYS.REFRESH_TOKEN);
+  return refreshTokenCache;
+};
+
 apiClient.interceptors.request.use(
   async (config) => {
-    const token = await SecureStore.getItemAsync(STORAGE_KEYS.AUTH_TOKEN);
+    const token = await getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -79,7 +104,7 @@ apiClient.interceptors.response.use(
       const message = getErrorMessage(data);
 
       if (status === 401 && !originalRequest._retried) {
-        const refreshToken = await SecureStore.getItemAsync(STORAGE_KEYS.REFRESH_TOKEN);
+        const refreshToken = await getRefreshToken();
 
         if (refreshToken) {
           if (isRefreshing) {
@@ -127,8 +152,10 @@ apiClient.interceptors.response.use(
             }
 
             await SecureStore.setItemAsync(STORAGE_KEYS.AUTH_TOKEN, newAccessToken);
+            accessTokenCache = newAccessToken;
             if (newRefreshToken && typeof newRefreshToken === 'string') {
               await SecureStore.setItemAsync(STORAGE_KEYS.REFRESH_TOKEN, newRefreshToken);
+              refreshTokenCache = newRefreshToken;
             }
 
             processRefreshQueue(null, newAccessToken);

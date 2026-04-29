@@ -32,9 +32,16 @@
       "package": "com.modula.partnerapplication",
       "versionCode": 1,
       "allowBackup": false,
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.CAMERA"
+      ],
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE"
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -74,7 +81,8 @@
         "expo-image-picker",
         {
           "photosPermission": "Allow Modula Partner to attach attendance photos.",
-          "cameraPermission": "Allow Modula Partner to capture your attendance photo."
+          "cameraPermission": "Allow Modula Partner to capture your attendance photo.",
+          "microphonePermission": false
         }
       ]
     ],

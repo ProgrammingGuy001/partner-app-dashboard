@@ -18,7 +18,7 @@ import { logger } from "../../util/helpers";
 import Ionicons from "@react-native-vector-icons/ionicons";
 
 const JobDetailScreen = ({ navigation, route }) => {
-  const { id } = route.params;
+  const id = Number(route.params?.id);
   const toast = useToast();
   const { colors } = useTheme();
   const { getJobDetailFromCache, cacheJobDetail } = useDashboardStore();
@@ -35,8 +35,15 @@ const JobDetailScreen = ({ navigation, route }) => {
   const [job, setJob] = useState(cached?.job ?? null);
   const [progress, setProgress] = useState(cached?.progress ?? []);
   const [refreshing, setRefreshing] = useState(false);
+  const hasValidJobId = Number.isInteger(id) && id > 0;
 
   const fetchJobDetails = useCallback(async () => {
+    if (!hasValidJobId) {
+      toast.error("Invalid job selected");
+      navigation.goBack();
+      return null;
+    }
+
     try {
       const response = await dashboardApi.getJob(id);
       const jobData = response.job || response.data;
@@ -49,9 +56,11 @@ const JobDetailScreen = ({ navigation, route }) => {
       }
       return null;
     }
-  }, [id, toast, navigation]);
+  }, [id, hasValidJobId, toast, navigation]);
 
   const fetchJobProgress = useCallback(async () => {
+    if (!hasValidJobId) return [];
+
     try {
       const response = await dashboardApi.getJobProgress(id);
       const uploads = response.uploads || [];
@@ -64,9 +73,13 @@ const JobDetailScreen = ({ navigation, route }) => {
       }
       return [];
     }
-  }, [id]);
+  }, [id, hasValidJobId]);
 
   useEffect(() => {
+    if (!hasValidJobId) {
+      setLoading(false);
+      return;
+    }
     if (cached) return;
 
     (async () => {
@@ -78,7 +91,7 @@ const JobDetailScreen = ({ navigation, route }) => {
       if (jobData) cacheJobDetail(id, jobData, uploads);
       if (isMountedRef.current) setLoading(false);
     })();
-  }, [id]);
+  }, [id, hasValidJobId]);
 
   const handleRefresh = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

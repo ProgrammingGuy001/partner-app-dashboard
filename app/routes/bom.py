@@ -1,6 +1,7 @@
 import logging
-from typing import List
-from fastapi import APIRouter, HTTPException, Depends
+from typing import Annotated, List, Literal
+
+from fastapi import APIRouter, HTTPException, Depends, Path, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -19,7 +20,7 @@ router = APIRouter(prefix="/bom", tags=["BOM"])
 # ============================================
 
 @router.post("/submit", response_model=SODetailResponse)
-async def submit_site_requisite(
+def submit_site_requisite(
     data: SiteRequisiteSubmit,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -37,9 +38,9 @@ async def submit_site_requisite(
         raise HTTPException(status_code=500, detail=f"Error submitting requisite: {str(e)}") from e
 
 @router.get("/history", response_model=List[SODetailResponse])
-async def get_requisite_history(
-    limit: int = 50,
-    offset: int = 0,
+def get_requisite_history(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -55,8 +56,8 @@ async def get_requisite_history(
         raise HTTPException(status_code=500, detail=f"Error fetching history: {str(e)}") from e
 
 @router.get("/history/by-sales-order/{sales_order}", response_model=List[SODetailResponse])
-async def get_requisites_by_sales_order(
-    sales_order: str,
+def get_requisites_by_sales_order(
+    sales_order: Annotated[str, Path(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")],
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -70,18 +71,15 @@ async def get_requisites_by_sales_order(
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}") from e
 
 @router.patch("/history/{so_id}/status")
-async def update_requisite_status(
-    so_id: int,
-    status: str,
+def update_requisite_status(
+    so_id: Annotated[int, Path(gt=0)],
+    status: Literal["pending", "completed"],
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Update site requisite status (Admin)
     """
-    if status not in ["pending", "completed"]:
-        raise HTTPException(status_code=400, detail="Invalid status")
-
     try:
         result = RequisiteService.update_status(db, so_id, status)
         if not result:
@@ -93,8 +91,8 @@ async def update_requisite_status(
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}") from e
 
 @router.get("/history/{so_id}/download")
-async def download_repair_order(
-    so_id: int,
+def download_repair_order(
+    so_id: Annotated[int, Path(gt=0)],
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -120,8 +118,8 @@ async def download_repair_order(
 
 
 @router.get("/so-lookup/{sales_order}")
-async def lookup_sales_order(
-    sales_order: str,
+def lookup_sales_order(
+    sales_order: Annotated[str, Path(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")],
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -137,9 +135,9 @@ async def lookup_sales_order(
 
 
 @router.get("/{sales_order}/{cabinet_position}", response_model=List[BOMItemResponse])
-async def get_bom_items(
-    sales_order: str,
-    cabinet_position: str,
+def get_bom_items(
+    sales_order: Annotated[str, Path(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")],
+    cabinet_position: Annotated[str, Path(min_length=1, max_length=128)],
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):

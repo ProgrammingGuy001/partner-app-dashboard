@@ -133,7 +133,7 @@ def get_all_jobs(
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}") from e
 
 
-def get_jobs_for_ip(db: Session, ip_id: int):
+def get_jobs_for_ip(db: Session, ip_id: int, skip: int = 0, limit: int = 100):
     """Return jobs assigned to a specific IP with related entities eager-loaded."""
     try:
         stmt = (
@@ -141,6 +141,8 @@ def get_jobs_for_ip(db: Session, ip_id: int):
             .options(*JOB_LOAD_OPTIONS)
             .where(Job.assigned_ip_id == ip_id)
             .order_by(Job.created_at.desc(), Job.id.desc())
+            .offset(skip)
+            .limit(limit)
         )
         return db.scalars(stmt).unique().all()
     except Exception as e:

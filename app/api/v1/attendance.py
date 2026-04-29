@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_fully_verified_user
@@ -12,14 +14,17 @@ from app.utils.attendance_policy import ensure_attendance_window_open
 
 router = APIRouter(prefix="/dashboard/attendance", tags=["Dashboard Attendance"])
 
+ATTENDANCE_PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+ATTENDANCE_PHOTO_CONTENT_TYPES = {"image/jpeg", "image/png"}
+
 
 @router.post("", response_model=dict)
 async def record_independent_attendance(
-    phone: str | None = Form(None),
-    latitude: float = Form(...),
-    longitude: float = Form(...),
-    manual_location: str | None = Form(None),
-    photo: UploadFile = File(...),
+    phone: Annotated[str | None, Form()] = None,
+    latitude: Annotated[float, Form(ge=-90, le=90)] = ...,
+    longitude: Annotated[float, Form(ge=-180, le=180)] = ...,
+    manual_location: Annotated[str | None, Form(max_length=255)] = None,
+    photo: Annotated[UploadFile, File()] = ...,
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db),
 ):
@@ -33,7 +38,12 @@ async def record_independent_attendance(
             detail="Authenticated user phone number is required for attendance.",
         )
 
-    upload = await read_validated_upload(photo)
+    upload = await read_validated_upload(
+        photo,
+        allowed_extensions=ATTENDANCE_PHOTO_EXTENSIONS,
+        allowed_content_types=ATTENDANCE_PHOTO_CONTENT_TYPES,
+        max_size_mb=5,
+    )
     photo_url = upload_file_to_s3(
         file_content=upload.content,
         filename=upload.filename,
@@ -60,6 +70,8 @@ async def record_independent_attendance(
 
 @router.get("", response_model=dict)
 def get_independent_attendance(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db),
 ):
@@ -76,9 +88,13 @@ def get_independent_attendance(
         .filter(DailyAttendance.job_id.is_(None))
         .filter(DailyAttendance.phone == phone)
         .order_by(DailyAttendance.recorded_at.desc())
+        .offset(skip)
+        .limit(limit)
         .all()
     )
     return {
         "message": "Attendance records fetched",
+        "skip": skip,
+        "limit": limit,
         "records": [DailyAttendanceResponse.model_validate(r) for r in records],
     }

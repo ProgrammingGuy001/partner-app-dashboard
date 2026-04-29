@@ -111,11 +111,18 @@ class Settings(BaseSettings):
     ALLOWED_FILE_EXTENSIONS: str = ".jpg,.jpeg,.png,.pdf,.doc,.docx"
     UPLOAD_READ_CHUNK_SIZE: int = 1024 * 1024
 
+    # API performance / observability
+    API_REQUEST_LOGGING_ENABLED: bool = True
+    SLOW_REQUEST_LOG_MS: int = 1000
+    GZIP_MIN_SIZE: int = 1024
+    GZIP_COMPRESS_LEVEL: int = 5
+
     # Odoo Settings (optional - only needed if Odoo integration is used)
     ODOO_URL: Optional[str] = None
     ODOO_DB: Optional[str] = None
     ODOO_USERNAME: Optional[str] = None
     ODOO_PASSWORD: Optional[str] = None
+    ODOO_RPC_TIMEOUT_SECONDS: int = 30
     # Set to "false" to disable SSL verification for Odoo (dev only, never in prod)
     ODOO_SSL_VERIFY: str = "true"
     

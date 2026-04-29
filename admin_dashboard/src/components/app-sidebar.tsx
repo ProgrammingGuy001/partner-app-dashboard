@@ -77,7 +77,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>
-      <SidebarHeader className="border-b border-sidebar-border/50 bg-gradient-to-b from-sidebar to-sidebar/80 pb-4">
+      <SidebarHeader className=" bg-gradient-to-b from-sidebar to-sidebar/80 pb-4">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
@@ -89,7 +89,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Visit Modula website"
-                className="flex items-center justify-center overflow-visible"
+                className="flex items-center justify-left overflow-visible"
               >
                 <img
                   src="/logo.png"

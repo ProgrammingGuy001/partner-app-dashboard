@@ -6,7 +6,6 @@ import {
 import {
   Avatar,
   AvatarFallback,
-  AvatarImage,
 } from "@/components/ui/avatar"
 import {
   DropdownMenu,
@@ -28,16 +27,13 @@ import { authAPI } from "@/api/services"
 
 export function NavUser({
   user,
-}: {
+}: Readonly<{
   user: {
     name: string
     email: string
-    avatar: string
-    ipNumber?: string
-    jobCount?: number
     is_superadmin?: boolean
   }
-}) {
+}>) {
   const { isMobile } = useSidebar()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -46,9 +42,8 @@ export function NavUser({
     try {
       await authAPI.logout()
     } catch {
-      // Logout errors are non-fatal; proceed to clear session regardless
+      // no error are required to be handled here 
     }
-    // Clear all cached queries
     queryClient.clear()
     navigate('/login')
   }
@@ -63,7 +58,6 @@ export function NavUser({
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
               <Avatar className="h-9 w-9 rounded-lg ring-2 ring-sidebar-border/30 shadow-sm transition-transform group-hover:scale-105">
-                <AvatarImage src={user.avatar} alt={user.name} />
                 <AvatarFallback className="rounded-lg bg-gradient-to-br from-primary/80 to-primary text-primary-foreground font-medium">
                   {user.is_superadmin ? 'SA' : 'AD'}
                 </AvatarFallback>
@@ -76,11 +70,6 @@ export function NavUser({
                 <span className="text-muted-foreground truncate text-xs">
                   {user.email}
                 </span>
-                {user.ipNumber && (
-                  <span className="text-muted-foreground truncate text-xs">
-                    IP: {user.ipNumber} | Jobs: {user.jobCount || 0}
-                  </span>
-                )}
               </div>
               <IconDotsVertical className="ml-auto size-4" />
             </SidebarMenuButton>
@@ -94,7 +83,6 @@ export function NavUser({
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                 <Avatar className="h-8 w-8 rounded-lg">
-                  <AvatarImage src={user.avatar} alt={user.name} />
                   <AvatarFallback className="rounded-lg">
                     {user.is_superadmin ? 'SA' : 'AD'}
                   </AvatarFallback>
@@ -103,11 +91,6 @@ export function NavUser({
                   <span className="text-muted-foreground truncate text-xs">
                     {user.email}
                   </span>
-                  {user.ipNumber && (
-                    <span className="text-muted-foreground truncate text-xs">
-                      IP: {user.ipNumber} | Jobs: {user.jobCount || 0}
-                    </span>
-                  )}
                 </div>
               </div>
             </DropdownMenuLabel>

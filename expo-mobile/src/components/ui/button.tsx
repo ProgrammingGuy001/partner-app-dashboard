@@ -97,10 +97,11 @@ const loaderColor: Record<string, string> = {
   link: '#6b4b41',
 };
 
-export type ButtonProps = PressableProps &
+export type ButtonProps = Omit<PressableProps, 'children'> &
   VariantProps<typeof buttonVariants> & {
     className?: string;
     loading?: boolean;
+    children?: React.ReactNode;
   };
 
 export function Button({

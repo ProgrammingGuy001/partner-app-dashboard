@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
+import { clearTokenCache } from '../api/axiosConfig';
 import { authApi } from '../api/authApi';
 import { STORAGE_KEYS } from '../util/constants';
 import * as SecureStore from '../util/secureStore';
@@ -42,6 +43,7 @@ export const useAuthStore = create((set) => ({
   setAuthResolved: (isAuthResolved) => set({ isAuthResolved }),
 
   clearAuth: async () => {
+    clearTokenCache();
     await SecureStore.deleteItemAsync(STORAGE_KEYS.AUTH_TOKEN);
     await SecureStore.deleteItemAsync(STORAGE_KEYS.REFRESH_TOKEN);
     await AsyncStorage.removeItem(USER_PROFILE_KEY);

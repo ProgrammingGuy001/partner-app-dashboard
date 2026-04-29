@@ -1,8 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ExpoSecureStore from 'expo-secure-store';
+import { STORAGE_KEYS } from './constants';
 import { logger } from './helpers';
 
 const FALLBACK_PREFIX = 'secure-store-fallback:';
+const SENSITIVE_KEYS = new Set([STORAGE_KEYS.AUTH_TOKEN, STORAGE_KEYS.REFRESH_TOKEN]);
 
 /**
  * True after any token has been stored in the unencrypted AsyncStorage fallback.
@@ -12,6 +14,7 @@ let _fallbackActive = false;
 export const isFallbackActive = () => _fallbackActive;
 
 const getFallbackKey = (key) => `${FALLBACK_PREFIX}${key}`;
+const isSensitiveKey = (key) => SENSITIVE_KEYS.has(key);
 
 const getErrorMessage = (error) => {
   if (!error) return '';
@@ -72,6 +75,14 @@ export const getItemAsync = async (key, options) => {
   const fallbackKey = getFallbackKey(key);
   const fallbackValue = await AsyncStorage.getItem(fallbackKey);
 
+  if (isSensitiveKey(key) && didFallback) {
+    if (fallbackValue !== null) {
+      await AsyncStorage.removeItem(fallbackKey);
+    }
+    logger.warn('secureStore', `SecureStore unavailable for sensitive key "${key}"; ignoring unencrypted fallback`);
+    return null;
+  }
+
   if (fallbackValue === null || didFallback) {
     logger.info('secureStore', `${fallbackValue ? 'Found in fallback' : 'Not found'}: "${key}"`);
     return fallbackValue;
@@ -84,6 +95,11 @@ export const getItemAsync = async (key, options) => {
   } catch (error) {
     if (isRecoverableSecureStoreError(error)) {
       logFallback('setItemAsync(migrate)', key, error);
+      if (isSensitiveKey(key)) {
+        await AsyncStorage.removeItem(fallbackKey);
+        logger.warn('secureStore', `Removed unencrypted fallback for sensitive key "${key}"`);
+        return null;
+      }
     } else {
       throw error;
     }
@@ -116,6 +132,11 @@ export const setItemAsync = async (key, value, options) => {
   }
 
   _fallbackActive = true;
+  if (isSensitiveKey(key)) {
+    await AsyncStorage.removeItem(fallbackKey);
+    throw new Error(`Secure storage is unavailable for sensitive key "${key}"`);
+  }
+
   logger.warn('secureStore', `⚠️ Secure storage unavailable — storing "${key}" in unencrypted AsyncStorage fallback`);
   await AsyncStorage.setItem(fallbackKey, value);
 };

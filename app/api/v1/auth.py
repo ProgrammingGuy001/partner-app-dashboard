@@ -30,6 +30,7 @@ from app.schemas.ip import (
 from app.services.otp_service import OTPService
 from app.utils.rate_limiter import limiter
 from app.api.deps import get_current_user
+from app.api.cookie_security import cookie_bearer
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -188,11 +189,7 @@ def resend_otp(request: Request, login_data: LoginRequest, db: Session = Depends
 
 
 @router.get("/verify-token")
-def verify_access_token(request: Request):
-    token = request.cookies.get(settings.IP_AUTH_COOKIE_NAME)
-    if not token:
-        token = request.cookies.get("access_token")
-
+def verify_access_token(token: str | None = Depends(cookie_bearer)):
     if not token:
         raise HTTPException(status_code=401, detail="No token provided")
 

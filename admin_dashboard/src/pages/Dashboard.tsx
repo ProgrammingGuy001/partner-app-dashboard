@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useJobs } from '@/hooks/useJobs';
 import { useIPUsers } from '@/hooks/useIPUsers';
 import { type Job } from '@/api/services';
-import { Briefcase, ArrowRight, Shield, TrendingUp, Users, CheckCircle2, Activity } from 'lucide-react';
+import { Briefcase, ArrowRight, Shield, Users, CheckCircle2, Activity } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -89,33 +89,7 @@ const Dashboard: React.FC = () => {
         />
       </section>
 
-      {/* Quick Actions */}
-      <section>
-        <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground sm:mb-4 sm:text-xl">
-          <TrendingUp className="h-5 w-5" />
-          Quick Actions
-        </h2>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:gap-6">
-          <QuickActionCard
-            title="Jobs Management"
-            description="Create, update, and track all jobs"
-            icon={<Briefcase className="h-5 w-5" />}
-            to="/dashboard/jobs"
-          />
-          <QuickActionCard
-            title="Analytics"
-            description="Monitor performance and insights"
-            icon={<TrendingUp className="h-5 w-5" />}
-            to="/dashboard/analytics"
-          />
-          <QuickActionCard
-            title="Admin Controls"
-            description="Verify IPs and manage personnel"
-            icon={<Shield className="h-5 w-5" />}
-            to="/dashboard/workers"
-          />
-        </div>
-      </section>
+      
 
       {/* Recent Activity */}
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6">
@@ -126,30 +100,6 @@ const Dashboard: React.FC = () => {
   );
 };
 
-// Helper Components
-const QuickActionCard: React.FC<{
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-  to: string;
-}> = ({ title, description, icon, to }) => (
-  <Link to={to} className="group block focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded-xl">
-    <Card className="h-full border shadow-none hover:bg-muted/40 transition-all duration-300">
-    <CardHeader className="pb-2 sm:pb-0">
-      <CardTitle className="flex items-start gap-3 text-base text-foreground sm:text-lg">
-          {icon}
-          {title}
-        </CardTitle>
-        <CardDescription className="text-sm text-muted-foreground sm:text-base">{description}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="flex items-center text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">
-          Open {title} <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
-        </div>
-      </CardContent>
-    </Card>
-  </Link>
-);
 
 const RecentJobsCard: React.FC<{ jobs: Job[]; isLoading: boolean }> = ({ jobs, isLoading }) => (
   <Card className="border shadow-none">

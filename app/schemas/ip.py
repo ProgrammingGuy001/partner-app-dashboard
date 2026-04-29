@@ -53,11 +53,25 @@ class LoginRequest(BaseModel):
 
 class OTPVerification(BaseModel):
     phone_number: str
-    otp: str = Field(..., min_length=6, max_length=6)
+    otp: str = Field(..., min_length=6, max_length=6, pattern=r'^\d{6}$')
+
+    @validator('phone_number')
+    def validate_phone_number(cls, v):
+        digits = ''.join(filter(str.isdigit, v))
+        if digits.startswith('91'):
+            if len(digits) != 12:
+                raise ValueError('Phone number with country code must be 12 digits')
+        elif len(digits) == 10:
+            if digits[0] not in '6789':
+                raise ValueError('Invalid Indian mobile number')
+            digits = '91' + digits
+        else:
+            raise ValueError('Phone number must be 10 digits (or 12 with country code)')
+        return digits
 
 
 class RefreshTokenRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str = Field(..., min_length=32)
 
 
 class PANVerification(BaseModel):

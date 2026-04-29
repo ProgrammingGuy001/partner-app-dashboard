@@ -2,6 +2,7 @@ import logging
 import ssl
 import xmlrpc.client  # nosec B411  — monkey-patched below via defusedxml
 from typing import Any, Dict, List, Optional, Set
+from urllib.parse import urlparse
 
 import defusedxml.xmlrpc
 from fastapi import HTTPException
@@ -12,6 +13,32 @@ from app.config import settings
 defusedxml.xmlrpc.monkey_patch()
 
 logger = logging.getLogger(__name__)
+
+
+class TimeoutTransport(xmlrpc.client.Transport):
+    """XML-RPC transport with a bounded socket timeout."""
+
+    def __init__(self, *, timeout: int):
+        super().__init__()
+        self.timeout = timeout
+
+    def make_connection(self, host):
+        connection = super().make_connection(host)
+        connection.timeout = self.timeout
+        return connection
+
+
+class TimeoutSafeTransport(xmlrpc.client.SafeTransport):
+    """HTTPS XML-RPC transport with TLS context and bounded socket timeout."""
+
+    def __init__(self, *, timeout: int, context: ssl.SSLContext):
+        super().__init__(context=context)
+        self.timeout = timeout
+
+    def make_connection(self, host):
+        connection = super().make_connection(host)
+        connection.timeout = self.timeout
+        return connection
 
 
 def _build_odoo_ssl_context() -> ssl.SSLContext:
@@ -29,6 +56,13 @@ def _build_odoo_ssl_context() -> ssl.SSLContext:
             "certifi CA bundle unavailable; falling back to system trust store for Odoo SSL"
         )
         return ssl.create_default_context()
+
+
+def _build_odoo_transport(url: str | None, context: ssl.SSLContext):
+    timeout = max(1, settings.ODOO_RPC_TIMEOUT_SECONDS)
+    if urlparse(url or "").scheme == "https":
+        return TimeoutSafeTransport(timeout=timeout, context=context)
+    return TimeoutTransport(timeout=timeout)
 
 
 class OdooService:
@@ -72,12 +106,14 @@ class OdooService:
                 logger.info("Connecting to Odoo: %s (db=%s, user=%s)", cls.URL, cls.DB, cls.USERNAME)
                 cls._common = xmlrpc.client.ServerProxy(
                     f'{cls.URL}/xmlrpc/2/common',
-                    context=cls._ssl_context
+                    transport=_build_odoo_transport(cls.URL, cls._ssl_context),
+                    allow_none=True,
                 )
                 cls._uid = cls._common.authenticate(cls.DB, cls.USERNAME, cls.PASSWORD, {})
                 cls._models = xmlrpc.client.ServerProxy(
                     f'{cls.URL}/xmlrpc/2/object',
-                    context=cls._ssl_context
+                    transport=_build_odoo_transport(cls.URL, cls._ssl_context),
+                    allow_none=True,
                 )
 
                 if not cls._uid:
@@ -200,7 +236,8 @@ class OdooService:
             'search_read',
             [[
                 ('order_id.name', '=', sales_order),
-                ('x_studio_cabinet_position', '=', cabinet_position)
+                ('x_studio_cabinet_position', '=', cabinet_position),
+                ('company_id', '=', 1),
             ]],
             {
                 'fields': [
@@ -247,7 +284,10 @@ class OdooService:
                 return []
 
             # Find applicable BOM for this product
-            domain = [('product_tmpl_id', '=', product_tmpl_id)]
+            domain = [
+                ('product_tmpl_id', '=', product_tmpl_id),
+                ('company_id', '=', 1),
+            ]
             if product_id:
                 domain = ['|', ('product_id', '=', product_id)] + domain
 
@@ -281,7 +321,7 @@ class OdooService:
             bom_lines = cls._execute_kw(
                 'mrp.bom.line',
                 'search_read',
-                [[('bom_id', '=', bom_id)]],
+                [[('bom_id', '=', bom_id), ('company_id', '=', 1)]],
                 {
                     'fields': ['id', 'product_id', 'product_qty', 'product_uom_id', 'bom_id']
                 }
@@ -387,7 +427,7 @@ class OdooService:
         orders = cls._execute_kw(
             'sale.order',
             'search_read',
-            [[('name', '=', sales_order)]],
+            [[('name', '=', sales_order), ('company_id', '=', 1)]],
             {
                 'fields': [
                     'name', 'partner_id', 'partner_shipping_id',
@@ -486,7 +526,7 @@ class OdooService:
             result = cls._execute_kw(
                 'sale.order',
                 'search',
-                [[('name', '=', sales_order)]],
+                [[('name', '=', sales_order), ('company_id', '=', 1)]],
                 {'limit': 1}
             )
             return bool(result)
@@ -509,7 +549,7 @@ class OdooService:
             sale_lines = cls._execute_kw(
                 'sale.order.line',
                 'search_read',
-                [[('order_id.name', '=', sales_order)]],
+                [[('order_id.name', '=', sales_order), ('company_id', '=', 1)]],
                 {'fields': ['x_studio_cabinet_position']}
             )
 
@@ -573,7 +613,8 @@ class OdooService:
                 [[
                     '|',
                     ('name', 'ilike', search_term),
-                    ('default_code', 'ilike', search_term)
+                    ('default_code', 'ilike', search_term),
+                    ('company_id', 'in', [1, False]),
                 ]],
                 {
                     'fields': ['id', 'name', 'default_code', 'list_price'],

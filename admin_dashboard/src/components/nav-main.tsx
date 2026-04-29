@@ -21,9 +21,9 @@ interface NavGroup {
 
 export function NavMain({
   groups,
-}: {
+}: Readonly<{
   groups: NavGroup[]
-}) {
+}>) {
   const location = useLocation()
 
   const isActive = (url: string) => {

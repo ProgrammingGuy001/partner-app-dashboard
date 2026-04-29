@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Response
+from typing import Annotated, List
+
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Path, Query, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from app.database import get_db
@@ -29,12 +31,14 @@ from app.crud.job import (
     get_job_status_history,
     get_jobs_for_ip,
 )
-from typing import List
 from app.model.media_document import MediaDocument
 from app.model.job_status_log import JobStatusLog
 from app.model.attendance import DailyAttendance
 from app.schemas.attendance import DailyAttendanceResponse
 from datetime import datetime
+
+ATTENDANCE_PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+ATTENDANCE_PHOTO_CONTENT_TYPES = {"image/jpeg", "image/png"}
 
 
 def _get_invoice_request(db: Session, job_id: int):
@@ -47,7 +51,11 @@ def _serialize_invoice_request(req) -> dict | None:
 
 class CreateInvoiceRequestRequest(BaseModel):
     completion_percentage: int | None = Field(default=None, ge=0, le=100)
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+class ChecklistDocumentUpdate(BaseModel):
+    document_link: str = Field(..., min_length=1, max_length=2048)
 
 router = APIRouter(prefix="/dashboard/jobs", tags=["Dashboard"])
 
@@ -55,16 +63,20 @@ router = APIRouter(prefix="/dashboard/jobs", tags=["Dashboard"])
 # ✅ Get all jobs (only if verified)
 @router.get("", response_model=dict)
 def get_all_jobs(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
     """Get all jobs assigned to current user"""
-    jobs = get_jobs_for_ip(db, current_user.id)
+    jobs = get_jobs_for_ip(db, current_user.id, skip=skip, limit=limit)
     serialized_jobs = [JobResponse.model_validate(j) for j in jobs]
 
     return {
         "message": "Jobs fetched successfully",
         "total": len(serialized_jobs),
+        "skip": skip,
+        "limit": limit,
         "jobs": serialized_jobs
     }
 
@@ -72,7 +84,7 @@ def get_all_jobs(
 # ✅ Get single job by ID
 @router.get("/{job_id}", response_model=dict)
 def get_single_job(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
@@ -87,7 +99,7 @@ def get_single_job(
 
 @router.get("/{job_id}/history", response_model=List[JobStatusLogResponse])
 def get_job_history(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
@@ -98,7 +110,7 @@ def get_job_history(
 
 @router.post("/{job_id}/notes", response_model=dict)
 def add_job_note(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     note_data: JobStatusLogCreate,
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
@@ -130,12 +142,12 @@ def add_job_note(
 
 @router.post("/{job_id}/attendance", response_model=dict)
 async def record_attendance(
-    job_id: int,
-    phone: str | None = Form(None),
-    latitude: float = Form(...),
-    longitude: float = Form(...),
-    manual_location: str | None = Form(None),
-    photo: UploadFile = File(...),
+    job_id: Annotated[int, Path(gt=0)],
+    phone: Annotated[str | None, Form()] = None,
+    latitude: Annotated[float, Form(ge=-90, le=90)] = ...,
+    longitude: Annotated[float, Form(ge=-180, le=180)] = ...,
+    manual_location: Annotated[str | None, Form(max_length=255)] = None,
+    photo: Annotated[UploadFile, File()] = ...,
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
@@ -144,7 +156,12 @@ async def record_attendance(
 
     get_ip_job_by_id(db, job_id, current_user.id)
 
-    upload = await read_validated_upload(photo)
+    upload = await read_validated_upload(
+        photo,
+        allowed_extensions=ATTENDANCE_PHOTO_EXTENSIONS,
+        allowed_content_types=ATTENDANCE_PHOTO_CONTENT_TYPES,
+        max_size_mb=5,
+    )
     photo_url = upload_file_to_s3(
         file_content=upload.content,
         filename=upload.filename,
@@ -153,7 +170,7 @@ async def record_attendance(
 
     record = DailyAttendance(
         job_id=job_id,
-        phone=(phone or current_user.phone_number).strip(),
+        phone=(current_user.phone_number or phone or "").strip(),
         latitude=latitude,
         longitude=longitude,
         manual_location=manual_location.strip() if manual_location else None,
@@ -170,7 +187,9 @@ async def record_attendance(
 
 @router.get("/{job_id}/attendance", response_model=dict)
 def get_attendance(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
@@ -180,18 +199,22 @@ def get_attendance(
         db.query(DailyAttendance)
         .filter(DailyAttendance.job_id == job_id)
         .order_by(DailyAttendance.recorded_at.desc())
+        .offset(skip)
+        .limit(limit)
         .all()
     )
     return {
         "message": "Attendance records fetched",
         "job_id": job_id,
+        "skip": skip,
+        "limit": limit,
         "records": [DailyAttendanceResponse.model_validate(r) for r in records]
     }
 
 
 @router.get("/{job_id}/progress", response_model=dict)
 def get_job_progress(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
@@ -211,8 +234,8 @@ def get_job_progress(
 
 @router.post("/{job_id}/upload")
 async def upload_progress_update(
-    job_id: int,
-    file: UploadFile = File(...),
+    job_id: Annotated[int, Path(gt=0)],
+    file: Annotated[UploadFile, File()],
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
@@ -256,7 +279,7 @@ def _complete_ip_job(job_id: int, current_user: ip, db: Session):
 
 @router.post("/{job_id}/complete", response_model=dict)
 def complete_job(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
@@ -266,7 +289,7 @@ def complete_job(
 
 @router.get("/{job_id}/completed", response_model=dict, deprecated=True)
 def complete_job_legacy(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
@@ -277,7 +300,7 @@ def complete_job_legacy(
 # ✅ Get job checklists (Metadata only)
 @router.get("/{job_id}/checklists", response_model=dict)
 def get_job_checklists(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
@@ -306,8 +329,8 @@ def get_job_checklists(
 # ✅ Get items for a specific checklist in a job
 @router.get("/{job_id}/checklists/{checklist_id}/items", response_model=dict)
 def get_job_checklist_items(
-    job_id: int,
-    checklist_id: int,
+    job_id: Annotated[int, Path(gt=0)],
+    checklist_id: Annotated[int, Path(gt=0)],
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
@@ -336,18 +359,14 @@ def get_job_checklist_items(
 # ✅ Save checklist-level document link
 @router.put("/{job_id}/checklists/{checklist_id}/document", response_model=dict)
 def update_checklist_document(
-    job_id: int,
-    checklist_id: int,
-    body: dict,
+    job_id: Annotated[int, Path(gt=0)],
+    checklist_id: Annotated[int, Path(gt=0)],
+    body: ChecklistDocumentUpdate,
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
 ):
     """Store a document URL against the job's checklist record"""
     get_ip_job_by_id(db, job_id, current_user.id)
-
-    document_link = body.get("document_link")
-    if not document_link:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="document_link is required")
 
     job_checklist = db.query(JobChecklist).filter(
         JobChecklist.job_id == job_id,
@@ -357,17 +376,17 @@ def update_checklist_document(
     if not job_checklist:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Checklist not found for this job")
 
-    job_checklist.document_link = document_link
+    job_checklist.document_link = body.document_link
     db.commit()
 
-    return {"message": "Checklist document updated", "document_link": document_link}
+    return {"message": "Checklist document updated", "document_link": body.document_link}
 
 
 # ✅ Update checklist item status (for IP user)
 @router.put("/{job_id}/checklists/items/{item_id}/status", response_model=dict)
 def update_checklist_item_status(
-    job_id: int,
-    item_id: int,
+    job_id: Annotated[int, Path(gt=0)],
+    item_id: Annotated[int, Path(gt=0)],
     status_update: JobChecklistItemStatusUpdate,
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db)
@@ -402,7 +421,7 @@ def update_checklist_item_status(
 
 @router.get("/{job_id}/billing", response_model=dict)
 def get_billing(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db),
 ):
@@ -423,7 +442,7 @@ def get_billing(
 
 @router.post("/{job_id}/invoice-request", response_model=dict)
 def create_invoice_request(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db),
 ):
@@ -440,7 +459,7 @@ def create_invoice_request(
 
 @router.post("/{job_id}/invoice-requests", response_model=dict)
 def create_additional_invoice_request(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     body: CreateInvoiceRequestRequest,
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db),
@@ -464,7 +483,7 @@ def create_additional_invoice_request(
 
 @router.get("/{job_id}/invoice-request/download")
 def download_invoice_bill(
-    job_id: int,
+    job_id: Annotated[int, Path(gt=0)],
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db),
 ):
