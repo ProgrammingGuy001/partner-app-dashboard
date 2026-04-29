@@ -7,6 +7,7 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "channel": "development",
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://adminapi.modula.in/api/v1",
         "EXPO_PUBLIC_APP_NAME": "Modula Partner (Dev)"
@@ -14,6 +15,7 @@
     },
     "preview": {
       "distribution": "internal",
+      "channel": "preview",
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://adminapi.modula.in/api/v1",
         "EXPO_PUBLIC_APP_NAME": "Modula Partner (Preview)"
@@ -21,6 +23,7 @@
     },
     "production": {
       "autoIncrement": true,
+      "channel": "production",
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://adminapi.modula.in/api/v1",
         "EXPO_PUBLIC_APP_NAME": "Modula Partner",
