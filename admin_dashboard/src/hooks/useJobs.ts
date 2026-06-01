@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { jobAPI, type Job, type JobUpdate } from '@/api/services';
+import { jobAPI, type Job, type JobUpdate, type DailyJobUpdate } from '@/api/services';
 import { toast } from 'sonner';
 
 type ApiErrorLike = {
@@ -177,5 +177,17 @@ export const useJobAction = () => {
     onError: (error: unknown) => {
       toast.error(getJobErrorMessage(error, "Action failed"));
     },
+  });
+};
+
+export const useJobDailyUpdates = (jobId: number | undefined, params?: { update_date?: string }) => {
+  return useQuery<DailyJobUpdate[]>({
+    queryKey: ['jobs', jobId, 'daily-updates', params],
+    queryFn: async () => {
+      const res = await jobAPI.getDailyUpdates(jobId!, params);
+      return res.updates || [];
+    },
+    enabled: !!jobId,
+    staleTime: 60 * 1000,
   });
 };

@@ -40,11 +40,12 @@ class CustomerOTPService:
         if not job.customer_phone:
             raise Exception("Customer phone missing for this job")
 
+        # Purge prior sessions for this job+purpose so otp_sessions keeps at most
+        # one live row per job action instead of accumulating used/expired rows.
         db.query(OTPSession).filter(
             OTPSession.purpose == purpose,
             OTPSession.job_id == job_id,
-            OTPSession.is_used == False,
-        ).update({"is_used": True}, synchronize_session=False)
+        ).delete(synchronize_session=False)
 
         db.add(
             OTPSession(

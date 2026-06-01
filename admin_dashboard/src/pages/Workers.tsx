@@ -103,11 +103,11 @@ const Workers: React.FC = () => {
   };
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
+    const timeoutId = globalThis.setTimeout(() => {
       setDebouncedSearchTerm(searchTerm);
     }, 300);
 
-    return () => window.clearTimeout(timeoutId);
+    return () => globalThis.clearTimeout(timeoutId);
   }, [searchTerm]);
 
   const onSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -433,17 +433,17 @@ const WorkerMobileCard: React.FC<{
           <Eye className="mr-2 h-4 w-4" />
           Details
         </Button>
-        {!worker.is_id_verified ? (
+        {worker.is_id_verified ? (
+          <Button size="sm" variant="secondary" disabled>
+            Verified
+          </Button>
+        ) : (
           <Button
             size="sm"
             onClick={() => onVerify(worker.phone_number)}
             disabled={isVerifying}
           >
             {isVerifying ? 'Verifying...' : 'Verify'}
-          </Button>
-        ) : (
-          <Button size="sm" variant="secondary" disabled>
-            Verified
           </Button>
         )}
       </div>

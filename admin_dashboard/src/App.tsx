@@ -20,6 +20,7 @@ const Dashboard = React.lazy(() => import('@/pages/Dashboard'));
 const Jobs = React.lazy(() => import('@/pages/Jobs'));
 const Workers = React.lazy(() => import('@/pages/Workers'));
 const JobHistory = React.lazy(() => import('@/pages/JobHistory'));
+const JobDailyUpdates = React.lazy(() => import('@/pages/JobDailyUpdates'));
 const Checklists = React.lazy(() => import('@/pages/Checklist'));
 const BOMHistory = React.lazy(() => import('@/pages/BOMHistory'));
 const SiteRequisite = React.lazy(() => import('@/pages/SiteRequisite'));
@@ -100,6 +101,7 @@ function App() {
               <Route path="jobs" element={<Jobs />} />
               <Route path="workers" element={<Workers />} />
               <Route path="jobs/:jobId/history" element={<JobHistory />} />
+              <Route path="jobs/:jobId/updates" element={<JobDailyUpdates />} />
               <Route path="checklists" element={<Checklists />} />
               <Route path="bom" element={<BOMHistory />} />
               <Route path="site-requisite" element={

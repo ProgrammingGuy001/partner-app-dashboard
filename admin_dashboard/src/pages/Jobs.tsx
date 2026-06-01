@@ -10,7 +10,7 @@ import {
   useRejectJobCreation,
 } from '@/hooks/useJobs';
 import { useIPUsers } from '@/hooks/useIPUsers';
-import { CheckCircle2, Plus, Search, Filter, RefreshCw, History, User, MoreVertical, XCircle } from 'lucide-react';
+import { CheckCircle2, Plus, Search, Filter, RefreshCw, History, User, MoreVertical, XCircle, ImagePlay } from 'lucide-react';
 import JobFormModal from '@/components/JobFormModal';
 import JobActionsModal from '@/components/JobActionsModal';
 import {
@@ -68,6 +68,7 @@ import { toast } from "sonner";
 const Jobs: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [actionJob, setActionJob] = useState<Job | null>(null);
@@ -75,9 +76,10 @@ const Jobs: React.FC = () => {
   const [deleteJobId, setDeleteJobId] = useState<number | null>(null);
 
   const filters = useMemo(() => ({
-    status: statusFilter !== 'all' ? statusFilter : undefined,
+    status: statusFilter === 'all' ? undefined : statusFilter,
+    type: typeFilter === 'all' ? undefined : typeFilter,
     search: searchTerm || undefined,
-  }), [statusFilter, searchTerm]);
+  }), [statusFilter, typeFilter, searchTerm]);
 
   const { data: jobsData, isLoading: jobsLoading, refetch: refetchJobs } = useJobs(filters);
   const { data: currentUser } = useQuery({
@@ -203,9 +205,9 @@ const Jobs: React.FC = () => {
                 aria-label="Search jobs"
               />
             </div>
-            <div className="grid grid-cols-1 gap-2 sm:w-[180px]">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:w-auto">
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by status">
+                <SelectTrigger className="w-full sm:w-[160px]" aria-label="Filter by status">
                   <Filter className="mr-2 h-4 w-4" />
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
@@ -215,6 +217,19 @@ const Jobs: React.FC = () => {
                   <SelectItem value="in_progress">In Progress</SelectItem>
                   <SelectItem value="paused">Paused</SelectItem>
                   <SelectItem value="completed">Completed</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger className="w-full sm:w-[160px]" aria-label="Filter by type">
+                  <SelectValue placeholder="Job Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  <SelectItem value="installation">Installation</SelectItem>
+                  <SelectItem value="measurement">Site Measurement</SelectItem>
+                  <SelectItem value="site_validation">Site Validation</SelectItem>
+                  <SelectItem value="b2b">B2B</SelectItem>
+                  <SelectItem value="b2c">B2C</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -517,6 +532,12 @@ const JobMobileCard: React.FC<{
                 History
               </Link>
             </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link to={`/dashboard/jobs/${job.id}/updates`}>
+                <ImagePlay className="mr-2 h-4 w-4" />
+                Daily Updates
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => onDelete(job.id!)}
@@ -663,6 +684,12 @@ const JobRow: React.FC<{
               <Link to={`/dashboard/jobs/${job.id}/history`}>
                 <History className="mr-2 h-4 w-4" />
                 History
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link to={`/dashboard/jobs/${job.id}/updates`}>
+                <ImagePlay className="mr-2 h-4 w-4" />
+                Daily Updates
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />

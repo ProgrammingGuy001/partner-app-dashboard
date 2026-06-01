@@ -7,6 +7,7 @@ import { Text } from "@/components/ui/text";
 import JobDetails from "../../components/dashboard/JobDetails";
 import ProgressTimeline from "../../components/dashboard/ProgressTimeline";
 import BillingSection from "../../components/dashboard/BillingSection";
+import DailyJobUpdate from "../../components/dashboard/DailyJobUpdate";
 import { useAuthStore } from "../../store/authStore";
 import Loader from "../../components/common/Loader";
 import { dashboardApi } from "../../api/dashboardApi";
@@ -142,6 +143,11 @@ const JobDetailScreen = ({ navigation, route }) => {
 
         {/* Billing Section — external IP users only */}
         {isExternalIP && <BillingSection job={job} />}
+
+        {/* Daily Progress Update */}
+        <View className="mt-4">
+          <DailyJobUpdate jobId={job.id} />
+        </View>
 
         {/* Checklists Section */}
         <View className="mt-6 mb-3">

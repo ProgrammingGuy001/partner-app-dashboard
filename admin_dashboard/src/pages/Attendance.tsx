@@ -38,13 +38,11 @@ import {
   IconX,
 } from '@tabler/icons-react';
 import type {
-  AdminAttendanceCompletion,
   AdminAttendanceRecord,
-  AttendanceCompletion,
   DailyAttendance,
-  IPAttendanceCompletion,
 } from '@/api/services';
 import { toast } from 'sonner';
+import {Label} from '@/components/ui/label';
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString('en-IN', {
@@ -76,9 +74,9 @@ function googleMapsUrl(record: Pick<AdminAttendanceRecord | DailyAttendance, 'la
 
 function CoordinateLink({
   record,
-}: {
+}: Readonly<{
   record: Pick<AdminAttendanceRecord | DailyAttendance, 'latitude' | 'longitude'>;
-}) {
+}>) {
   const coordinates = formatCoordinates(record);
   const url = googleMapsUrl(record);
   if (!coordinates || !url) return null;
@@ -95,73 +93,14 @@ function CoordinateLink({
   );
 }
 
-function CompletionCard({
-  title,
-  subtitle,
-  completion,
-}: {
-  title: string;
-  subtitle?: string;
-  completion?: AttendanceCompletion;
-}) {
-  if (!completion) return null;
-  return (
-    <Card>
-      <CardContent className="pt-4">
-        <div className="break-words text-xs uppercase tracking-wide text-muted-foreground">{title}</div>
-        <div className="text-3xl font-bold mt-1">
-          {completion.completed_days}/{completion.total_days}
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {subtitle || `${completion.missing_days} missing days`}
-        </div>
-        <Badge variant="secondary" className="mt-3">
-          {completion.completion_percentage}% complete
-        </Badge>
-      </CardContent>
-    </Card>
-  );
-}
-
-function AdminCompletionGrid({ summaries }: { summaries: AdminAttendanceCompletion[] }) {
-  if (summaries.length === 0) return null;
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      {summaries.map(summary => (
-        <CompletionCard
-          key={summary.admin_id}
-          title={summary.admin_email}
-          subtitle={`${summary.missing_days} missing days since registration`}
-          completion={summary}
-        />
-      ))}
-    </div>
-  );
-}
-
-function IPCompletionGrid({ summaries }: { summaries: IPAttendanceCompletion[] }) {
-  if (summaries.length === 0) return null;
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      {summaries.map(summary => (
-        <CompletionCard
-          key={summary.ip_id}
-          title={summary.name}
-          subtitle={`${summary.phone} · ${summary.missing_days} missing days`}
-          completion={summary}
-        />
-      ))}
-    </div>
-  );
-}
 
 function AttendanceTable({
   records,
   showAdmin,
-}: {
+}: Readonly<{
   records: AdminAttendanceRecord[];
   showAdmin: boolean;
-}) {
+}>) {
   if (records.length === 0) {
     return (
       <div className="p-8 text-center text-muted-foreground text-sm">No attendance records found.</div>
@@ -248,11 +187,11 @@ function AdminAttendanceCard({
   record,
   index,
   showAdmin,
-}: {
+}: Readonly<{
   record: AdminAttendanceRecord;
   index: number;
   showAdmin: boolean;
-}) {
+}>) {
   return (
     <article className="p-4">
       <div className="flex items-start justify-between gap-3">
@@ -300,7 +239,7 @@ function AdminAttendanceCard({
   );
 }
 
-function IPAttendanceTable({ records }: { records: DailyAttendance[] }) {
+function IPAttendanceTable({ records, phoneToName }: Readonly<{ records: DailyAttendance[]; phoneToName?: Map<string, string> }>) {
   if (records.length === 0) {
     return (
       <div className="p-8 text-center text-muted-foreground text-sm">No IP attendance records found.</div>
@@ -311,7 +250,7 @@ function IPAttendanceTable({ records }: { records: DailyAttendance[] }) {
     <>
     <div className="divide-y md:hidden">
       {records.map((r, idx) => (
-        <IPAttendanceCard key={r.id} record={r} index={idx} />
+        <IPAttendanceCard key={r.id} record={r} index={idx} phoneToName={phoneToName} />
       ))}
     </div>
     <div className="hidden overflow-x-auto md:block">
@@ -335,7 +274,10 @@ function IPAttendanceTable({ records }: { records: DailyAttendance[] }) {
                 <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center">
                   <IconUser className="h-3.5 w-3.5 text-primary" />
                 </div>
-                <span className="text-sm font-medium">{r.phone}</span>
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium">{phoneToName?.get(r.phone) || r.phone}</span>
+                  {phoneToName?.get(r.phone) && <span className="text-xs text-muted-foreground">{r.phone}</span>}
+                </div>
               </div>
             </TableCell>
             <TableCell className="text-sm text-muted-foreground">
@@ -382,12 +324,14 @@ function IPAttendanceTable({ records }: { records: DailyAttendance[] }) {
   );
 }
 
-function IPAttendanceCard({ record, index }: { record: DailyAttendance; index: number }) {
+function IPAttendanceCard({ record, index, phoneToName }: Readonly<{ record: DailyAttendance; index: number; phoneToName?: Map<string, string> }>) {
+  const displayName = phoneToName?.get(record.phone) || record.phone;
   return (
     <article className="p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">{record.phone}</p>
+          <p className="truncate text-sm font-semibold">{displayName}</p>
+          {phoneToName?.get(record.phone) && <p className="text-xs text-muted-foreground">{record.phone}</p>}
           <p className="mt-1 text-xs text-muted-foreground">
             {record.job_name || (record.job_id ? `Job #${record.job_id}` : 'Independent')}
           </p>
@@ -597,7 +541,7 @@ const MarkAttendanceDialog: React.FC<{
             Recording attendance for <strong>{new Date().toDateString()}</strong>
           </p>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">Camera photo</label>
+            <Label className="text-xs font-medium text-muted-foreground">Camera photo</Label>
             {photoPreview ? (
               <div className="space-y-2">
                 <div className="relative overflow-hidden rounded-lg border bg-muted">
@@ -667,7 +611,7 @@ const MarkAttendanceDialog: React.FC<{
             </p>
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">Location (optional)</label>
+            <Label className="text-xs font-medium text-muted-foreground">Location (optional)</Label>
             <Input
               placeholder="Office, client site, branch, or area"
               value={manualLocation}
@@ -676,7 +620,7 @@ const MarkAttendanceDialog: React.FC<{
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">Notes (optional)</label>
+            <Label className="text-xs font-medium text-muted-foreground">Notes (optional)</Label>
             <Textarea
               placeholder="Add a note..."
               value={notes}
@@ -696,19 +640,50 @@ const MarkAttendanceDialog: React.FC<{
   );
 };
 
+const ATTENDANCE_PAGE_SIZE = 200;
+
+const AttendancePagination: React.FC<{
+  page: number;
+  total: number;
+  onPageChange: (page: number) => void;
+}> = ({ page, total, onPageChange }) => {
+  if (total <= ATTENDANCE_PAGE_SIZE) return null;
+  const start = total === 0 ? 0 : page * ATTENDANCE_PAGE_SIZE + 1;
+  const end = Math.min((page + 1) * ATTENDANCE_PAGE_SIZE, total);
+  const hasPrev = page > 0;
+  const hasNext = end < total;
+  return (
+    <div className="flex items-center justify-between border-t px-4 py-3">
+      <span className="text-xs text-muted-foreground">Showing {start}–{end} of {total}</span>
+      <div className="flex gap-2">
+        <Button size="sm" variant="outline" disabled={!hasPrev} onClick={() => onPageChange(page - 1)}>
+          Previous
+        </Button>
+        <Button size="sm" variant="outline" disabled={!hasNext} onClick={() => onPageChange(page + 1)}>
+          Next
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 const AdminView: React.FC = () => {
   const [showMarkDialog, setShowMarkDialog] = useState(false);
+  const [activeTab, setActiveTab] = useState<'my' | 'ip'>('my');
+  const [ipPage, setIpPage] = useState(0);
   const { data, isLoading, refetch } = useMyAdminAttendance({ limit: 50 });
   const {
     data: ipData,
     isLoading: ipLoading,
     refetch: refetchIPAttendance,
-  } = useAttendance({ limit: 200 });
+  } = useAttendance({ limit: ATTENDANCE_PAGE_SIZE, skip: ipPage * ATTENDANCE_PAGE_SIZE });
   const records = data?.records ?? [];
   const total = data?.total ?? 0;
   const ipRecords = ipData?.records ?? [];
   const ipTotal = ipData?.total ?? 0;
   const ipCompletionSummary = ipData?.completion_summary ?? [];
+
+  const phoneToName = new Map(ipCompletionSummary.map(s => [s.phone, s.name]));
 
   function refreshAll() {
     void refetch();
@@ -724,8 +699,8 @@ const AdminView: React.FC = () => {
     <div className="flex flex-col gap-5 sm:gap-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">My Attendance</h1>
-          <p className="text-muted-foreground text-sm mt-1">Mark and view your attendance history</p>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Attendance</h1>
+          <p className="text-muted-foreground text-sm mt-1">Mark and view attendance records</p>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:flex">
           <Button variant="outline" size="sm" onClick={refreshAll}>
@@ -761,35 +736,43 @@ const AdminView: React.FC = () => {
         </CardContent>
       </Card>
 
-      <CompletionCard
-        title="My attendance completion"
-        subtitle={`${data?.completion?.missing_days ?? 0} missing days since registration`}
-        completion={data?.completion}
-      />
+      {/* Toggle */}
+      <div className="flex rounded-lg border p-1 w-fit gap-1">
+        <Button
+          size="sm"
+          variant={activeTab === 'my' ? 'default' : 'ghost'}
+          onClick={() => setActiveTab('my')}
+        >
+          My Records
+          <Badge variant="secondary" className="ml-2 h-5 px-1.5 text-xs">{total}</Badge>
+        </Button>
+        <Button
+          size="sm"
+          variant={activeTab === 'ip' ? 'default' : 'ghost'}
+          onClick={() => setActiveTab('ip')}
+        >
+          IP Records
+          <Badge variant="secondary" className="ml-2 h-5 px-1.5 text-xs">{ipTotal}</Badge>
+        </Button>
+      </div>
 
-      {/* History */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-base">Attendance History</CardTitle>
-          <Badge variant="secondary">{total} records</Badge>
-        </CardHeader>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="p-8 text-center text-muted-foreground">Loading...</div>
-          ) : (
-            <AttendanceTable records={records} showAdmin={false} />
-          )}
-        </CardContent>
-      </Card>
+      {activeTab === 'my' && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-base">My Attendance History</CardTitle>
+            <Badge variant="secondary">{total} records</Badge>
+          </CardHeader>
+          <CardContent className="p-0">
+            {isLoading ? (
+              <div className="p-8 text-center text-muted-foreground">Loading...</div>
+            ) : (
+              <AttendanceTable records={records} showAdmin={false} />
+            )}
+          </CardContent>
+        </Card>
+      )}
 
-      <div className="flex flex-col gap-3">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight">Assigned IP Attendance</h2>
-          <p className="text-muted-foreground text-sm mt-1">
-            Attendance records for IPs assigned to you
-          </p>
-        </div>
-        <IPCompletionGrid summaries={ipCompletionSummary} />
+      {activeTab === 'ip' && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-base">Assigned IP Records</CardTitle>
@@ -799,11 +782,14 @@ const AdminView: React.FC = () => {
             {ipLoading ? (
               <div className="p-8 text-center text-muted-foreground">Loading...</div>
             ) : (
-              <IPAttendanceTable records={ipRecords} />
+              <>
+                <IPAttendanceTable records={ipRecords} phoneToName={phoneToName} />
+                <AttendancePagination page={ipPage} total={ipTotal} onPageChange={setIpPage} />
+              </>
             )}
           </CardContent>
         </Card>
-      </div>
+      )}
 
       <MarkAttendanceDialog open={showMarkDialog} onClose={() => setShowMarkDialog(false)} />
     </div>
@@ -811,19 +797,23 @@ const AdminView: React.FC = () => {
 };
 
 const SuperAdminView: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<'admin' | 'ip'>('admin');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [appliedFilters, setAppliedFilters] = useState<{
     date_from?: string;
     date_to?: string;
   }>({});
+  const [adminPage, setAdminPage] = useState(0);
+  const [ipPage, setIpPage] = useState(0);
 
   const {
     data: adminData,
     isLoading: adminLoading,
     refetch: refetchAdminAttendance,
   } = useAllAdminAttendance({
-    limit: 200,
+    limit: ATTENDANCE_PAGE_SIZE,
+    skip: adminPage * ATTENDANCE_PAGE_SIZE,
     ...appliedFilters,
   });
   const {
@@ -831,18 +821,22 @@ const SuperAdminView: React.FC = () => {
     isLoading: ipLoading,
     refetch: refetchIPAttendance,
   } = useAttendance({
-    limit: 200,
+    limit: ATTENDANCE_PAGE_SIZE,
+    skip: ipPage * ATTENDANCE_PAGE_SIZE,
     ...appliedFilters,
   });
 
   const adminRecords = adminData?.records ?? [];
   const adminTotal = adminData?.total ?? 0;
-  const adminCompletionSummary = adminData?.completion_summary ?? [];
   const ipRecords = ipData?.records ?? [];
   const ipTotal = ipData?.total ?? 0;
   const ipCompletionSummary = ipData?.completion_summary ?? [];
 
+  const phoneToName = new Map(ipCompletionSummary.map(s => [s.phone, s.name]));
+
   function applyFilters() {
+    setAdminPage(0);
+    setIpPage(0);
     setAppliedFilters({
       date_from: dateFrom || undefined,
       date_to: dateTo || undefined,
@@ -852,6 +846,8 @@ const SuperAdminView: React.FC = () => {
   function clearFilters() {
     setDateFrom('');
     setDateTo('');
+    setAdminPage(0);
+    setIpPage(0);
     setAppliedFilters({});
   }
 
@@ -861,13 +857,6 @@ const SuperAdminView: React.FC = () => {
   }
 
   const hasFilters = Object.values(appliedFilters).some(Boolean);
-
-  // Group by admin for summary
-  const adminSummary = adminRecords.reduce<Record<string, { email: string; count: number }>>((acc, r) => {
-    if (!acc[r.admin_id]) acc[r.admin_id] = { email: r.admin_email, count: 0 };
-    acc[r.admin_id].count += 1;
-    return acc;
-  }, {});
 
   return (
     <div className="flex flex-col gap-5 sm:gap-6">
@@ -882,68 +871,16 @@ const SuperAdminView: React.FC = () => {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-xs text-muted-foreground uppercase tracking-wide">Admin Attendance</div>
-            <div className="text-3xl font-bold mt-1">{adminTotal}</div>
-            <div className="text-xs text-muted-foreground">{hasFilters ? 'in selected period' : 'total records'}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-xs text-muted-foreground uppercase tracking-wide">IP Attendance</div>
-            <div className="text-3xl font-bold mt-1">{ipTotal}</div>
-            <div className="text-xs text-muted-foreground">{hasFilters ? 'in selected period' : 'total records'}</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="flex flex-col gap-3">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight">Admin Completion</h2>
-          <p className="text-muted-foreground text-sm mt-1">
-            Completed attendance days out of days since each admin registered
-          </p>
-        </div>
-        <AdminCompletionGrid summaries={adminCompletionSummary} />
-      </div>
-
-      <div className="flex flex-col gap-3">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight">IP Completion</h2>
-          <p className="text-muted-foreground text-sm mt-1">
-            Completed attendance days out of days since each IP registered
-          </p>
-        </div>
-        <IPCompletionGrid summaries={ipCompletionSummary} />
-      </div>
-
-      {/* Admin summary cards */}
-      {Object.keys(adminSummary).length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {Object.entries(adminSummary).map(([adminId, { email, count }]) => (
-            <Card key={adminId} className="p-3">
-              <div className="text-xs text-muted-foreground truncate">{email}</div>
-              <div className="text-2xl font-bold mt-1">{count}</div>
-              <div className="text-xs text-muted-foreground">
-                {hasFilters ? 'in period' : 'total'}
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
-
       {/* Filters */}
       <Card>
         <CardContent className="pt-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-end">
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-muted-foreground font-medium">From date</label>
+              <Label className="text-xs text-muted-foreground font-medium">From date</Label>
               <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-full lg:w-40" />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-muted-foreground font-medium">To date</label>
+              <Label className="text-xs text-muted-foreground font-medium">To date</Label>
               <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-full lg:w-40" />
             </div>
             <Button onClick={applyFilters} size="sm" className="w-full lg:w-auto">
@@ -959,42 +896,69 @@ const SuperAdminView: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Admin records table */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-base">Admin Records</CardTitle>
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary">{adminTotal} total</Badge>
-            {hasFilters && <Badge variant="outline">Filtered</Badge>}
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {adminLoading ? (
-            <div className="p-8 text-center text-muted-foreground">Loading...</div>
-          ) : (
-            <AttendanceTable records={adminRecords} showAdmin />
-          )}
-        </CardContent>
-      </Card>
+      {/* Toggle */}
+      <div className="flex rounded-lg border p-1 w-fit gap-1">
+        <Button
+          size="sm"
+          variant={activeTab === 'admin' ? 'default' : 'ghost'}
+          onClick={() => setActiveTab('admin')}
+        >
+          Admin Records
+          <Badge variant="secondary" className="ml-2 h-5 px-1.5 text-xs">{adminTotal}</Badge>
+        </Button>
+        <Button
+          size="sm"
+          variant={activeTab === 'ip' ? 'default' : 'ghost'}
+          onClick={() => setActiveTab('ip')}
+        >
+          IP Records
+          <Badge variant="secondary" className="ml-2 h-5 px-1.5 text-xs">{ipTotal}</Badge>
+        </Button>
+      </div>
 
-      {/* IP records table */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-base">IP Records</CardTitle>
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary">{ipTotal} total</Badge>
-            {hasFilters && <Badge variant="outline">Filtered</Badge>}
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {ipLoading ? (
-            <div className="p-8 text-center text-muted-foreground">Loading...</div>
-          ) : (
-            <IPAttendanceTable records={ipRecords} />
-          )}
-        </CardContent>
-      </Card>
+      {activeTab === 'admin' && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-base">Admin Records</CardTitle>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary">{adminTotal} total</Badge>
+              {hasFilters && <Badge variant="outline">Filtered</Badge>}
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {adminLoading ? (
+              <div className="p-8 text-center text-muted-foreground">Loading...</div>
+            ) : (
+              <>
+                <AttendanceTable records={adminRecords} showAdmin />
+                <AttendancePagination page={adminPage} total={adminTotal} onPageChange={setAdminPage} />
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
+      {activeTab === 'ip' && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-base">IP Records</CardTitle>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary">{ipTotal} total</Badge>
+              {hasFilters && <Badge variant="outline">Filtered</Badge>}
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {ipLoading ? (
+              <div className="p-8 text-center text-muted-foreground">Loading...</div>
+            ) : (
+              <>
+                <IPAttendanceTable records={ipRecords} phoneToName={phoneToName} />
+                <AttendancePagination page={ipPage} total={ipTotal} onPageChange={setIpPage} />
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 };

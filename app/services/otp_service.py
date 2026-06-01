@@ -37,11 +37,12 @@ class OTPService:
         if not user:
             raise Exception("User not found")
 
+        # Purge prior sessions for this phone+purpose so otp_sessions keeps at
+        # most one live row per number instead of accumulating used/expired rows.
         db.query(OTPSession).filter(
             OTPSession.purpose == OTPService.LOGIN_PURPOSE,
             OTPSession.phone_number == phone_number,
-            OTPSession.is_used == False,
-        ).update({"is_used": True}, synchronize_session=False)
+        ).delete(synchronize_session=False)
 
         db.add(
             OTPSession(

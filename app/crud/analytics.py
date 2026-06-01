@@ -149,7 +149,7 @@ def get_payout_analytics(
         return PayoutSummary(
             period=period,
             start_date=start_date,
-            end_date=end_date,
+                end_date=end_date,
             total_jobs=total_jobs,
             total_payout=total_payout,
             total_additional_expense=total_additional_expense,

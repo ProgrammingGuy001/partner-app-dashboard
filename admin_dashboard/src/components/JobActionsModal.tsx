@@ -348,11 +348,11 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
         </DialogHeader>
 
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-          <div className="shrink-0 border-b bg-gray-50 p-4 dark:bg-muted/30">
-            <h3 className="font-semibold text-gray-800 mb-1">{job.name}</h3>
-            <p className="text-sm text-gray-600">Customer: {job.customer_name}</p>
+          <div className="shrink-0 border-b bg-muted/30 p-4">
+            <h3 className="font-semibold text-foreground mb-1">{job.name}</h3>
+            <p className="text-sm text-muted-foreground">Customer: {job.customer_name}</p>
             {job.customer_phone && (
-              <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
+              <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
                 <Phone size={12} /> {job.customer_phone}
               </p>
             )}
@@ -497,20 +497,20 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
             <TabsContent value="checklists" className="flex-1 p-0 overflow-hidden flex flex-col min-h-0">
               <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
                 {loadingChecklists ? (
-                  <div className="text-center py-8 text-gray-500">Loading checklists...</div>
+                  <div className="text-center py-8 text-muted-foreground">Loading checklists...</div>
                 ) : checklists.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">No checklists assigned to this job.</div>
+                  <div className="text-center py-8 text-muted-foreground">No checklists assigned to this job.</div>
                 ) : (
                   <div className="space-y-6 pb-6">
                     {checklists.map((checklist) => (
-                      <div key={checklist.id} className="border rounded-lg overflow-hidden bg-white shadow-sm">
-                        <div className="bg-gray-50 px-4 py-3 border-b flex flex-col">
-                          <h4 className="font-semibold text-gray-800 flex items-center gap-2">
+                      <div key={checklist.id} className="border rounded-lg overflow-hidden bg-card shadow-sm">
+                        <div className="bg-muted/40 px-4 py-3 border-b flex flex-col">
+                          <h4 className="font-semibold text-foreground flex items-center gap-2">
                             <FileText size={16} className="text-blue-500" />
                             {checklist.name}
                           </h4>
                           {checklist.description && (
-                            <p className="text-xs text-gray-500 mt-1 pl-6">{checklist.description}</p>
+                            <p className="text-xs text-muted-foreground mt-1 pl-6">{checklist.description}</p>
                           )}
                         </div>
                         <div className="divide-y">
@@ -526,9 +526,9 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                             const currentAction = itemActionLoading[item.id];
 
                             return (
-                            <div key={item.id} className="px-4 py-3 hover:bg-gray-50/50 transition">
+                            <div key={item.id} className="px-4 py-3 hover:bg-muted/30 transition">
                               <div className="flex items-start gap-3">
-                                <div className="mt-0.5 text-gray-400 shrink-0">
+                                <div className="mt-0.5 text-muted-foreground shrink-0">
                                   {item.status?.checked ? (
                                     <CheckSquare size={18} className="text-green-500" />
                                   ) : (
@@ -537,7 +537,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                                 </div>
                                 <div className="flex-1 space-y-2">
                                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                    <p className={`text-sm ${item.status?.checked ? 'text-gray-900 font-medium' : 'text-gray-700'}`}>
+                                    <p className={`text-sm ${item.status?.checked ? 'text-foreground font-medium' : 'text-foreground/80'}`}>
                                       {item.text}
                                     </p>
 
@@ -550,8 +550,8 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                                   </div>
 
                                   {item.status?.comment && (
-                                    <div className="text-xs text-gray-600 bg-yellow-50/50 p-2 rounded border border-yellow-100/50">
-                                      <span className="font-medium text-yellow-700">IP Note:</span> {item.status.comment}
+                                    <div className="text-xs text-foreground/70 bg-yellow-50/50 dark:bg-yellow-950/20 p-2 rounded border border-yellow-100/50 dark:border-yellow-900/30">
+                                      <span className="font-medium text-yellow-700 dark:text-yellow-400">IP Note:</span> {item.status.comment}
                                     </div>
                                   )}
                                   {item.status?.document_link && (
@@ -568,8 +568,8 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                                   )}
 
                                   {/* Document Upload Section */}
-                                  <div className="rounded-md border border-dashed border-gray-300 bg-gray-50/50 p-3 space-y-2">
-                                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-600">
+                                  <div className="rounded-md border border-dashed bg-muted/20 p-3 space-y-2">
+                                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                       Upload Document
                                     </label>
                                     <div className="flex items-center gap-2">
@@ -614,11 +614,11 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                                   </div>
 
                                   {hasSubmission && (
-                                    <div className="space-y-3 rounded-md border border-dashed border-gray-200 bg-gray-50 p-3">
+                                    <div className="space-y-3 rounded-md border border-dashed bg-muted/20 p-3">
                                       <div className="space-y-1">
                                         <label
                                           htmlFor={`admin-comment-${item.id}`}
-                                          className="text-xs font-semibold uppercase tracking-wide text-gray-500"
+                                          className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
                                         >
                                           Admin Comment
                                         </label>
@@ -632,7 +632,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                                             }))
                                           }
                                           placeholder="Tell the IP what to fix before resubmitting."
-                                          className="min-h-[84px] bg-white"
+                                          className="min-h-[84px]"
                                         />
                                       </div>
 
@@ -778,11 +778,11 @@ const BillingSection: React.FC<{
     <div className="mt-6 border-t pt-5">
       <div className="flex items-center gap-2 mb-4">
         <Receipt size={16} className="text-blue-500" />
-        <h4 className="font-semibold text-gray-800">Billing</h4>
+        <h4 className="font-semibold text-foreground">Billing</h4>
       </div>
 
       {billingLoading ? (
-        <div className="text-center py-6 text-gray-500">
+        <div className="text-center py-6 text-muted-foreground">
           <Loader2 className="animate-spin mx-auto mb-2" size={20} />
           Loading billing data...
         </div>

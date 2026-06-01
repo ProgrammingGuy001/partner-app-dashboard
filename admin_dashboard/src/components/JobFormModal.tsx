@@ -441,12 +441,19 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess, is
 
               <div className="space-y-2">
                 <Label htmlFor="type">Type *</Label>
-                <Input
-                  id="type"
-                  placeholder="e.g. installation, measurement, site validation"
-                  {...register("type")}
-                  aria-invalid={!!errors.type}
-                />
+                <Select
+                  value={jobType || ''}
+                  onValueChange={(value) => setValue('type', value, { shouldValidate: true })}
+                >
+                  <SelectTrigger id="type" aria-invalid={!!errors.type}>
+                    <SelectValue placeholder="Select job type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="site validation">Site Validation</SelectItem>
+                    <SelectItem value="site measurement">Site Measurement</SelectItem>
+                    <SelectItem value="installation">Installation</SelectItem>
+                  </SelectContent>
+                </Select>
                 {errors.type && <p className="text-xs text-destructive">{errors.type.message}</p>}
               </div>
 

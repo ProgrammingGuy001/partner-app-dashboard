@@ -53,6 +53,7 @@ def run_migrations(db: Session) -> None:
     _add_admin_attendance_photo_url(db)
     _add_invoice_request_multi_invoice_columns(db)
     _add_job_checklist_document_link(db)
+    _create_daily_job_updates_tables(db)
 
 
 def _add_job_manual_type_rate_columns(db: Session) -> None:
@@ -408,6 +409,54 @@ def _add_job_checklist_document_link(db: Session) -> None:
             logger.error("Migration failed for jobs_checklists.document_link: %s", exc)
     else:
         logger.debug("Migration: jobs_checklists.document_link already exists, skipping.")
+
+
+def _create_daily_job_updates_tables(db: Session) -> None:
+    """Create daily_job_updates and daily_job_update_photos tables if they don't exist."""
+    try:
+        result = db.execute(
+            text("SELECT 1 FROM information_schema.tables WHERE table_name = 'daily_job_updates'")
+        )
+        if not result.fetchone():
+            db.execute(text("""
+                CREATE TABLE daily_job_updates (
+                    id SERIAL PRIMARY KEY,
+                    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+                    submitted_by_type VARCHAR(20) NOT NULL,
+                    submitted_by_id INTEGER NOT NULL,
+                    update_date DATE NOT NULL,
+                    notes TEXT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """))
+            db.execute(text("CREATE INDEX ix_daily_job_updates_job_id ON daily_job_updates (job_id)"))
+            db.execute(text("CREATE INDEX ix_daily_job_updates_submitted_by_id ON daily_job_updates (submitted_by_id)"))
+            db.execute(text("CREATE INDEX ix_daily_job_updates_update_date ON daily_job_updates (update_date)"))
+            db.commit()
+            logger.info("Migration: created daily_job_updates table")
+        else:
+            logger.debug("Migration: daily_job_updates already exists, skipping.")
+
+        result = db.execute(
+            text("SELECT 1 FROM information_schema.tables WHERE table_name = 'daily_job_update_photos'")
+        )
+        if not result.fetchone():
+            db.execute(text("""
+                CREATE TABLE daily_job_update_photos (
+                    id SERIAL PRIMARY KEY,
+                    update_id INTEGER NOT NULL REFERENCES daily_job_updates(id) ON DELETE CASCADE,
+                    photo_url VARCHAR NOT NULL,
+                    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """))
+            db.execute(text("CREATE INDEX ix_daily_job_update_photos_update_id ON daily_job_update_photos (update_id)"))
+            db.commit()
+            logger.info("Migration: created daily_job_update_photos table")
+        else:
+            logger.debug("Migration: daily_job_update_photos already exists, skipping.")
+    except Exception as exc:
+        db.rollback()
+        logger.error("Migration failed creating daily job update tables: %s", exc)
 
 
 def _add_site_requisite_export_columns(db: Session) -> None:

@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 const JobHistory: React.FC = () => {
    const { jobId } = useParams<{ jobId: string }>();
-   const jobIdNum = jobId ? parseInt(jobId) : undefined;
+   const jobIdNum = jobId ? Number.parseInt(jobId) : undefined;
    const { data: history = [], isLoading, refetch } = useJobHistory(jobIdNum);
 
    const getStatusClass = (status?: string) => {

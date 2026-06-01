@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from app.api.v1 import attendance, auth, bom, jobs, verification
+from app.api.v1 import attendance, auth, bom, daily_update as daily_update_v1, jobs, verification
 from app.config import settings
 from app.core.scheduler import shutdown_scheduler, start_scheduler
 from app.database import Base, engine, SessionLocal
@@ -19,6 +19,7 @@ from app.routes.approval import router as approval_router
 from app.routes.auth import router as auth_router
 from app.routes.bom import router as bom_router
 from app.routes.checklist import router as checklist_router
+from app.routes.daily_update import router as daily_update_admin_router
 from app.routes.job import router as job_router
 from app.utils.db_migrations import run_migrations
 from app.utils.rate_limiter import limiter, rate_limit_exceeded_handler
@@ -140,6 +141,7 @@ app.include_router(verification.router, prefix="/api/v1")
 app.include_router(jobs.router, prefix="/api/v1")
 app.include_router(attendance.router, prefix="/api/v1")
 app.include_router(bom.router, prefix="/api/v1")
+app.include_router(daily_update_v1.router, prefix="/api/v1")
 
 # Backward-compatible alias for older clients that still call /api/v1/auth/verification/*
 app.include_router(verification.router, prefix="/api/v1/auth")
@@ -151,6 +153,7 @@ app.include_router(bom_router)
 app.include_router(job_router)
 app.include_router(analytics_router)
 app.include_router(checklist_router)
+app.include_router(daily_update_admin_router)
 
 
 @app.get("/health")

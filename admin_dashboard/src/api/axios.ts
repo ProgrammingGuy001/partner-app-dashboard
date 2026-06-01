@@ -92,7 +92,7 @@ axiosInstance.interceptors.response.use(
       } catch {
         clearAdminTokens();
         // Refresh failed — reject so React Query / ProtectedRoute handles the redirect
-        return Promise.reject(error);
+        return error;
       }
     }
 

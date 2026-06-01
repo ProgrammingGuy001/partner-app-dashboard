@@ -146,12 +146,28 @@ export interface PayoutSummary {
   total_additional_expense: number;
   job_stages: JobStageCount[];
   payout_by_ip: PayoutByIP[];
-  // Backward-compatible alias used by older frontend code.
   payout_by_ip_user?: PayoutByIP[];
 }
 
 // Backward-compatible type alias.
 export type PayoutByIPUser = PayoutByIP;
+
+export interface DailyJobUpdatePhoto {
+  id: number;
+  photo_url: string;
+  uploaded_at: string;
+}
+
+export interface DailyJobUpdate {
+  id: number;
+  job_id: number;
+  submitted_by_type: string;
+  submitted_by_id: number;
+  update_date: string;
+  notes?: string | null;
+  created_at: string;
+  photos: DailyJobUpdatePhoto[];
+}
 
 const JOBS_API_MAX_LIMIT = 200;
 
@@ -241,8 +257,6 @@ export interface ChecklistItem {
   text: string;
   position: number;
   checked?: boolean;
-  is_completed?: boolean; // compatibility
-  name?: string; // compatibility
   status?: ChecklistItemStatus;
 }
 
@@ -271,7 +285,7 @@ const handleResponse = <T>(response: AxiosResponse<T> | T): T => {
     response &&
     typeof response === 'object' &&
     'data' in response &&
-    (response as AxiosResponse<T>).data !== undefined
+    (response).data !== undefined
   ) {
     return response.data;
   }
@@ -471,6 +485,9 @@ export const jobAPI = {
   rejectJobCreation: (id: number, reason?: string): Promise<Job> =>
     axiosInstance.post(`/jobs/${id}/reject-creation`, null, { params: { reason: reason || '' } }).then(res => normalizeJob(handleResponse(res))),
 
+  getDailyUpdates: (id: number, params?: { skip?: number; limit?: number; update_date?: string }): Promise<{ job_id: number; total: number; updates: DailyJobUpdate[] }> =>
+    axiosInstance.get(`/jobs/${id}/daily-updates`, { params }).then(res => handleResponse(res)),
+
   downloadInvoice: async (id: number, jobName?: string | null): Promise<void> => {
     const response = await axiosInstance.get(`/jobs/${id}/invoice-request/download`, {
       responseType: 'blob',
@@ -481,8 +498,8 @@ export const jobAPI = {
     link.setAttribute('download', `billing_invoice_${jobName || id}.xlsx`);
     document.body.appendChild(link);
     link.click();
-    link.parentNode?.removeChild(link);
-    window.URL.revokeObjectURL(url);
+    link?.remove();
+    globalThis.URL.revokeObjectURL(url);
   },
 };
 
