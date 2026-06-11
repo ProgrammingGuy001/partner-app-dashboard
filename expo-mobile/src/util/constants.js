@@ -79,6 +79,7 @@ export const ROUTES = {
   BUCKET: 'Bucket',
   SUBMIT: 'Submit',
   NOT_FOUND: 'NotFound',
+  SITE_GRN: 'SiteGRN',
 };
 
 // Placeholder text for form inputs

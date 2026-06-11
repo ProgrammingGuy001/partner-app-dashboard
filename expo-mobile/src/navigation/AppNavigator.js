@@ -19,6 +19,7 @@ import BucketScreen from '../screens/requisite/BucketScreen';
 import SubmitScreen from '../screens/requisite/SubmitScreen';
 import HistoryScreen from '../screens/requisite/HistoryScreen';
 import AccountScreen from '../screens/account/AccountScreen';
+import SiteGRNScreen from '../screens/grn/SiteGRNScreen';
 import SplashScreen from '../screens/SplashScreen';
 import NotFoundScreen from '../screens/NotFoundScreen';
 import { useAuthStore } from '../store/authStore';
@@ -34,6 +35,7 @@ const Tab = createBottomTabNavigator();
 const TAB_CONFIG = {
   [ROUTES.DASHBOARD]: { inactive: 'home-outline', active: 'home', label: 'Dashboard' },
   [ROUTES.SITE_REQUISITE]: { inactive: 'construct-outline', active: 'construct', label: 'Requisites' },
+  [ROUTES.SITE_GRN]: { inactive: 'cube-outline', active: 'cube', label: 'Site GRN' },
   [ROUTES.HISTORY]: { inactive: 'time-outline', active: 'time', label: 'History' },
   [ROUTES.ACCOUNT]: { inactive: 'person-circle-outline', active: 'person-circle', label: 'Account' },
 };
@@ -112,6 +114,11 @@ const MainTabs = () => {
         name={ROUTES.SITE_REQUISITE}
         component={SiteRequisiteScreen}
         options={{ title: TAB_CONFIG[ROUTES.SITE_REQUISITE].label }}
+      />
+      <Tab.Screen
+        name={ROUTES.SITE_GRN}
+        component={SiteGRNScreen}
+        options={{ title: TAB_CONFIG[ROUTES.SITE_GRN].label }}
       />
       <Tab.Screen
         name={ROUTES.HISTORY}

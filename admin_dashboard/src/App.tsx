@@ -27,6 +27,7 @@ const SiteRequisite = React.lazy(() => import('@/pages/SiteRequisite'));
 const SiteRequisiteBucket = React.lazy(() => import('@/pages/SiteRequisiteBucket'));
 const SiteRequisiteSubmit = React.lazy(() => import('@/pages/SiteRequisiteSubmit'));
 const Attendance = React.lazy(() => import('@/pages/Attendance'));
+const SiteGRN = React.lazy(() => import('@/pages/SiteGRN'));
 
 // Loading Fallback
 const PageLoader = () => (
@@ -114,6 +115,7 @@ function App() {
                 <Route path="submit" element={<SiteRequisiteSubmit />} />
               </Route>
               <Route path="attendance" element={<Attendance />} />
+              <Route path="site-grn" element={<SiteGRN />} />
               <Route path="admin" element={<Navigate to="/dashboard/workers" replace />} />
             </Route>
 

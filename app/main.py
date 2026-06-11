@@ -20,6 +20,7 @@ from app.routes.auth import router as auth_router
 from app.routes.bom import router as bom_router
 from app.routes.checklist import router as checklist_router
 from app.routes.daily_update import router as daily_update_admin_router
+from app.routes.grn import admin_router as grn_admin_router, ip_router as grn_ip_router
 from app.routes.job import router as job_router
 from app.utils.db_migrations import run_migrations
 from app.utils.rate_limiter import limiter, rate_limit_exceeded_handler
@@ -154,6 +155,8 @@ app.include_router(job_router)
 app.include_router(analytics_router)
 app.include_router(checklist_router)
 app.include_router(daily_update_admin_router)
+app.include_router(grn_admin_router)
+app.include_router(grn_ip_router)
 
 
 @app.get("/health")

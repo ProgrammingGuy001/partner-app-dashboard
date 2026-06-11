@@ -664,3 +664,140 @@ class OdooService:
                 'status': 'failed',
                 'error': str(e)
             }
+
+    @classmethod
+    def get_picking_by_source_doc(cls, source_doc: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch a stock.picking by its name (WH/OUT/XXXXX) or origin (source document).
+
+        Returns picking info dict or None if not found.
+        """
+        # Try by name first (WH/OUT/XXXXX)
+        pickings = cls._execute_kw(
+            'stock.picking',
+            'search_read',
+            [[('name', '=', source_doc), ('company_id', '=', 1)]],
+            {'fields': ['id', 'name', 'origin', 'partner_id', 'state'], 'limit': 1}
+        )
+
+        if not pickings:
+            # Fallback: search by origin field
+            pickings = cls._execute_kw(
+                'stock.picking',
+                'search_read',
+                [[('origin', '=', source_doc), ('company_id', '=', 1)]],
+                {'fields': ['id', 'name', 'origin', 'partner_id', 'state'], 'limit': 1}
+            )
+
+        if not pickings:
+            return None
+
+        p = pickings[0]
+        partner_name = None
+        partner_field = p.get('partner_id')
+        if partner_field and isinstance(partner_field, list) and len(partner_field) >= 2:
+            partner_name = partner_field[1]
+
+        return {
+            'picking_id': p['id'],
+            'picking_name': p['name'],
+            'origin': p.get('origin') or '',
+            'partner_name': partner_name,
+            'state': p.get('state', ''),
+        }
+
+    @classmethod
+    def get_packages_for_picking(cls, picking_id: int) -> List[Dict[str, Any]]:
+        """
+        Fetch packages for a picking via x_site_grn → x_studio_grn_line_86347.
+
+        Path: stock.picking (id) → x_site_grn (x_studio_delivery_date)
+              → x_studio_grn_line_86347 (x_site_grn_id) → x_studio_package (stock.quant.package)
+        """
+        packages: List[Dict[str, Any]] = []
+        seen_ids: set = set()
+
+        try:
+            # Step 1: find x_site_grn linked to this picking
+            grn_records = cls._execute_kw(
+                'x_site_grn',
+                'search_read',
+                [[('x_studio_delivery_date', '=', picking_id)]],
+                {'fields': ['id'], 'limit': 1}
+            )
+
+            if grn_records:
+                grn_id = grn_records[0]['id']
+
+                # Step 2: fetch GRN lines, each carrying an x_studio_package M2o
+                lines = cls._execute_kw(
+                    'x_studio_grn_line_86347',
+                    'search_read',
+                    [[('x_site_grn_id', '=', grn_id)]],
+                    {'fields': ['id', 'x_studio_package']}
+                )
+
+                for line in lines:
+                    pkg = line.get('x_studio_package')
+                    if pkg and isinstance(pkg, list) and len(pkg) >= 2 and pkg[0] not in seen_ids:
+                        seen_ids.add(pkg[0])
+                        packages.append({'odoo_package_id': pkg[0], 'package_name': pkg[1]})
+
+        except Exception as e:
+            logger.warning("x_site_grn package fetch failed for picking %s: %s", picking_id, e)
+
+        # Fallback: synthetic entry so GRN creation never fails with 0 packages
+        if not packages:
+            try:
+                picking = cls._execute_kw(
+                    'stock.picking', 'read', [[picking_id]], {'fields': ['name']}
+                )
+                if picking:
+                    packages.append({'odoo_package_id': None, 'package_name': f"{picking[0]['name']} (Delivery)"})
+            except Exception:
+                pass
+
+        return packages
+
+    @classmethod
+    def post_grn_result_to_odoo(cls, picking_id: int, missing_packages: List[str]) -> None:
+        """Post GRN submission result as a chatter note on the stock.picking record."""
+        try:
+            if missing_packages:
+                body = (
+                    f"<b>GRN submitted with missing packages:</b><br/>"
+                    + "<br/>".join(f"• {p}" for p in missing_packages)
+                )
+            else:
+                body = "<b>GRN submitted — all packages received.</b>"
+
+            cls._execute_kw(
+                'stock.picking',
+                'message_post',
+                [[picking_id]],
+                {'body': body, 'message_type': 'comment', 'subtype_xmlid': 'mail.mt_note'}
+            )
+        except Exception as e:
+            logger.warning("Failed to post GRN result to Odoo picking %s: %s", picking_id, e)
+
+    @classmethod
+    def update_x_site_grn_status(cls, picking_id: int, has_missing: bool) -> None:
+        """Write GRN submission status back to X_site_grn linked to the picking."""
+        try:
+            grn_records = cls._execute_kw(
+                'x_site_grn',
+                'search_read',
+                [[('x_studio_delivery_date', '=', picking_id)]],
+                {'fields': ['id'], 'limit': 1}
+            )
+            if grn_records:
+                grn_id = grn_records[0]['id']
+                status_val = 'missing' if has_missing else 'received'
+                cls._execute_kw(
+                    'x_site_grn',
+                    'write',
+                    [[grn_id], {'x_studio_grn_status': status_val}]
+                )
+        except Exception as e:
+            # x_studio_grn_status may not exist — non-fatal
+            logger.warning("Failed to update x_site_grn status for picking %s: %s", picking_id, e)

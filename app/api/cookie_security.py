@@ -11,6 +11,8 @@ class CookieBearer(HTTPBearer):
     ) -> Optional[str]:
         token = request.cookies.get(settings.IP_AUTH_COOKIE_NAME)
         if not token:
+            token = request.cookies.get(settings.ADMIN_AUTH_COOKIE_NAME)
+        if not token:
             # Legacy fallback for existing sessions before cookie split.
             token = request.cookies.get("access_token")
         if token:

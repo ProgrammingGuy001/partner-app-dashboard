@@ -669,3 +669,80 @@ export const checklistAPI = {
   ): Promise<ApiResponse> =>
     axiosInstance.put(`/checklists/jobs/${jobId}/items/${itemId}/status`, data).then(res => handleResponse(res)),
 };
+
+// ─── Site GRN Types ───────────────────────────────────────────────────────────
+
+export interface GRNPackage {
+  id: number;
+  odoo_package_id: number | null;
+  package_name: string;
+  is_received: boolean;
+}
+
+export interface GRNIPUser {
+  id: number;
+  first_name: string | null;
+  last_name: string | null;
+  phone_number: string;
+}
+
+export interface GRN {
+  id: number;
+  source_document: string;
+  odoo_picking_id: number | null;
+  ip_user_id: number;
+  created_by_admin_id: number;
+  status: 'pending' | 'submitted';
+  has_missing: boolean;
+  created_at: string;
+  submitted_at: string | null;
+  packages: GRNPackage[];
+  ip_user: GRNIPUser | null;
+}
+
+export interface OdooPackageInfo {
+  odoo_package_id: number | null;
+  package_name: string;
+}
+
+export interface OdooPickingInfo {
+  picking_id: number;
+  picking_name: string;
+  origin: string | null;
+  partner_name: string | null;
+  packages: OdooPackageInfo[];
+}
+
+export interface GRNNotification {
+  id: number;
+  title: string;
+  body: string;
+  grn_id: number | null;
+  is_read: boolean;
+  created_at: string;
+}
+
+// ─── Site GRN API ─────────────────────────────────────────────────────────────
+
+export const grnAPI = {
+  lookup: (sourceDoc: string): Promise<OdooPickingInfo> =>
+    axiosInstance.get(`/admin/grn/lookup/${encodeURIComponent(sourceDoc)}`).then(res => handleResponse(res)),
+
+  create: (data: { source_document: string; ip_user_id: number }): Promise<GRN> =>
+    axiosInstance.post('/admin/grn/', data).then(res => handleResponse(res)),
+
+  list: (limit = 50, offset = 0): Promise<GRN[]> =>
+    axiosInstance.get('/admin/grn/', { params: { limit, offset } }).then(res => handleResponse(res)),
+
+  get: (id: number): Promise<GRN> =>
+    axiosInstance.get(`/admin/grn/${id}`).then(res => handleResponse(res)),
+
+  getNotifications: (unreadOnly = false): Promise<GRNNotification[]> =>
+    axiosInstance.get('/admin/grn/notifications/list', { params: { unread_only: unreadOnly } }).then(res => handleResponse(res)),
+
+  markRead: (notifId: number): Promise<void> =>
+    axiosInstance.patch(`/admin/grn/notifications/${notifId}/read`).then(res => handleResponse(res)),
+
+  markAllRead: (): Promise<void> =>
+    axiosInstance.patch('/admin/grn/notifications/read-all').then(res => handleResponse(res)),
+};

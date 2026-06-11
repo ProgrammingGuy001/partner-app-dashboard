@@ -54,6 +54,7 @@ def run_migrations(db: Session) -> None:
     _add_invoice_request_multi_invoice_columns(db)
     _add_job_checklist_document_link(db)
     _create_daily_job_updates_tables(db)
+    _create_site_grn_tables(db)
 
 
 def _add_job_manual_type_rate_columns(db: Session) -> None:
@@ -477,3 +478,53 @@ def _add_site_requisite_export_columns(db: Session) -> None:
                 logger.error("Migration failed for site_requisite.%s: %s", col_name, exc)
         else:
             logger.debug("Migration: site_requisite.%s already exists, skipping.", col_name)
+
+
+def _create_site_grn_tables(db: Session) -> None:
+    """Create site_grn, grn_package, and admin_notification tables if they don't exist."""
+    statements = [
+        """
+        CREATE TABLE IF NOT EXISTS site_grn (
+            id SERIAL PRIMARY KEY,
+            source_document VARCHAR(128) NOT NULL,
+            odoo_picking_id INTEGER,
+            ip_user_id INTEGER NOT NULL REFERENCES ip_user(id),
+            created_by_admin_id INTEGER NOT NULL REFERENCES admin(id),
+            status VARCHAR(32) NOT NULL DEFAULT 'pending',
+            has_missing BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            submitted_at TIMESTAMPTZ
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_site_grn_ip_user_id ON site_grn(ip_user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_site_grn_source_document ON site_grn(source_document)",
+        """
+        CREATE TABLE IF NOT EXISTS grn_package (
+            id SERIAL PRIMARY KEY,
+            grn_id INTEGER NOT NULL REFERENCES site_grn(id) ON DELETE CASCADE,
+            odoo_package_id INTEGER,
+            package_name VARCHAR(256) NOT NULL,
+            is_received BOOLEAN NOT NULL DEFAULT FALSE
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_grn_package_grn_id ON grn_package(grn_id)",
+        """
+        CREATE TABLE IF NOT EXISTS admin_notification (
+            id SERIAL PRIMARY KEY,
+            admin_id INTEGER REFERENCES admin(id),
+            title VARCHAR(256) NOT NULL,
+            body TEXT NOT NULL,
+            grn_id INTEGER REFERENCES site_grn(id),
+            is_read BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_admin_notification_is_read ON admin_notification(is_read)",
+    ]
+    for stmt in statements:
+        try:
+            db.execute(text(stmt))
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.error("Migration failed for site_grn tables: %s", exc)

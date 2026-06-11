@@ -16,8 +16,8 @@ const Dashboard: React.FC = () => {
   const { data: ipsData, isLoading: ipsLoading } = useIPUsers();
 
   const stats = useMemo(() => {
-    const jobs = (jobsData as Job[]) || [];
-    const ips = ipsData || [];
+    const jobs = Array.isArray(jobsData) ? jobsData : [];
+    const ips = Array.isArray(ipsData) ? ipsData : [];
 
     const activeCount = jobs.filter((job) =>
       job.status === 'in_progress' || job.status === 'created'

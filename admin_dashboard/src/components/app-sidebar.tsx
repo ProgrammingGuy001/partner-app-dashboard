@@ -7,6 +7,7 @@ import {
   IconBox,
   IconClipboardList,
   IconCalendarCheck,
+  IconPackage,
 } from "@tabler/icons-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -55,6 +56,11 @@ const navGroups = [
         title: "Attendance",
         url: "/dashboard/attendance",
         icon: IconCalendarCheck,
+      },
+      {
+        title: "Site GRN",
+        url: "/dashboard/site-grn",
+        icon: IconPackage,
       },
     ],
   },
