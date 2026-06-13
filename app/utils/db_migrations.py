@@ -55,6 +55,7 @@ def run_migrations(db: Session) -> None:
     _add_job_checklist_document_link(db)
     _create_daily_job_updates_tables(db)
     _create_site_grn_tables(db)
+    _add_grn_package_barcode_columns(db)
 
 
 def _add_job_manual_type_rate_columns(db: Session) -> None:
@@ -496,6 +497,7 @@ def _create_site_grn_tables(db: Session) -> None:
             submitted_at TIMESTAMPTZ
         )
         """,
+        "ALTER TABLE site_grn ADD COLUMN IF NOT EXISTS odoo_picking_name VARCHAR(128)",
         "CREATE INDEX IF NOT EXISTS ix_site_grn_ip_user_id ON site_grn(ip_user_id)",
         "CREATE INDEX IF NOT EXISTS ix_site_grn_source_document ON site_grn(source_document)",
         """
@@ -528,3 +530,22 @@ def _create_site_grn_tables(db: Session) -> None:
         except Exception as exc:
             db.rollback()
             logger.error("Migration failed for site_grn tables: %s", exc)
+
+
+def _add_grn_package_barcode_columns(db: Session) -> None:
+    """Add barcode and odoo_line_id to grn_package for Odoo line writeback."""
+    columns = [
+        ("barcode", "VARCHAR(256)"),
+        ("odoo_line_id", "INTEGER"),
+    ]
+    for col_name, col_type in columns:
+        if not _column_exists(db, "grn_package", col_name):
+            try:
+                db.execute(text(f"ALTER TABLE grn_package ADD COLUMN {col_name} {col_type} NULL"))
+                db.commit()
+                logger.info("Migration: added column grn_package.%s", col_name)
+            except Exception as exc:
+                db.rollback()
+                logger.error("Migration failed for grn_package.%s: %s", col_name, exc)
+        else:
+            logger.debug("Migration: grn_package.%s already exists, skipping.", col_name)

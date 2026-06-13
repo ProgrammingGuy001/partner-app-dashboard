@@ -99,6 +99,7 @@ class Settings(BaseSettings):
     OTP_EXPIRY_MINUTES: int = 10
     OTP_LENGTH: int = 6
     OTP_DEBUG_LOG_ENABLED: bool = False
+    SMS_SEND_ENABLED: Optional[bool] = None
 
     # CORS allowed origins (comma-separated in .env)
     CORS_ORIGINS: str = "http://localhost,http://localhost:3000,http://localhost:5174,http://localhost:5173,https://partner.modula.in,https://partner-app-dashboard-navy.vercel.app"
@@ -159,6 +160,12 @@ class Settings(BaseSettings):
 
     @property
     def is_secure_cookie_environment(self) -> bool:
+        return self.normalized_environment in {"production", "prod", "staging"}
+
+    @property
+    def should_send_sms(self) -> bool:
+        if self.SMS_SEND_ENABLED is not None:
+            return self.SMS_SEND_ENABLED
         return self.normalized_environment in {"production", "prod", "staging"}
 
     model_config = SettingsConfigDict(

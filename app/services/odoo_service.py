@@ -666,96 +666,104 @@ class OdooService:
             }
 
     @classmethod
-    def get_picking_by_source_doc(cls, source_doc: str) -> Optional[Dict[str, Any]]:
+    def get_pickings_by_source_doc(cls, source_doc: str) -> List[Dict[str, Any]]:
         """
-        Fetch a stock.picking by its name (WH/OUT/XXXXX) or origin (source document).
+        Fetch all stock.pickings matching a source document.
 
-        Returns picking info dict or None if not found.
+        Matches by picking name (WH/OUT/XXXXX, WH/RO/XXXXX, ...) or by
+        origin (e.g. SO number) — a single origin can map to multiple pickings.
         """
-        # Try by name first (WH/OUT/XXXXX)
         pickings = cls._execute_kw(
             'stock.picking',
             'search_read',
-            [[('name', '=', source_doc), ('company_id', '=', 1)]],
-            {'fields': ['id', 'name', 'origin', 'partner_id', 'state'], 'limit': 1}
+            [[
+                '|',
+                ('name', '=', source_doc),
+                ('origin', '=', source_doc),
+                ('company_id', '=', 1),
+            ]],
+            {'fields': ['id', 'name', 'origin', 'partner_id', 'state']}
         )
 
-        if not pickings:
-            # Fallback: search by origin field
-            pickings = cls._execute_kw(
-                'stock.picking',
-                'search_read',
-                [[('origin', '=', source_doc), ('company_id', '=', 1)]],
-                {'fields': ['id', 'name', 'origin', 'partner_id', 'state'], 'limit': 1}
-            )
+        results: List[Dict[str, Any]] = []
+        for p in pickings:
+            partner_name = None
+            partner_field = p.get('partner_id')
+            if partner_field and isinstance(partner_field, list) and len(partner_field) >= 2:
+                partner_name = partner_field[1]
 
-        if not pickings:
-            return None
+            results.append({
+                'picking_id': p['id'],
+                'picking_name': p['name'],
+                'origin': p.get('origin') or '',
+                'partner_name': partner_name,
+                'state': p.get('state', ''),
+            })
 
-        p = pickings[0]
-        partner_name = None
-        partner_field = p.get('partner_id')
-        if partner_field and isinstance(partner_field, list) and len(partner_field) >= 2:
-            partner_name = partner_field[1]
-
-        return {
-            'picking_id': p['id'],
-            'picking_name': p['name'],
-            'origin': p.get('origin') or '',
-            'partner_name': partner_name,
-            'state': p.get('state', ''),
-        }
+        return results
 
     @classmethod
     def get_packages_for_picking(cls, picking_id: int) -> List[Dict[str, Any]]:
         """
         Fetch packages for a picking via x_site_grn → x_studio_grn_line_86347.
 
-        Path: stock.picking (id) → x_site_grn (x_studio_delivery_date)
-              → x_studio_grn_line_86347 (x_site_grn_id) → x_studio_package (stock.quant.package)
+        Path: stock.picking (id) → x_site_grn (x_studio_delivery_order)
+              → x_site_grn_line_* (x_site_grn_id) → x_studio_package (stock.quant.package)
         """
         packages: List[Dict[str, Any]] = []
         seen_ids: set = set()
 
         try:
-            # Step 1: find x_site_grn linked to this picking
+            # Step 1: find x_site_grn records linked to this picking
             grn_records = cls._execute_kw(
                 'x_site_grn',
                 'search_read',
-                [[('x_studio_delivery_date', '=', picking_id)]],
-                {'fields': ['id'], 'limit': 1}
+                [[('x_studio_delivery_order', '=', picking_id)]],
+                {'fields': ['id']}
             )
 
-            if grn_records:
-                grn_id = grn_records[0]['id']
+            grn_ids = [r['id'] for r in grn_records]
+            if grn_ids:
+                line_model = 'x_site_grn_line_86347'
+                try:
+                    grn_fields = cls._execute_kw(
+                        'x_site_grn',
+                        'fields_get',
+                        [],
+                        {'attributes': ['type', 'relation']}
+                    )
+                    for field_meta in grn_fields.values():
+                        if (
+                            field_meta.get('type') == 'one2many'
+                            and field_meta.get('relation', '').startswith('x_site_grn_line')
+                        ):
+                            line_model = field_meta['relation']
+                            break
+                except Exception as e:
+                    logger.warning("Could not discover x_site_grn line model; using %s: %s", line_model, e)
 
-                # Step 2: fetch GRN lines, each carrying an x_studio_package M2o
+                # Step 2: fetch GRN lines, each carrying an x_studio_package M2o.
                 lines = cls._execute_kw(
-                    'x_studio_grn_line_86347',
+                    line_model,
                     'search_read',
-                    [[('x_site_grn_id', '=', grn_id)]],
-                    {'fields': ['id', 'x_studio_package']}
+                    [[('x_site_grn_id', 'in', grn_ids)]],
+                    {'fields': ['id', 'x_studio_package', 'x_studio_barcode']}
                 )
 
                 for line in lines:
                     pkg = line.get('x_studio_package')
                     if pkg and isinstance(pkg, list) and len(pkg) >= 2 and pkg[0] not in seen_ids:
                         seen_ids.add(pkg[0])
-                        packages.append({'odoo_package_id': pkg[0], 'package_name': pkg[1]})
+                        barcode = line.get('x_studio_barcode') or None
+                        packages.append({
+                            'odoo_package_id': pkg[0],
+                            'package_name': pkg[1],
+                            'odoo_line_id': line['id'],
+                            'barcode': barcode,
+                        })
 
         except Exception as e:
             logger.warning("x_site_grn package fetch failed for picking %s: %s", picking_id, e)
-
-        # Fallback: synthetic entry so GRN creation never fails with 0 packages
-        if not packages:
-            try:
-                picking = cls._execute_kw(
-                    'stock.picking', 'read', [[picking_id]], {'fields': ['name']}
-                )
-                if picking:
-                    packages.append({'odoo_package_id': None, 'package_name': f"{picking[0]['name']} (Delivery)"})
-            except Exception:
-                pass
 
         return packages
 
@@ -784,20 +792,122 @@ class OdooService:
     def update_x_site_grn_status(cls, picking_id: int, has_missing: bool) -> None:
         """Write GRN submission status back to X_site_grn linked to the picking."""
         try:
+            grn_fields = cls._execute_kw(
+                'x_site_grn',
+                'fields_get',
+                [],
+                {'attributes': ['type']}
+            )
+            if 'x_studio_grn_status' not in grn_fields:
+                logger.info(
+                    "Skipping x_site_grn status writeback for picking %s; x_studio_grn_status field is not present",
+                    picking_id,
+                )
+                return
+
             grn_records = cls._execute_kw(
                 'x_site_grn',
                 'search_read',
-                [[('x_studio_delivery_date', '=', picking_id)]],
-                {'fields': ['id'], 'limit': 1}
+                [[('x_studio_delivery_order', '=', picking_id)]],
+                {'fields': ['id']}
             )
-            if grn_records:
-                grn_id = grn_records[0]['id']
+            grn_ids = [r['id'] for r in grn_records]
+            if grn_ids:
                 status_val = 'missing' if has_missing else 'received'
                 cls._execute_kw(
                     'x_site_grn',
                     'write',
-                    [[grn_id], {'x_studio_grn_status': status_val}]
+                    [grn_ids, {'x_studio_grn_status': status_val}]
                 )
         except Exception as e:
             # x_studio_grn_status may not exist — non-fatal
             logger.warning("Failed to update x_site_grn status for picking %s: %s", picking_id, e)
+
+    @classmethod
+    def probe_grn_line_fields(cls, field_names: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Introspect x_site_grn_line_86347 field metadata.
+        Returns type, string (label), required, readonly for each requested field.
+        If field_names is None, returns all fields on the model.
+        """
+        TARGET_FIELDS = field_names or [
+            'x_studio_barcode',
+            'x_studio_scan_barcode',
+            'x_studio_status',
+            'x_studio_scan_time',
+        ]
+
+        # Discover actual line model name first (same logic as get_packages_for_picking)
+        line_model = 'x_site_grn_line_86347'
+        try:
+            grn_fields = cls._execute_kw('x_site_grn', 'fields_get', [],
+                                         {'attributes': ['type', 'relation']})
+            for meta in grn_fields.values():
+                if (meta.get('type') == 'one2many'
+                        and meta.get('relation', '').startswith('x_site_grn_line')):
+                    line_model = meta['relation']
+                    break
+        except Exception as e:
+            logger.warning("Could not discover grn line model: %s", e)
+
+        raw = cls._execute_kw(
+            line_model, 'fields_get', [],
+            {'attributes': ['type', 'string', 'required', 'readonly', 'selection', 'store']}
+        )
+
+        result: Dict[str, Any] = {'model': line_model, 'fields': {}}
+        for fname in TARGET_FIELDS:
+            if fname in raw:
+                result['fields'][fname] = raw[fname]
+            else:
+                result['fields'][fname] = None  # field not present on model
+
+        return result
+
+    @classmethod
+    def writeback_grn_lines(
+        cls,
+        line_updates: List[Dict[str, Any]],
+    ) -> None:
+        """
+        Write scan results back to x_site_grn_line records.
+
+        Each entry in line_updates must have:
+            line_id (int), is_received (bool), scan_barcode (str|None), scan_time (datetime|None)
+        """
+        line_model = 'x_site_grn_line_86347'
+        try:
+            grn_fields = cls._execute_kw('x_site_grn', 'fields_get', [],
+                                         {'attributes': ['type', 'relation']})
+            for meta in grn_fields.values():
+                if (meta.get('type') == 'one2many'
+                        and meta.get('relation', '').startswith('x_site_grn_line')):
+                    line_model = meta['relation']
+                    break
+        except Exception as e:
+            logger.warning("Could not discover grn line model for writeback: %s", e)
+
+        for update in line_updates:
+            line_id = update.get('line_id')
+            if not line_id:
+                continue
+            status_val = 'Received' if update.get('is_received') else 'Pending'
+            vals: Dict[str, Any] = {'x_studio_status': status_val}
+
+            scan_barcode = update.get('scan_barcode')
+            if scan_barcode:
+                vals['x_studio_scan_barcode'] = scan_barcode
+
+            scan_time = update.get('scan_time')
+            if scan_time:
+                # Odoo expects UTC datetime as string: "YYYY-MM-DD HH:MM:SS"
+                if hasattr(scan_time, 'strftime'):
+                    vals['x_studio_scan_time'] = scan_time.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    vals['x_studio_scan_time'] = str(scan_time)
+
+            try:
+                cls._execute_kw(line_model, 'write', [[line_id], vals])
+                logger.debug("GRN line %s writeback OK: %s", line_id, vals)
+            except Exception as e:
+                logger.warning("Failed to write back GRN line %s: %s", line_id, e)

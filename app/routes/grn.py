@@ -52,30 +52,31 @@ def _load_grn(db: Session, grn_id: int) -> SiteGRN:
 
 # ─── Admin: lookup source document in Odoo ────────────────────────────────────
 
-@admin_router.get("/lookup/{source_doc}", response_model=OdooPickingInfo)
+@admin_router.get("/lookup/{source_doc:path}", response_model=List[OdooPickingInfo])
 def lookup_source_document(
     source_doc: str,
     current_user: User = Depends(_require_admin),
 ):
-    picking = OdooService.get_picking_by_source_doc(source_doc)
-    if not picking:
+    pickings = OdooService.get_pickings_by_source_doc(source_doc)
+    if not pickings:
         raise HTTPException(status_code=404, detail=f"No picking found for '{source_doc}'")
 
-    raw_packages = OdooService.get_packages_for_picking(picking["picking_id"])
-    packages = [OdooPackageInfo(**p) for p in raw_packages]
-
-    return OdooPickingInfo(
-        picking_id=picking["picking_id"],
-        picking_name=picking["picking_name"],
-        origin=picking.get("origin"),
-        partner_name=picking.get("partner_name"),
-        packages=packages,
-    )
+    result = []
+    for picking in pickings:
+        raw_packages = OdooService.get_packages_for_picking(picking["picking_id"])
+        result.append(OdooPickingInfo(
+            picking_id=picking["picking_id"],
+            picking_name=picking["picking_name"],
+            origin=picking.get("origin"),
+            partner_name=picking.get("partner_name"),
+            packages=[OdooPackageInfo(**p) for p in raw_packages],
+        ))
+    return result
 
 
 # ─── Admin: create GRN ────────────────────────────────────────────────────────
 
-@admin_router.post("/", response_model=GRNResponse)
+@admin_router.post("/", response_model=List[GRNResponse])
 def create_grn(
     data: GRNCreate,
     db: Session = Depends(get_db),
@@ -87,39 +88,66 @@ def create_grn(
     if not ip_user:
         raise HTTPException(status_code=404, detail="IP user not found")
 
-    # Lookup picking in Odoo
-    picking = OdooService.get_picking_by_source_doc(data.source_document)
-    if not picking:
+    # Lookup pickings in Odoo — one source document can map to multiple
+    pickings = OdooService.get_pickings_by_source_doc(data.source_document)
+    if not pickings:
         raise HTTPException(
             status_code=404,
             detail=f"No delivery order found for source document '{data.source_document}'"
         )
 
-    # Fetch packages
-    raw_packages = OdooService.get_packages_for_picking(picking["picking_id"])
+    selected_picking_ids = set(data.picking_ids or [])
+    if selected_picking_ids:
+        pickings = [p for p in pickings if p["picking_id"] in selected_picking_ids]
+        found_picking_ids = {p["picking_id"] for p in pickings}
+        missing_picking_ids = selected_picking_ids - found_picking_ids
+        if missing_picking_ids:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Selected delivery order(s) not found for source document: {sorted(missing_picking_ids)}",
+            )
+        if not pickings:
+            raise HTTPException(status_code=400, detail="No selected delivery orders to create GRN for")
 
-    grn = SiteGRN(
-        source_document=data.source_document,
-        odoo_picking_id=picking["picking_id"],
-        ip_user_id=data.ip_user_id,
-        created_by_admin_id=current_user.id,
-        status="pending",
-        has_missing=False,
-    )
-    db.add(grn)
-    db.flush()
+    # One GRN per selected picking; skip pickings whose GRN lines carry no packages
+    created_ids = []
+    for picking in pickings:
+        raw_packages = OdooService.get_packages_for_picking(picking["picking_id"])
+        if not raw_packages:
+            continue
 
-    for pkg in raw_packages:
-        db.add(GRNPackage(
-            grn_id=grn.id,
-            odoo_package_id=pkg.get("odoo_package_id"),
-            package_name=pkg["package_name"],
-            is_received=False,
-        ))
+        grn = SiteGRN(
+            source_document=data.source_document,
+            odoo_picking_id=picking["picking_id"],
+            odoo_picking_name=picking["picking_name"],
+            ip_user_id=data.ip_user_id,
+            created_by_admin_id=current_user.id,
+            status="pending",
+            has_missing=False,
+        )
+        db.add(grn)
+        db.flush()
+
+        for pkg in raw_packages:
+            db.add(GRNPackage(
+                grn_id=grn.id,
+                odoo_package_id=pkg.get("odoo_package_id"),
+                odoo_line_id=pkg.get("odoo_line_id"),
+                package_name=pkg["package_name"],
+                barcode=pkg.get("barcode"),
+                is_received=False,
+            ))
+        created_ids.append(grn.id)
+
+    if not created_ids:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=f"No packages found in GRN lines for '{data.source_document}'"
+        )
 
     db.commit()
-    db.refresh(grn)
-    return _load_grn(db, grn.id)
+    return [_load_grn(db, grn_id) for grn_id in created_ids]
 
 
 # ─── Admin: list GRNs ─────────────────────────────────────────────────────────
@@ -183,6 +211,14 @@ def mark_notification_read(
     return {"message": "Marked as read"}
 
 
+@admin_router.get("/debug/grn-line-fields")
+def probe_grn_line_fields(
+    current_user: User = Depends(_require_admin),
+):
+    """Introspect x_site_grn_line fields to understand types before writeback."""
+    return OdooService.probe_grn_line_fields()
+
+
 @admin_router.patch("/notifications/read-all")
 def mark_all_notifications_read(
     db: Session = Depends(get_db),
@@ -193,23 +229,23 @@ def mark_all_notifications_read(
     return {"message": "All notifications marked as read"}
 
 
-# ─── IP: get assigned GRN ─────────────────────────────────────────────────────
+# ─── IP: get assigned GRNs ────────────────────────────────────────────────────
 
-@ip_router.get("/assigned", response_model=GRNResponse)
-def get_assigned_grn(
+@ip_router.get("/assigned", response_model=List[GRNResponse])
+def get_assigned_grns(
     db: Session = Depends(get_db),
     current_user=Depends(_require_ip),
 ):
-    grn = (
+    grns = (
         db.query(SiteGRN)
         .options(selectinload(SiteGRN.packages), selectinload(SiteGRN.ip_user))
         .filter(SiteGRN.ip_user_id == current_user.id, SiteGRN.status == "pending")
         .order_by(SiteGRN.created_at.desc())
-        .first()
+        .all()
     )
-    if not grn:
+    if not grns:
         raise HTTPException(status_code=404, detail="No pending GRN assigned to you")
-    return grn
+    return grns
 
 
 # ─── IP: submit GRN ───────────────────────────────────────────────────────────
@@ -268,5 +304,21 @@ def submit_grn(
             OdooService.update_x_site_grn_status(grn.odoo_picking_id, has_missing)
         except Exception as e:
             logger.warning("Odoo GRN writeback failed for GRN %s: %s", grn_id, e)
+
+    line_updates = [
+        {
+            'line_id': p.odoo_line_id,
+            'is_received': p.is_received,
+            'scan_barcode': p.barcode,
+            'scan_time': grn.submitted_at,
+        }
+        for p in grn.packages
+        if p.odoo_line_id
+    ]
+    if line_updates:
+        try:
+            OdooService.writeback_grn_lines(line_updates)
+        except Exception as e:
+            logger.warning("GRN line writeback failed for GRN %s: %s", grn_id, e)
 
     return _load_grn(db, grn_id)

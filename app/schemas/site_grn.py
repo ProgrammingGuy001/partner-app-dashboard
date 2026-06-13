@@ -1,13 +1,15 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class GRNPackageResponse(BaseModel):
     id: int
     odoo_package_id: Optional[int]
+    odoo_line_id: Optional[int] = None
     package_name: str
+    barcode: Optional[str] = None
     is_received: bool
 
     class Config:
@@ -28,6 +30,7 @@ class GRNResponse(BaseModel):
     id: int
     source_document: str
     odoo_picking_id: Optional[int]
+    odoo_picking_name: Optional[str] = None
     ip_user_id: int
     created_by_admin_id: int
     status: str
@@ -42,8 +45,9 @@ class GRNResponse(BaseModel):
 
 
 class GRNCreate(BaseModel):
-    source_document: str
-    ip_user_id: int
+    source_document: str = Field(..., min_length=1, max_length=128)
+    ip_user_id: int = Field(..., gt=0)
+    picking_ids: Optional[List[int]] = None
 
 
 class GRNPackageSubmit(BaseModel):

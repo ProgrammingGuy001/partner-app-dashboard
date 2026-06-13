@@ -10,6 +10,7 @@ from app.core.security import (
     create_refresh_token,
     decode_refresh_token,
     get_current_user,
+    hash_password,
     set_bearer_cookie,
     strip_bearer_prefix,
     verify_hashed_password,
@@ -17,6 +18,7 @@ from app.core.security import (
     verify_token as security_verify_token,
 )
 from app.crud.user import get_user_by_email, create_user
+from app.model.user import User
 from app.config import settings
 
 from app.utils.rate_limiter import limiter
@@ -129,6 +131,51 @@ def refresh_token(request: Request, response: Response, refresh_data: RefreshTok
 @router.get("/me", response_model=UserResponse)
 def read_users_me(current_user: UserResponse = Depends(get_current_user)):
     return current_user
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    new_password: str
+
+
+@router.post("/admin/reset-password")
+@limiter.limit("10/minute")
+def reset_password(
+    request: Request,
+    reset_data: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Superadmin-only: reset another admin's password.
+
+    Only updates the target admin's password column — no other data touched.
+    """
+    if not current_user.is_superadmin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superadmins can reset passwords",
+        )
+
+    if len(reset_data.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 8 characters",
+        )
+
+    target = get_user_by_email(db, reset_data.email)
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Admin not found",
+        )
+
+    target.password = hash_password(reset_data.new_password)
+    db.commit()
+
+    return {
+        "message": "Password reset successfully",
+        "email": target.email,
+    }
 
 
 @router.post("/logout")

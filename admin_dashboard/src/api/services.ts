@@ -351,6 +351,12 @@ export const authAPI = {
       clearAdminTokens();
       return handleResponse(res);
     }),
+
+  // Superadmin-only: reset another admin's password.
+  resetPassword: (email: string, newPassword: string): Promise<{ message: string; email: string }> =>
+    axiosInstance
+      .post('/auth/admin/reset-password', { email, new_password: newPassword })
+      .then(res => handleResponse(res)),
 };
 
 // Job APIs with pagination support
@@ -690,6 +696,7 @@ export interface GRN {
   id: number;
   source_document: string;
   odoo_picking_id: number | null;
+  odoo_picking_name: string | null;
   ip_user_id: number;
   created_by_admin_id: number;
   status: 'pending' | 'submitted';
@@ -725,10 +732,10 @@ export interface GRNNotification {
 // ─── Site GRN API ─────────────────────────────────────────────────────────────
 
 export const grnAPI = {
-  lookup: (sourceDoc: string): Promise<OdooPickingInfo> =>
+  lookup: (sourceDoc: string): Promise<OdooPickingInfo[]> =>
     axiosInstance.get(`/admin/grn/lookup/${encodeURIComponent(sourceDoc)}`).then(res => handleResponse(res)),
 
-  create: (data: { source_document: string; ip_user_id: number }): Promise<GRN> =>
+  create: (data: { source_document: string; ip_user_id: number; picking_ids?: number[] }): Promise<GRN[]> =>
     axiosInstance.post('/admin/grn/', data).then(res => handleResponse(res)),
 
   list: (limit = 50, offset = 0): Promise<GRN[]> =>

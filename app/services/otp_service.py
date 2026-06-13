@@ -105,6 +105,22 @@ class OTPService:
 
     @staticmethod
     def send_sms(mobile_number: str, first_name: str, otp_code: str) -> bool:
+        formatted_number = (
+            mobile_number
+            if mobile_number.startswith("91")
+            else f"91{mobile_number}"
+        )
+
+        if not settings.should_send_sms:
+            logger.warning(
+                "SMS_DISABLED environment=%s purpose=%s phone=%s otp=%s",
+                settings.normalized_environment,
+                OTPService.LOGIN_PURPOSE,
+                OTPService._mask_phone(formatted_number),
+                otp_code,
+            )
+            return True
+
         try:
             username = settings.RML_SMS_USERNAME
             password = settings.RML_SMS_PASSWORD
@@ -112,11 +128,6 @@ class OTPService:
             entity_id = settings.RML_SMS_ENTITY_ID
             template_id = settings.RML_SMS_TEMPLATE_ID
 
-            formatted_number = (
-                mobile_number
-                if mobile_number.startswith("91")
-                else f"91{mobile_number}"
-            )
             capitalized_first_name = capitalize_first_name(first_name)
             message = (
                 f"Hi {capitalized_first_name}, Here's your Modula OTP: {otp_code}. "

@@ -10,7 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription
 } from '@/components/ui/dialog';
@@ -19,6 +20,14 @@ import {
 } from '@/components/ui/select';
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
+
+const getErrorDetail = (err: unknown, fallback: string) => {
+  if (typeof err === 'object' && err !== null && 'response' in err) {
+    const response = (err as { response?: { data?: { detail?: string } } }).response;
+    return response?.data?.detail || fallback;
+  }
+  return fallback;
+};
 
 const StatusBadge = ({ status, hasMissing }: { status: string; hasMissing: boolean }) => {
   if (status === 'submitted' && hasMissing) {
@@ -59,6 +68,9 @@ const GRNRow = ({ grn }: { grn: GRN }) => {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-sm">{grn.source_document}</span>
+            {grn.odoo_picking_name && grn.odoo_picking_name !== grn.source_document && (
+              <span className="text-xs text-muted-foreground">{grn.odoo_picking_name}</span>
+            )}
             <StatusBadge status={grn.status} hasMissing={grn.has_missing} />
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
@@ -105,7 +117,8 @@ const CreateGRNModal = ({
   const qc = useQueryClient();
   const [sourceDoc, setSourceDoc] = useState('');
   const [ipUserId, setIpUserId] = useState('');
-  const [pickingInfo, setPickingInfo] = useState<OdooPickingInfo | null>(null);
+  const [pickings, setPickings] = useState<OdooPickingInfo[]>([]);
+  const [selectedPickingIds, setSelectedPickingIds] = useState<number[]>([]);
   const [lookupError, setLookupError] = useState('');
   const [lookingUp, setLookingUp] = useState(false);
 
@@ -116,14 +129,18 @@ const CreateGRNModal = ({
   });
 
   const createMutation = useMutation({
-    mutationFn: () => grnAPI.create({ source_document: sourceDoc.trim(), ip_user_id: Number(ipUserId) }),
-    onSuccess: () => {
-      toast.success('GRN created successfully');
+    mutationFn: () => grnAPI.create({
+      source_document: sourceDoc.trim(),
+      ip_user_id: Number(ipUserId),
+      picking_ids: selectedPickingIds,
+    }),
+    onSuccess: (created) => {
+      toast.success(created.length === 1 ? 'GRN created successfully' : `${created.length} GRNs created successfully`);
       qc.invalidateQueries({ queryKey: ['site-grn'] });
       handleClose();
     },
-    onError: (err: any) => {
-      toast.error(err?.response?.data?.detail || 'Failed to create GRN');
+    onError: (err: unknown) => {
+      toast.error(getErrorDetail(err, 'Failed to create GRN'));
     },
   });
 
@@ -131,12 +148,14 @@ const CreateGRNModal = ({
     if (!sourceDoc.trim()) return;
     setLookingUp(true);
     setLookupError('');
-    setPickingInfo(null);
+    setPickings([]);
+    setSelectedPickingIds([]);
     try {
       const info = await grnAPI.lookup(sourceDoc.trim());
-      setPickingInfo(info);
-    } catch (err: any) {
-      setLookupError(err?.response?.data?.detail || 'Delivery order not found');
+      setPickings(info);
+      setSelectedPickingIds(info.filter(picking => picking.packages.length > 0).map(picking => picking.picking_id));
+    } catch (err: unknown) {
+      setLookupError(getErrorDetail(err, 'Delivery order not found'));
     } finally {
       setLookingUp(false);
     }
@@ -145,12 +164,21 @@ const CreateGRNModal = ({
   const handleClose = () => {
     setSourceDoc('');
     setIpUserId('');
-    setPickingInfo(null);
+    setPickings([]);
+    setSelectedPickingIds([]);
     setLookupError('');
     onClose();
   };
 
-  const canCreate = pickingInfo && ipUserId && !createMutation.isPending;
+  const togglePicking = (pickingId: number, checked: boolean) => {
+    setSelectedPickingIds(prev => {
+      if (checked) return prev.includes(pickingId) ? prev : [...prev, pickingId];
+      return prev.filter(id => id !== pickingId);
+    });
+  };
+
+  const selectablePickings = pickings.filter(picking => picking.packages.length > 0);
+  const canCreate = selectedPickingIds.length > 0 && ipUserId && !createMutation.isPending;
 
   return (
     <Dialog open={open} onOpenChange={v => !v && handleClose()}>
@@ -168,9 +196,14 @@ const CreateGRNModal = ({
             <Label>Delivery Order / Source Document</Label>
             <div className="flex gap-2">
               <Input
-                placeholder="WH/OUT/00001 or SO-XXXXX"
+                placeholder="WH/OUT/00001, WH/RO/00001 or SO-XXXXX"
                 value={sourceDoc}
-                onChange={e => { setSourceDoc(e.target.value); setPickingInfo(null); setLookupError(''); }}
+                onChange={e => {
+                  setSourceDoc(e.target.value);
+                  setPickings([]);
+                  setSelectedPickingIds([]);
+                  setLookupError('');
+                }}
                 onKeyDown={e => e.key === 'Enter' && handleLookup()}
               />
               <Button variant="outline" onClick={handleLookup} disabled={!sourceDoc.trim() || lookingUp}>
@@ -180,24 +213,70 @@ const CreateGRNModal = ({
             {lookupError && <p className="text-xs text-red-500">{lookupError}</p>}
           </div>
 
-          {/* Picking preview */}
-          {pickingInfo && (
-            <div className="rounded-lg border bg-muted/40 p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold">{pickingInfo.picking_name}</span>
-                <span className="text-xs text-muted-foreground">{pickingInfo.origin}</span>
+          {/* Picking previews — only selected delivery orders will become assigned GRNs */}
+          {pickings.length > 0 && (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-muted-foreground">
+                  Select the delivery GRN(s) to assign to the IP.
+                </p>
+                {selectablePickings.length > 1 && (
+                  <div className="flex gap-2 text-xs">
+                    <button
+                      type="button"
+                      className="text-primary hover:underline"
+                      onClick={() => setSelectedPickingIds(selectablePickings.map(p => p.picking_id))}
+                    >
+                      Select all
+                    </button>
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-foreground hover:underline"
+                      onClick={() => setSelectedPickingIds([])}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
               </div>
-              {pickingInfo.partner_name && (
-                <p className="text-xs text-muted-foreground">Partner: {pickingInfo.partner_name}</p>
-              )}
-              <div>
-                <p className="text-xs font-medium mb-1">{pickingInfo.packages.length} package(s):</p>
-                <div className="flex flex-wrap gap-1">
-                  {pickingInfo.packages.map((p, i) => (
-                    <Badge key={i} variant="secondary" className="text-xs">{p.package_name}</Badge>
-                  ))}
+              {pickings.map(picking => (
+                <div
+                  key={picking.picking_id}
+                  className={`rounded-lg border p-3 space-y-2 ${
+                    selectedPickingIds.includes(picking.picking_id) ? 'border-primary bg-primary/5' : 'bg-muted/40'
+                  } ${picking.packages.length === 0 ? 'opacity-70' : ''}`}
+                >
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      checked={selectedPickingIds.includes(picking.picking_id)}
+                      disabled={picking.packages.length === 0}
+                      onCheckedChange={checked => togglePicking(picking.picking_id, checked === true)}
+                      className="mt-0.5"
+                      aria-label={`Select ${picking.picking_name}`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-semibold">{picking.picking_name}</span>
+                        <span className="text-xs text-muted-foreground">{picking.origin}</span>
+                      </div>
+                      {picking.partner_name && (
+                        <p className="text-xs text-muted-foreground">Partner: {picking.partner_name}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium mb-1">{picking.packages.length} package(s):</p>
+                    <div className="flex flex-wrap gap-1">
+                      {picking.packages.length === 0 && (
+                        <span className="text-xs text-amber-600">No packages — this delivery cannot be assigned</span>
+                      )}
+                      {picking.packages.map((p, i) => (
+                        <Badge key={i} variant="secondary" className="text-xs">{p.package_name}</Badge>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ))}
             </div>
           )}
 
@@ -221,7 +300,7 @@ const CreateGRNModal = ({
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" onClick={handleClose}>Cancel</Button>
             <Button onClick={() => createMutation.mutate()} disabled={!canCreate}>
-              {createMutation.isPending ? 'Creating...' : 'Create GRN'}
+              {createMutation.isPending ? 'Creating...' : `Create ${selectedPickingIds.length || ''} selected GRN${selectedPickingIds.length === 1 ? '' : 's'}`}
             </Button>
           </div>
         </div>

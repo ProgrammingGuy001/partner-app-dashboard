@@ -13,6 +13,7 @@ class SiteGRN(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
     source_document: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     odoo_picking_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    odoo_picking_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     ip_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("ip_user.id"), nullable=False, index=True)
     created_by_admin_id: Mapped[int] = mapped_column(Integer, ForeignKey("admin.id"), nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
@@ -33,7 +34,9 @@ class GRNPackage(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     grn_id: Mapped[int] = mapped_column(Integer, ForeignKey("site_grn.id"), nullable=False, index=True)
     odoo_package_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    odoo_line_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     package_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    barcode: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     is_received: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     grn: Mapped["SiteGRN"] = relationship("SiteGRN", back_populates="packages")

@@ -125,6 +125,18 @@ class CustomerOTPService:
 
     @staticmethod
     def send_customer_sms(phone_number: str, customer_name: str, otp_code: str, action_type: str) -> bool:
+        formatted_number = phone_number if phone_number.startswith("91") else f"91{phone_number}"
+
+        if not settings.should_send_sms:
+            logger.warning(
+                "SMS_DISABLED environment=%s purpose=job_%s phone=%s otp=%s",
+                settings.normalized_environment,
+                action_type,
+                CustomerOTPService._mask_phone(formatted_number),
+                otp_code,
+            )
+            return True
+
         try:
             username = settings.RML_SMS_USERNAME
             password = settings.RML_SMS_PASSWORD
@@ -132,7 +144,6 @@ class CustomerOTPService:
             entity_id = settings.RML_SMS_ENTITY_ID
             template_id = settings.RML_SMS_TEMPLATE_ID
 
-            formatted_number = phone_number if phone_number.startswith("91") else f"91{phone_number}"
             capitalized_name = capitalize_first_name(customer_name)
             message = (
                 f"Hi {capitalized_name}, Here's your Modula OTP: {otp_code}. "
