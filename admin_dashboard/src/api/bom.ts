@@ -73,6 +73,8 @@ export interface SODetail {
     repair_reference?: string;
     expected_delivery?: string;
     do_number?: string;
+    odoo_repair_order_id?: number;
+    odoo_repair_order_name?: string;
     site_requisites: SiteRequisiteItem[];
 }
 

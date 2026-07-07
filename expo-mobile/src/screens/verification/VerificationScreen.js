@@ -108,7 +108,7 @@ const VerificationScreen = () => {
         <View className="pt-6 gap-4" style={{ paddingHorizontal: px }}>
           <ErrorAlert message={error} />
           <Button onPress={() => { hasFetched.current = false; setLoading(true); fetchVerificationStatus().finally(() => setLoading(false)); }}>
-            <Text className="text-white font-semibold">Retry</Text>
+            <Text className="text-primary-foreground font-semibold">Retry</Text>
           </Button>
         </View>
       </SafeAreaView>
@@ -123,6 +123,7 @@ const VerificationScreen = () => {
           paddingBottom: 40,
           alignItems: isTablet ? 'center' : 'stretch',
         }}
+        contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
       >
         <View style={{ width: '100%', maxWidth: maxCardWidth ?? '100%' }}>
@@ -130,7 +131,7 @@ const VerificationScreen = () => {
           {/* Premium Header */}
           <View className="pt-6 pb-5 flex-row justify-between items-center">
             <View>
-              <Text className="text-2xl font-extrabold text-foreground tracking-tight">
+              <Text className="text-2xl font-extrabold text-foreground">
                 Verification
               </Text>
               <Text className="text-[13px] text-muted-foreground mt-1 font-medium">
@@ -139,6 +140,10 @@ const VerificationScreen = () => {
             </View>
             <TouchableOpacity 
               onPress={onPressLogout}
+              disabled={loggingOut}
+              accessibilityRole="button"
+              accessibilityLabel="Logout"
+              accessibilityState={{ disabled: loggingOut, busy: loggingOut }}
               className="w-10 h-10 rounded-[20px] bg-surface items-center justify-center border border-border"
               style={colors.shadowSm}
             >
@@ -148,7 +153,7 @@ const VerificationScreen = () => {
 
           {/* Stepper */}
           <View 
-            className="bg-surface rounded-3xl p-5 mb-6 border border-border"
+            className="bg-surface rounded-2xl p-5 mb-6 border border-border"
             style={colors.shadowSm}
           >
             <VerificationStepper

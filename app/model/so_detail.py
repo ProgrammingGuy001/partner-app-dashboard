@@ -24,6 +24,8 @@ class SODetail(Base):
     repair_reference = Column(String(255), nullable=True)
     expected_delivery = Column(Date, nullable=True)
     do_number = Column(String(255), nullable=True)
+    odoo_repair_order_id = Column(Integer, nullable=True)
+    odoo_repair_order_name = Column(String(255), nullable=True)
 
     # Relationship
     site_requisites = relationship("SiteRequisite", back_populates="so_detail", cascade="all, delete-orphan")

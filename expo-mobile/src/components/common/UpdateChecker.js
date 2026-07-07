@@ -55,6 +55,9 @@ const UpdateChecker = () => {
         <TouchableOpacity
           onPress={handleCheckUpdate}
           disabled={isChecking || isDownloading}
+          accessibilityRole="button"
+          accessibilityLabel={isUpdateAvailable ? 'Update app now' : 'Check for app updates'}
+          accessibilityState={{ disabled: isChecking || isDownloading, busy: isChecking || isDownloading }}
           className="px-4 py-2 rounded-lg"
           style={{
             backgroundColor: isUpdateAvailable ? colors.success : colors.primary,
@@ -62,9 +65,9 @@ const UpdateChecker = () => {
           }}
         >
           {isChecking || isDownloading ? (
-            <ActivityIndicator size="small" color="#fff" />
+            <ActivityIndicator size="small" color={colors.primaryForeground} />
           ) : (
-            <Text className="text-xs font-bold text-white">
+            <Text className="text-xs font-bold" style={{ color: colors.primaryForeground }}>
               {isUpdateAvailable ? 'Update Now' : 'Check'}
             </Text>
           )}

@@ -23,13 +23,20 @@ async def record_independent_attendance(
     phone: Annotated[str | None, Form()] = None,
     latitude: Annotated[float, Form(ge=-90, le=90)] = ...,
     longitude: Annotated[float, Form(ge=-180, le=180)] = ...,
-    manual_location: Annotated[str | None, Form(max_length=255)] = None,
+    manual_location: Annotated[str, Form(min_length=1, max_length=255)] = ...,
     photo: Annotated[UploadFile, File()] = ...,
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db),
 ):
     """Record IP attendance without tying it to a specific job."""
     ensure_attendance_window_open()
+
+    manual_location = manual_location.strip()
+    if not manual_location:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Manual location is required for attendance.",
+        )
 
     attendance_phone = (current_user.phone_number or phone or "").strip()
     if not attendance_phone:
@@ -55,7 +62,7 @@ async def record_independent_attendance(
         phone=attendance_phone,
         latitude=latitude,
         longitude=longitude,
-        manual_location=manual_location.strip() if manual_location else None,
+        manual_location=manual_location,
         photo_url=photo_url,
     )
     db.add(record)

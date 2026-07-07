@@ -2,8 +2,11 @@ import React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { formatters } from '../../util/formatters';
+import { useTheme } from '../../hooks/useTheme';
 
 const FileUpload = ({ file, onFileSelect, onClear, error, disabled = false, label = 'Upload File' }) => {
+  const { colors } = useTheme();
+
   return (
     <View className="mb-3.5">
       {label ? <Text className="mb-2 text-sm font-medium text-foreground">{label}</Text> : null}
@@ -12,16 +15,24 @@ const FileUpload = ({ file, onFileSelect, onClear, error, disabled = false, labe
         <Pressable
           disabled={disabled}
           onPress={onFileSelect}
-          className={`items-center rounded-xl border border-dashed bg-muted/50 p-4 ${error ? 'border-destructive' : 'border-border'} ${disabled ? 'opacity-60' : 'active:opacity-85'}`}
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          accessibilityHint="Choose a file from this device"
+          accessibilityState={{ disabled }}
+          className={`items-center rounded-2xl border border-dashed bg-muted/50 p-5 ${error ? 'border-destructive' : 'border-border'} ${disabled ? 'opacity-60' : 'active:opacity-85'}`}
         >
-          <Ionicons name="cloud-upload-outline" size={34} color={error ? '#e11d48' : '#7c685f'} />
+          <View className="h-14 w-14 rounded-2xl bg-primary-light items-center justify-center">
+            <Ionicons name="cloud-upload-outline" size={28} color={error ? colors.danger : colors.primary} />
+          </View>
           <Text className="mt-2 text-sm font-semibold text-foreground">Tap to choose a file</Text>
           <Text className="mt-1 text-xs text-muted-foreground">JPG, PNG, PDF (Max 5MB)</Text>
         </Pressable>
       ) : (
-        <View className="flex-row items-center justify-between rounded-xl border border-border bg-muted/50 p-3">
+        <View className="flex-row items-center justify-between rounded-2xl border border-border bg-muted/50 p-3">
           <View className="mr-2 flex-1 flex-row items-center">
-            <Ionicons name="document-outline" size={22} color="#7c685f" />
+            <View className="h-10 w-10 rounded-xl bg-primary-light items-center justify-center">
+              <Ionicons name="document-outline" size={20} color={colors.primary} />
+            </View>
             <View className="ml-2 flex-1">
               <Text numberOfLines={1} className="text-sm font-medium text-foreground">
                 {file.name}
@@ -29,8 +40,13 @@ const FileUpload = ({ file, onFileSelect, onClear, error, disabled = false, labe
               <Text className="mt-0.5 text-xs text-muted-foreground">{formatters.fileSize(file.size)}</Text>
             </View>
           </View>
-          <Pressable onPress={onClear} className="p-1">
-            <Ionicons name="close" size={20} color="#7c685f" />
+          <Pressable
+            onPress={onClear}
+            className="h-9 w-9 rounded-xl items-center justify-center"
+            accessibilityRole="button"
+            accessibilityLabel="Remove selected file"
+          >
+            <Ionicons name="close" size={20} color={colors.textMuted} />
           </Pressable>
         </View>
       )}

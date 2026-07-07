@@ -17,6 +17,7 @@ import Ionicons from "@react-native-vector-icons/ionicons";
 import * as Haptics from "expo-haptics";
 import { Text } from "@/components/ui/text";
 import EmptyState, { SkeletonList } from "../../components/common/EmptyState";
+import { Notice } from "../../components/common/Primitives";
 import { bomAPI } from "../../api/bomApi";
 import { useToast } from "../../hooks/useToast";
 import { useResponsive } from "../../hooks/useResponsive";
@@ -65,7 +66,7 @@ const HistoryScreen = ({ navigation }) => {
   }, [fetchHistory]);
 
   const handleRefresh = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setRefreshing(true);
     fetchHistory(true);
   }, [fetchHistory]);
@@ -79,16 +80,23 @@ const HistoryScreen = ({ navigation }) => {
     });
   }, []);
 
+  const getRepairOrderName = useCallback(
+    (item) => item.odoo_repair_order_name || item.repair_reference || item.sales_order,
+    []
+  );
+
   const filteredHistory = useMemo(() => {
     return history.filter((item) => {
+      const repairOrderName = getRepairOrderName(item);
       const matchesSearch =
+        repairOrderName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.sales_order?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.sr_poc?.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesStatus =
         statusFilter === "all" || item.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
-  }, [history, searchTerm, statusFilter]);
+  }, [getRepairOrderName, history, searchTerm, statusFilter]);
 
   if (loading) {
     return (
@@ -109,7 +117,8 @@ const HistoryScreen = ({ navigation }) => {
   return (
     <SafeAreaView className="flex-1 bg-background">
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}
+        contentContainerStyle={{ paddingHorizontal: px, paddingBottom: 120 }}
+        contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -124,16 +133,18 @@ const HistoryScreen = ({ navigation }) => {
         <View className="flex-row items-center gap-3 pt-4 mb-6">
           <TouchableOpacity
             onPress={() => navigation.goBack()}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
             className="w-10 h-10 rounded-full bg-surface items-center justify-center border border-border"
             style={colors.shadowSm}
           >
-            <Ionicons name="arrow-back" size={20} color="#352822" />
+            <Ionicons name="arrow-back" size={20} color={colors.text} />
           </TouchableOpacity>
           <View className="flex-1">
-            <Text className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
+            <Text className="text-xs font-bold text-muted-foreground uppercase">
               REQUISITE
             </Text>
-            <Text className="text-xl font-extrabold text-foreground tracking-tight">
+            <Text className="text-xl font-extrabold text-foreground">
               History
             </Text>
           </View>
@@ -141,24 +152,25 @@ const HistoryScreen = ({ navigation }) => {
 
         {/* Filters Card */}
         <View
-          className="bg-surface rounded-3xl p-5 mb-6 border border-border"
+          className="bg-surface rounded-2xl p-5 mb-6 border border-border"
           style={colors.shadowMd}
         >
           <View className="gap-2 mb-5">
-            <Text className="text-xs font-bold text-muted-foreground uppercase tracking-wide">
+            <Text className="text-xs font-bold text-muted-foreground uppercase">
               Search
             </Text>
             <TextInput
               value={searchTerm}
               onChangeText={setSearchTerm}
-              placeholder="SO-XXXXX or POC Name"
-              placeholderTextColor="#9a8b84"
-              className="h-[52px] rounded-xl bg-background border border-border px-4 text-base font-semibold text-foreground"
+              placeholder="RO, SO or POC Name"
+              placeholderTextColor={colors.textMuted}
+              accessibilityLabel="Search requisite history"
+              className="h-12 rounded-xl bg-background border border-border px-4 text-base font-semibold text-foreground"
             />
           </View>
 
           <View className="gap-2">
-            <Text className="text-xs font-bold text-muted-foreground uppercase tracking-wide">
+            <Text className="text-xs font-bold text-muted-foreground uppercase">
               Status
             </Text>
             <View className="flex-row gap-2.5">
@@ -168,6 +180,9 @@ const HistoryScreen = ({ navigation }) => {
                   <TouchableOpacity
                     key={option.value}
                     onPress={() => setStatusFilter(option.value)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Filter by ${option.label}`}
+                    accessibilityState={{ selected: active }}
                     className={`px-4 py-2.5 rounded-xl border ${
                       active
                         ? "bg-primary border-primary"
@@ -176,7 +191,7 @@ const HistoryScreen = ({ navigation }) => {
                   >
                     <Text
                       className={`text-[13px] font-bold ${
-                        active ? "text-white" : "text-muted-foreground"
+                        active ? "text-primary-foreground" : "text-muted-foreground"
                       }`}
                     >
                       {option.label}
@@ -189,12 +204,7 @@ const HistoryScreen = ({ navigation }) => {
         </View>
 
         {error ? (
-          <View className="flex-row items-center gap-1.5 mb-4 p-3 bg-danger-muted rounded-[10px] border border-danger-muted/20">
-            <Ionicons name="alert-circle" size={16} color="#ef4444" />
-            <Text className="text-danger text-[13px] font-semibold">
-              {error}
-            </Text>
-          </View>
+          <Notice tone="danger" message={error} className="mb-4" />
         ) : null}
 
         {!filteredHistory.length ? (
@@ -221,6 +231,7 @@ const HistoryScreen = ({ navigation }) => {
           <View className="gap-4">
             {filteredHistory.map((item) => {
               const expanded = expandedItems.has(item.id);
+              const repairOrderName = getRepairOrderName(item);
               return (
                 <View
                   key={item.id}
@@ -229,12 +240,20 @@ const HistoryScreen = ({ navigation }) => {
                 >
                   <Pressable
                     onPress={() => toggleExpand(item.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Toggle requisite ${repairOrderName}`}
+                    accessibilityState={{ expanded }}
                     className="p-4 flex-row items-center justify-between"
                   >
                     <View className="flex-1 gap-1">
                       <Text className="text-base font-extrabold text-foreground">
-                        {item.sales_order}
+                        {repairOrderName}
                       </Text>
+                      {repairOrderName !== item.sales_order ? (
+                        <Text className="text-xs text-muted-foreground font-semibold">
+                          SO: {item.sales_order}
+                        </Text>
+                      ) : null}
                       <View className="flex-row gap-3">
                         <Text className="text-xs text-muted-foreground font-semibold">
                           POC: {item.sr_poc || "N/A"}
@@ -248,6 +267,9 @@ const HistoryScreen = ({ navigation }) => {
                       <TouchableOpacity
                         onPress={() => handleDownload(item.id, item.sales_order)}
                         disabled={downloadingId === item.id}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Download repair order for ${repairOrderName}`}
+                        accessibilityState={{ disabled: downloadingId === item.id, busy: downloadingId === item.id }}
                         className="h-8 px-3 rounded-xl flex-row items-center gap-1 border border-border bg-background"
                         style={{ opacity: downloadingId === item.id ? 0.5 : 1 }}
                       >

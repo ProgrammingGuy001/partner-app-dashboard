@@ -1,23 +1,19 @@
 import React, { useState, useCallback } from "react";
 import {
   Alert,
-  Platform,
   RefreshControl,
   ScrollView,
   View,
   TouchableOpacity,
-  Switch,
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@react-native-vector-icons/ionicons";
-import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { useLogout } from "../../hooks/useLogout";
 import { useAuthStore } from "../../store/authStore";
 import { useResponsive } from "../../hooks/useResponsive";
 import { useTheme } from "../../hooks/useTheme";
-import { logger } from "../../util/helpers";
 import UpdateChecker from "../../components/common/UpdateChecker";
 
 const DETAIL_ROWS = [
@@ -36,21 +32,24 @@ const VERIF_ITEMS = [
 const VerifChip = ({ label, icon, verified, colors }) => (
   <View
     className="flex-row items-center gap-1.5 px-3 py-2 rounded-[20px] border"
+    accessible
+    accessibilityRole="text"
+    accessibilityLabel={`${label} ${verified ? "verified" : "pending"}`}
     style={{
-      backgroundColor: verified ? colors.success + "10" : colors.warning + "10",
-      borderColor: verified ? colors.success + "20" : colors.warning + "20",
+      backgroundColor: verified ? colors.primaryLight : colors.warning + "10",
+      borderColor: verified ? colors.primary + "22" : colors.warning + "20",
     }}
   >
     <Ionicons
       name={icon}
       size={14}
-      color={verified ? colors.success : colors.warning}
+      color={verified ? colors.primary : colors.warning}
     />
     <Text
       style={{
         fontSize: 12,
         fontWeight: "700",
-        color: verified ? colors.success : colors.warning,
+        color: verified ? colors.primary : colors.warning,
       }}
     >
       {label}
@@ -58,7 +57,7 @@ const VerifChip = ({ label, icon, verified, colors }) => (
     <Ionicons
       name={verified ? "checkmark-circle" : "time-outline"}
       size={13}
-      color={verified ? colors.success : colors.warning}
+      color={verified ? colors.primary : colors.warning}
     />
   </View>
 );
@@ -72,7 +71,7 @@ const AccountScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
 
   const handleRefresh = useCallback(async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setRefreshing(true);
     try {
       await refreshProfile();
@@ -102,12 +101,12 @@ const AccountScreen = () => {
 
   const section = (title, children) => (
     <View
-      className="bg-surface rounded-3xl border border-border mb-5 overflow-hidden"
+      className="bg-surface rounded-2xl border border-border mb-5 overflow-hidden"
       style={colors.shadowSm}
     >
       {title ? (
         <View className="px-5 pt-5 pb-3 border-b border-background">
-          <Text className="text-xs font-extrabold text-muted-foreground uppercase tracking-widest">
+          <Text className="text-xs font-extrabold text-muted-foreground uppercase">
             {title}
           </Text>
         </View>
@@ -125,6 +124,7 @@ const AccountScreen = () => {
           paddingBottom: 120,
           alignItems: isTablet ? "center" : "stretch",
         }}
+        contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -138,7 +138,7 @@ const AccountScreen = () => {
         <View style={{ width: "100%", maxWidth: maxCardWidth ?? "100%" }}>
           {/* Premium Hero Card */}
           <View
-            className="bg-surface rounded-[32px] p-6 mb-6 flex-row items-center gap-5 border border-border"
+            className="bg-surface rounded-2xl p-6 mb-6 flex-row items-center gap-5 border border-border"
             style={colors.shadowMd}
           >
             {/* Avatar */}
@@ -146,21 +146,21 @@ const AccountScreen = () => {
               className="w-20 h-20 rounded-[40px] bg-primary items-center justify-center"
               style={colors.shadowSm}
             >
-              <Text className="text-[28px] font-extrabold text-white">
+              <Text className="text-[28px] font-extrabold text-primary-foreground">
                 {initials || "AU"}
               </Text>
             </View>
             {/* Name / phone */}
             <View className="flex-1">
               <View className="flex-row items-center gap-2 mb-1">
-                <Text className="text-[22px] font-extrabold text-foreground tracking-tight">
+                <Text className="text-[22px] font-extrabold text-foreground" numberOfLines={2}>
                   {fullName}
                 </Text>
                 {user?.is_verified && (
                   <Ionicons
                     name="checkmark-circle"
                     size={20}
-                    color={colors.success}
+                    color={colors.primary}
                   />
                 )}
               </View>
@@ -225,86 +225,31 @@ const AccountScreen = () => {
               </View>
 
               <View
-                className="flex-row items-center gap-3 rounded-2xl p-4 mt-1"
+                className="flex-row items-center gap-3 rounded-2xl border p-4 mt-1"
                 style={{
-                  backgroundColor: user?.is_verified
-                    ? colors.success
-                    : colors.warning,
+                  backgroundColor: user?.is_verified ? colors.primaryLight : colors.warning + "12",
+                  borderColor: user?.is_verified ? colors.primary + "24" : colors.warning + "30",
                   ...colors.shadowSm,
                 }}
               >
-                <View className="w-8 h-8 rounded-2xl bg-white/20 items-center justify-center">
+                <View className="w-8 h-8 rounded-2xl bg-surface items-center justify-center">
                   <Ionicons
                     name={
                       user?.is_verified ? "shield-checkmark" : "shield-outline"
                     }
                     size={18}
-                    color="#fff"
+                    color={user?.is_verified ? colors.primary : colors.warning}
                   />
                 </View>
-                <Text className="text-sm font-bold text-white flex-1">
+                <Text
+                  className="text-sm font-bold flex-1"
+                  style={{ color: user?.is_verified ? colors.primary : colors.warning }}
+                >
                   {user?.is_verified
                     ? "Account fully verified and active"
                     : "Verification pending review"}
                 </Text>
               </View>
-            </View>,
-          )}
-
-          {/* Support Section */}
-          {section(
-            "Support",
-            <View className="gap-4">
-              <TouchableOpacity
-                className="flex-row items-center gap-4 opacity-45"
-                disabled
-              >
-                <View className="w-9 h-9 rounded-[10px] bg-primary-light items-center justify-center">
-                  <Ionicons
-                    name="chatbubble-ellipses-outline"
-                    size={18}
-                    color={colors.primary}
-                  />
-                </View>
-                <View className="flex-1">
-                  <Text className="text-[15px] font-semibold text-foreground">
-                    Contact Support
-                  </Text>
-                  <Text className="text-[11px] font-medium text-muted-foreground">
-                    Coming Soon
-                  </Text>
-                </View>
-                <Ionicons
-                  name="chevron-forward"
-                  size={18}
-                  color={colors.textMuted}
-                />
-              </TouchableOpacity>
-              <TouchableOpacity
-                className="flex-row items-center gap-4 opacity-45"
-                disabled
-              >
-                <View className="w-9 h-9 rounded-[10px] bg-primary-light items-center justify-center">
-                  <Ionicons
-                    name="help-circle-outline"
-                    size={18}
-                    color={colors.primary}
-                  />
-                </View>
-                <View className="flex-1">
-                  <Text className="text-[15px] font-semibold text-foreground">
-                    Help Center
-                  </Text>
-                  <Text className="text-[11px] font-medium text-muted-foreground">
-                    Coming Soon
-                  </Text>
-                </View>
-                <Ionicons
-                  name="chevron-forward"
-                  size={18}
-                  color={colors.textMuted}
-                />
-              </TouchableOpacity>
             </View>,
           )}
 
@@ -317,7 +262,11 @@ const AccountScreen = () => {
           {/* Logout Button */}
           <TouchableOpacity
             onPress={onPressLogout}
-            className="flex-row items-center justify-center gap-2.5 p-4 rounded-[20px] border mb-5"
+            disabled={loggingOut}
+            accessibilityRole="button"
+            accessibilityLabel="Logout account"
+            accessibilityState={{ disabled: loggingOut, busy: loggingOut }}
+            className="flex-row items-center justify-center gap-2.5 p-4 rounded-2xl border mb-5"
             style={{
               backgroundColor: colors.danger + "10",
               borderColor: colors.danger + "20",
@@ -332,7 +281,7 @@ const AccountScreen = () => {
           </TouchableOpacity>
 
           <Text className="text-center text-muted-foreground text-xs font-medium">
-            Version 1.0.4 (OLED Build)
+            Version 1.0.4
           </Text>
         </View>
       </ScrollView>

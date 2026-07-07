@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Text } from '@/components/ui';
 import Ionicons from '@react-native-vector-icons/ionicons';
+import { useTheme } from '../hooks/useTheme';
 
 const BOMTreeNode = ({ node, depth = 0, onAddToBucket }) => {
+  const { colors } = useTheme();
   const [isExpanded, setIsExpanded] = useState(depth < 2);
   const hasChildren = node.children && node.children.length > 0;
 
@@ -13,9 +15,15 @@ const BOMTreeNode = ({ node, depth = 0, onAddToBucket }) => {
         className={`flex-row items-center rounded-lg py-2 ${depth === 0 ? 'bg-muted/70' : ''}`}
         style={{ paddingLeft: depth * 20 + 10 }}
       >
-        <Pressable onPress={() => hasChildren && setIsExpanded((prev) => !prev)} className="w-5 items-center">
+        <Pressable
+          onPress={() => hasChildren && setIsExpanded((prev) => !prev)}
+          className="w-8 h-8 items-center justify-center rounded-lg"
+          accessibilityRole={hasChildren ? 'button' : 'none'}
+          accessibilityLabel={hasChildren ? `${isExpanded ? 'Collapse' : 'Expand'} ${node.product_name}` : undefined}
+          accessibilityState={hasChildren ? { expanded: isExpanded } : undefined}
+        >
           {hasChildren ? (
-            <Ionicons name={isExpanded ? 'chevron-down' : 'chevron-forward'} size={16} color="#6B7280" />
+            <Ionicons name={isExpanded ? 'chevron-down' : 'chevron-forward'} size={16} color={colors.textMuted} />
           ) : (
             <View className="w-[14px]" />
           )}
@@ -28,8 +36,13 @@ const BOMTreeNode = ({ node, depth = 0, onAddToBucket }) => {
           ) : null}
         </View>
 
-        <Pressable onPress={() => onAddToBucket(node)} className="p-1">
-          <Ionicons name="add" size={16} color="#6b4b41" />
+        <Pressable
+          onPress={() => onAddToBucket(node)}
+          className="h-9 w-9 items-center justify-center rounded-xl bg-primary-light"
+          accessibilityRole="button"
+          accessibilityLabel={`Add ${node.product_name} to bucket`}
+        >
+          <Ionicons name="add" size={17} color={colors.primary} />
         </Pressable>
       </View>
 

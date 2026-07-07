@@ -8,7 +8,7 @@ const MAX_JOB_DETAIL_CACHE = 20;
 export const useDashboardStore = create((set, get) => ({
   jobs: [],
   selectedJob: null,
-  activeFilter: JOB_STATUS.IN_PROGRESS,
+  activeFilter: 'all',
   stats: {
     completedJobs: 0,
     inProgressJobs: 0,

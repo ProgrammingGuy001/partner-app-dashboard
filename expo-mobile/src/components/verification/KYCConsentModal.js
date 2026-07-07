@@ -1,5 +1,6 @@
 import React from 'react';
 import { Modal, View, ScrollView, TouchableOpacity, Linking } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
@@ -21,6 +22,7 @@ const DataPoint = ({ icon, label, colors }) => (
 
 const KYCConsentModal = ({ visible, onAccept, onDecline, type = 'pan' }) => {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const isPAN = type === 'pan';
 
@@ -30,9 +32,10 @@ const KYCConsentModal = ({ visible, onAccept, onDecline, type = 'pan' }) => {
       transparent
       animationType="slide"
       onRequestClose={onDecline}
+      accessibilityViewIsModal
     >
-      <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-        <View className="bg-surface rounded-t-3xl p-6" style={{ maxHeight: '85%' }}>
+      <View className="flex-1 justify-end" style={{ backgroundColor: colors.overlay }}>
+        <View className="bg-surface rounded-t-3xl p-6" style={{ maxHeight: '85%', paddingBottom: insets.bottom + 20 }}>
           <View className="w-10 h-1 rounded-full bg-border self-center mb-6" />
 
           <View className="flex-row items-center gap-3 mb-4">
@@ -69,7 +72,7 @@ const KYCConsentModal = ({ visible, onAccept, onDecline, type = 'pan' }) => {
               )}
             </View>
 
-            <Text className="text-xs font-bold text-foreground uppercase tracking-wide mb-2">
+            <Text className="text-xs font-bold text-foreground uppercase mb-2">
               How we use this data
             </Text>
             <Text className="text-sm text-muted-foreground leading-5 mb-4">
@@ -78,7 +81,7 @@ const KYCConsentModal = ({ visible, onAccept, onDecline, type = 'pan' }) => {
                 : 'Your bank details are used solely for processing payouts to your account. Details are verified via a trusted third-party service and stored securely.'}
             </Text>
 
-            <Text className="text-xs font-bold text-foreground uppercase tracking-wide mb-2">
+            <Text className="text-xs font-bold text-foreground uppercase mb-2">
               Third-party processing
             </Text>
             <Text className="text-sm text-muted-foreground leading-5 mb-4">
@@ -88,6 +91,8 @@ const KYCConsentModal = ({ visible, onAccept, onDecline, type = 'pan' }) => {
 
             <TouchableOpacity
               onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}
+              accessibilityRole="link"
+              accessibilityLabel="Read our privacy policy"
               className="flex-row items-center gap-1.5"
             >
               <Ionicons name="open-outline" size={14} color={colors.primary} />
@@ -101,10 +106,15 @@ const KYCConsentModal = ({ visible, onAccept, onDecline, type = 'pan' }) => {
             className="w-full h-14 rounded-2xl bg-primary mb-3"
             onPress={onAccept}
           >
-            <Text className="text-white text-base font-bold">I Understand &amp; Agree</Text>
+            <Text className="text-primary-foreground text-base font-bold">I Understand &amp; Agree</Text>
           </Button>
 
-          <TouchableOpacity onPress={onDecline} className="items-center py-2">
+          <TouchableOpacity
+            onPress={onDecline}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel data collection notice"
+            className="items-center py-2"
+          >
             <Text className="text-sm text-muted-foreground font-medium">Cancel</Text>
           </TouchableOpacity>
         </View>

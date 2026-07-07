@@ -1,9 +1,10 @@
 import React, { useEffect } from 'react';
-import { Platform, View, TouchableOpacity } from 'react-native';
+import { View, TouchableOpacity } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Ionicons from '@react-native-vector-icons/ionicons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ErrorBoundary from '../components/common/ErrorBoundary';
 import { authApi } from '../api/authApi';
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -36,12 +37,13 @@ const TAB_CONFIG = {
   [ROUTES.DASHBOARD]: { inactive: 'home-outline', active: 'home', label: 'Dashboard' },
   [ROUTES.SITE_REQUISITE]: { inactive: 'construct-outline', active: 'construct', label: 'Requisites' },
   [ROUTES.SITE_GRN]: { inactive: 'cube-outline', active: 'cube', label: 'Site GRN' },
-  [ROUTES.HISTORY]: { inactive: 'time-outline', active: 'time', label: 'History' },
   [ROUTES.ACCOUNT]: { inactive: 'person-circle-outline', active: 'person-circle', label: 'Account' },
 };
 
 const MainTabs = () => {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const tabBottom = Math.max(insets.bottom, 12);
 
   return (
     <Tab.Navigator
@@ -51,29 +53,37 @@ const MainTabs = () => {
         tabBarInactiveTintColor: colors.textMuted,
         tabBarShowLabel: true,
         tabBarLabelStyle: {
-          fontSize: 10,
+          fontSize: 11,
           fontWeight: '700',
-          textTransform: 'uppercase',
-          letterSpacing: 0.6,
+          letterSpacing: 0,
           marginTop: -4,
           marginBottom: 8,
         },
         tabBarStyle: {
           position: 'absolute',
-          bottom: 24,
+          bottom: tabBottom,
           left: 16,
           right: 16,
           backgroundColor: colors.surface,
-          borderRadius: 24,
-          height: 72,
+          borderRadius: 22,
+          height: 68,
           paddingTop: 12,
           paddingBottom: 8,
           borderTopWidth: 0,
           ...colors.shadowMd,
-          elevation: 8,
           borderWidth: 1,
           borderColor: colors.border,
         },
+        tabBarButton: (props) => (
+          <TouchableOpacity
+            {...props}
+            activeOpacity={0.78}
+            onPress={(event) => {
+              Haptics.selectionAsync().catch(() => {});
+              props.onPress?.(event);
+            }}
+          />
+        ),
         tabBarIcon: ({ color, focused }) => {
           const cfg = TAB_CONFIG[route.name];
           const iconName = focused ? cfg?.active : cfg?.inactive;
@@ -119,11 +129,6 @@ const MainTabs = () => {
         name={ROUTES.SITE_GRN}
         component={SiteGRNScreen}
         options={{ title: TAB_CONFIG[ROUTES.SITE_GRN].label }}
-      />
-      <Tab.Screen
-        name={ROUTES.HISTORY}
-        component={HistoryScreen}
-        options={{ title: TAB_CONFIG[ROUTES.HISTORY].label }}
       />
       <Tab.Screen
         name={ROUTES.ACCOUNT}
@@ -279,7 +284,7 @@ const AppNavigator = () => {
       color: colors.text,
       fontSize: 17,
       fontWeight: '700',
-      letterSpacing: -0.2,
+      letterSpacing: 0,
     },
     headerTintColor: colors.primary,
     headerBackTitle: '',
@@ -304,8 +309,9 @@ const AppNavigator = () => {
           <Stack.Screen name={ROUTES.MAIN_TABS} component={MainTabs} options={{ headerShown: false }} />
           <Stack.Screen name={ROUTES.JOB_DETAIL} component={JobDetailScreen} options={{ title: 'Job Detail' }} />
           <Stack.Screen name={ROUTES.CHECKLIST} component={ChecklistScreen} options={{ title: 'Checklist' }} />
-          <Stack.Screen name={ROUTES.BUCKET} component={BucketScreen} options={{ title: 'My Bucket' }} />
-          <Stack.Screen name={ROUTES.SUBMIT} component={SubmitScreen} options={{ title: 'Submit Requisite' }} />
+          <Stack.Screen name={ROUTES.BUCKET} component={BucketScreen} options={{ headerShown: false }} />
+          <Stack.Screen name={ROUTES.SUBMIT} component={SubmitScreen} options={{ headerShown: false }} />
+          <Stack.Screen name={ROUTES.HISTORY} component={HistoryScreen} options={{ headerShown: false }} />
           <Stack.Screen name={ROUTES.NOT_FOUND} component={NotFoundScreen} options={{ headerShown: false }} />
         </>
       ) : selfVerified ? (

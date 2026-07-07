@@ -51,7 +51,7 @@ export const bomAPI = {
 
   updateStatus: async (soId, status) => {
     const id = assertPositiveId(soId, 'SO id');
-    const response = await apiClient.patch(`/dashboard/bom/status/${id}`, null, {
+    const response = await apiClient.patch(`/dashboard/bom/history/${id}/status`, null, {
       params: { status },
     });
     return response.data;

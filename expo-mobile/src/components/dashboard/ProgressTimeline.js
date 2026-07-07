@@ -15,7 +15,7 @@ const ProgressTimeline = ({ progress }) => {
         className="bg-surface rounded-2xl p-5 border border-border"
         style={colors.shadowSm}
       >
-        <Text className="text-base font-extrabold text-foreground tracking-tight mb-4">Progress History</Text>
+        <Text className="text-base font-extrabold text-foreground mb-4">Progress History</Text>
         <View className="items-center gap-2 py-4">
           <Ionicons name="time-outline" size={36} color="#d8cfca" />
           <Text className="text-sm font-semibold text-muted-foreground">No progress uploaded yet</Text>
@@ -29,13 +29,13 @@ const ProgressTimeline = ({ progress }) => {
       className="bg-surface rounded-2xl p-5 border border-border"
       style={colors.shadowSm}
     >
-      <Text className="text-base font-extrabold text-foreground tracking-tight mb-5">Progress History</Text>
+      <Text className="text-base font-extrabold text-foreground mb-5">Progress History</Text>
       <View className="gap-3">
         {filtered.map((item) => (
           <View key={item.id} className="flex-row gap-3">
             <View className="mt-2 w-2.5 h-2.5 rounded-full bg-primary" />
             <View className="flex-1 rounded-xl border border-border bg-background p-3.5">
-              <Text className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{formatters.dateTime(item.uploaded_at)}</Text>
+              <Text className="text-[11px] font-bold uppercase text-muted-foreground">{formatters.dateTime(item.uploaded_at)}</Text>
               {item.comment ? (
                 <Text className="mt-1.5 text-sm font-medium text-foreground">{item.comment}</Text>
               ) : null}

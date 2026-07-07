@@ -20,6 +20,13 @@ JOB_LOAD_OPTIONS = (
 )
 
 
+def _map_link_from_coords(latitude, longitude) -> str | None:
+    """Build a Google Maps URL from a dropped pin's coordinates."""
+    if latitude is None or longitude is None:
+        return None
+    return f"https://www.google.com/maps?q={latitude},{longitude}"
+
+
 def _upsert_customer(
     db: Session,
     *,
@@ -219,6 +226,12 @@ def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = 
 
         initial_status = "created" if is_superadmin else "pending_approval"
 
+        latitude = job_data.pop("latitude", None)
+        longitude = job_data.pop("longitude", None)
+        geofence_radius = job_data.pop("geofence_radius", None)
+        # Auto-derive the map link from the dropped pin so existing readers keep working.
+        google_map_link = _map_link_from_coords(latitude, longitude) or job_data.pop("google_map_link", None)
+
         db_job = Job(
             name=job_data.pop("name", None),
             customer_id=customer.id if customer else None,
@@ -232,7 +245,10 @@ def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = 
             admin_assigned=user_id,
             start_date=job_data.pop("start_date", None),
             checklist_link=job_data.pop("checklist_link", None),
-            google_map_link=job_data.pop("google_map_link", None),
+            google_map_link=google_map_link,
+            latitude=latitude,
+            longitude=longitude,
+            geofence_radius=geofence_radius,
         )
         db.add(db_job)
         db.flush()
@@ -330,11 +346,20 @@ def update_job(db: Session, job_id: int, job_update: JobUpdate, admin_id: int = 
             "delivery_date": "delivery_date",
             "checklist_link": "checklist_link",
             "google_map_link": "google_map_link",
+            "latitude": "latitude",
+            "longitude": "longitude",
+            "geofence_radius": "geofence_radius",
             "incentive": "incentive",
         }
         for source, target in field_map.items():
             if source in update_data:
                 setattr(db_job, target, update_data[source])
+
+        # Keep the map link in sync with the dropped pin when coords change.
+        if "latitude" in update_data or "longitude" in update_data:
+            derived_link = _map_link_from_coords(db_job.latitude, db_job.longitude)
+            if derived_link:
+                db_job.google_map_link = derived_link
 
         db.commit()
         db.refresh(db_job)

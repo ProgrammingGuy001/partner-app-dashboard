@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     Numeric,
@@ -76,6 +77,9 @@ class Job(Base):
     start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     checklist_link: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     google_map_link: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    geofence_radius: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=100)
     start_otp_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     end_otp_verified: Mapped[bool] = mapped_column(Boolean, default=False)
 

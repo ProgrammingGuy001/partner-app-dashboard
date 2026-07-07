@@ -1,5 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshControl, ScrollView, View, TouchableOpacity } from "react-native";
+import {
+  RefreshControl,
+  ScrollView,
+  View,
+  TouchableOpacity,
+} from "react-native";
 import * as Haptics from "expo-haptics";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "@/components/ui/button";
@@ -8,6 +13,7 @@ import JobDetails from "../../components/dashboard/JobDetails";
 import ProgressTimeline from "../../components/dashboard/ProgressTimeline";
 import BillingSection from "../../components/dashboard/BillingSection";
 import DailyJobUpdate from "../../components/dashboard/DailyJobUpdate";
+import EmptyState from "../../components/common/EmptyState";
 import { useAuthStore } from "../../store/authStore";
 import Loader from "../../components/common/Loader";
 import { dashboardApi } from "../../api/dashboardApi";
@@ -28,7 +34,9 @@ const JobDetailScreen = ({ navigation, route }) => {
   const isMountedRef = useRef(true);
 
   useEffect(() => {
-    return () => { isMountedRef.current = false; };
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   const cached = getJobDetailFromCache(id);
@@ -37,6 +45,7 @@ const JobDetailScreen = ({ navigation, route }) => {
   const [progress, setProgress] = useState(cached?.progress ?? []);
   const [refreshing, setRefreshing] = useState(false);
   const hasValidJobId = Number.isInteger(id) && id > 0;
+  const checklistCount = job?.checklists?.length ?? 0;
 
   const fetchJobDetails = useCallback(async () => {
     if (!hasValidJobId) {
@@ -68,7 +77,10 @@ const JobDetailScreen = ({ navigation, route }) => {
       if (isMountedRef.current) setProgress(uploads);
       return uploads;
     } catch (error) {
-      logger.warn('JobDetailScreen', `Failed to fetch progress: ${error?.message}`);
+      logger.warn(
+        "JobDetailScreen",
+        `Failed to fetch progress: ${error?.message}`,
+      );
       if (isMountedRef.current) {
         setProgress([]);
       }
@@ -95,7 +107,7 @@ const JobDetailScreen = ({ navigation, route }) => {
   }, [id, hasValidJobId]);
 
   const handleRefresh = useCallback(async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setRefreshing(true);
     const [jobData, uploads] = await Promise.all([
       fetchJobDetails(),
@@ -127,7 +139,12 @@ const JobDetailScreen = ({ navigation, route }) => {
   return (
     <SafeAreaView className="flex-1 bg-background">
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40 }}
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingTop: 12,
+          paddingBottom: 40,
+        }}
+        contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -144,19 +161,31 @@ const JobDetailScreen = ({ navigation, route }) => {
         {/* Billing Section — external IP users only */}
         {isExternalIP && <BillingSection job={job} />}
 
-        {/* Daily Progress Update */}
-        <View className="mt-4">
-          <DailyJobUpdate jobId={job.id} />
-        </View>
-
         {/* Checklists Section */}
-        <View className="mt-6 mb-3">
-          <Text className="text-lg font-extrabold text-foreground mb-4">
-            Required Tasks
-          </Text>
+        <View
+          className="mt-4 rounded-2xl border border-border bg-surface overflow-hidden"
+          style={colors.shadowSm}
+        >
+          <View className="px-5 py-4 border-b border-border flex-row items-center justify-between gap-3">
+            <View className="flex-1">
+              <Text className="text-base font-extrabold text-foreground">
+                Required Tasks
+              </Text>
+              <Text className="text-[12px] font-medium text-muted-foreground mt-0.5">
+                Checklist workflow for this job
+              </Text>
+            </View>
+            {checklistCount > 0 ? (
+              <View className="rounded-xl bg-primary-light px-2.5 py-1">
+                <Text className="text-[11px] font-extrabold text-primary">
+                  {checklistCount} item{checklistCount === 1 ? "" : "s"}
+                </Text>
+              </View>
+            ) : null}
+          </View>
           {job.checklists?.length ? (
-            <View className="gap-3">
-              {job.checklists.map((checklist) => (
+            <View>
+              {job.checklists.map((checklist, index) => (
                 <TouchableOpacity
                   key={checklist.id}
                   onPress={() =>
@@ -169,10 +198,15 @@ const JobDetailScreen = ({ navigation, route }) => {
                   accessibilityRole="button"
                   accessibilityLabel={`Open checklist: ${checklist.name}`}
                   accessibilityHint="Double tap to open this checklist"
-                  className="flex-row items-center justify-between bg-surface p-4 rounded-2xl border border-border"
-                  style={colors.shadowSm}
+                  className="flex-row items-center justify-between px-5 py-4"
+                  style={{
+                    minHeight: 64,
+                    borderBottomWidth:
+                      index === job.checklists.length - 1 ? 0 : 1,
+                    borderBottomColor: colors.border,
+                  }}
                 >
-                  <View className="flex-row items-center gap-3">
+                  <View className="flex-row items-center gap-3 flex-1">
                     <View className="w-9 h-9 rounded-[10px] bg-primary-light items-center justify-center">
                       <Ionicons
                         name="checkbox-outline"
@@ -180,7 +214,10 @@ const JobDetailScreen = ({ navigation, route }) => {
                         color={colors.primary}
                       />
                     </View>
-                    <Text className="text-[15px] font-bold text-foreground">
+                    <Text
+                      className="flex-1 text-[15px] font-bold text-foreground"
+                      numberOfLines={2}
+                    >
                       {checklist.name}
                     </Text>
                   </View>
@@ -193,12 +230,23 @@ const JobDetailScreen = ({ navigation, route }) => {
               ))}
             </View>
           ) : (
-            <View className="p-5 bg-card rounded-2xl items-center border border-border">
-              <Text className="text-muted-foreground text-sm font-medium">
-                No checklists assigned to this job
-              </Text>
+            <View className="p-5">
+              <EmptyState
+                icon="checkbox-outline"
+                title="No checklists assigned"
+                subtitle="Required tasks for this job will appear here when assigned."
+              />
             </View>
           )}
+        </View>
+
+        {/* Daily Progress Update */}
+        <View className="mt-4">
+          <DailyJobUpdate jobId={job.id} />
+        </View>
+
+        <View className="mt-4">
+          <ProgressTimeline progress={progress} />
         </View>
       </ScrollView>
     </SafeAreaView>

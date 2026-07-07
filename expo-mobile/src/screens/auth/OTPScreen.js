@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -6,33 +6,32 @@ import {
   TextInput,
   View,
   TouchableOpacity,
-  Dimensions,
   StatusBar,
-} from 'react-native';
-import * as Haptics from 'expo-haptics';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Button, Text } from '@/components/ui';
-import { useAuth } from '../../hooks/useAuth';
-import { useAuthStore } from '../../store/authStore';
-import { useResponsive } from '../../hooks/useResponsive';
-import { useTheme } from '../../hooks/useTheme';
-import { validators } from '../../util/validators';
-import Ionicons from '@react-native-vector-icons/ionicons';
+  ActivityIndicator,
+} from "react-native";
+import * as Haptics from "expo-haptics";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
+import { Button, Text } from "@/components/ui";
+import { useAuth } from "../../hooks/useAuth";
+import { useAuthStore } from "../../store/authStore";
+import { useResponsive } from "../../hooks/useResponsive";
+import { useTheme } from "../../hooks/useTheme";
+import { validators } from "../../util/validators";
+import Ionicons from "@react-native-vector-icons/ionicons";
 
-const { width } = Dimensions.get('window');
 const OTP_LENGTH = 6;
 
 const OTPScreen = ({ navigation }) => {
   const { verifyOtp, resendOtp } = useAuth();
   const phoneNumber = useAuthStore((state) => state.phoneNumber);
-  const { maxCardWidth, isTablet } = useResponsive();
+  const { maxCardWidth, isTablet, width } = useResponsive();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
-  const [otp, setOtp] = useState(Array(OTP_LENGTH).fill(''));
+  const [otp, setOtp] = useState(Array(OTP_LENGTH).fill(""));
   const [focused, setFocused] = useState(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [timer, setTimer] = useState(60);
@@ -40,7 +39,7 @@ const OTPScreen = ({ navigation }) => {
   const inputRefs = useRef([]);
 
   useEffect(() => {
-    if (!phoneNumber) navigation.navigate('Login');
+    if (!phoneNumber) navigation.navigate("Login");
   }, [phoneNumber, navigation]);
 
   useEffect(() => {
@@ -50,33 +49,49 @@ const OTPScreen = ({ navigation }) => {
   }, [timer]);
 
   const handleChange = (index, value) => {
-    if (value && !/^\d$/.test(value)) return;
-    const updated = [...otp];
-    updated[index] = value;
-    setOtp(updated);
-    setError('');
-    if (value) {
-      Haptics.selectionAsync();
-      if (index < OTP_LENGTH - 1) inputRefs.current[index + 1]?.focus();
+    const digits = value.replace(/\D/g, "");
+    if (!digits) {
+      const updated = [...otp];
+      updated[index] = "";
+      setOtp(updated);
+      setError("");
+      return;
     }
+
+    const updated = [...otp];
+    digits
+      .slice(0, OTP_LENGTH - index)
+      .split("")
+      .forEach((digit, offset) => {
+        updated[index + offset] = digit;
+      });
+    setOtp(updated);
+    setError("");
+
+    Haptics.selectionAsync().catch(() => {});
+    const nextIndex = Math.min(index + digits.length, OTP_LENGTH - 1);
+    inputRefs.current[nextIndex]?.focus();
   };
 
   const handleKeyPress = (index, key) => {
-    if (key === 'Backspace' && !otp[index] && index > 0) {
+    if (key === "Backspace" && !otp[index] && index > 0) {
       inputRefs.current[index - 1]?.focus();
     }
   };
 
   const handleSubmit = async () => {
-    const otpValue = otp.join('');
+    const otpValue = otp.join("");
     const validation = validators.otp(otpValue);
-    if (!validation.valid) { setError(validation.message); return; }
+    if (!validation.valid) {
+      setError(validation.message);
+      return;
+    }
     setLoading(true);
     const result = await verifyOtp(otpValue);
     setLoading(false);
     if (!result.success) {
       setError(result.error);
-      setOtp(Array(OTP_LENGTH).fill(''));
+      setOtp(Array(OTP_LENGTH).fill(""));
       inputRefs.current[0]?.focus();
     }
   };
@@ -86,22 +101,31 @@ const OTPScreen = ({ navigation }) => {
     await resendOtp();
     setResendLoading(false);
     setTimer(60);
-    setOtp(Array(OTP_LENGTH).fill(''));
-    setError('');
+    setOtp(Array(OTP_LENGTH).fill(""));
+    setError("");
   };
 
-  const maskedPhone = phoneNumber ? `+91 ••••••${phoneNumber.slice(-4)}` : '';
-  const otpComplete = otp.join('').length === OTP_LENGTH;
-  
+  const maskedPhone = phoneNumber ? `+91 ••••••${phoneNumber.slice(-4)}` : "";
+  const otpComplete = otp.join("").length === OTP_LENGTH;
+
   // Calculate OTP box size - constrain to maxCardWidth on tablets
-  const containerWidth = isTablet ? Math.min(maxCardWidth || 500, width - 48) : width - 48;
-  const BOX_SIZE = Math.floor((containerWidth - 40) / 6);
+  const containerWidth = isTablet
+    ? Math.min(maxCardWidth || 500, width - 48)
+    : width - 48;
+  const BOX_SIZE = Math.min(56, Math.floor((containerWidth - 40) / 6));
 
   return (
     <View className="flex-1 bg-background">
-      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+      <StatusBar
+        barStyle="dark-content"
+        translucent
+        backgroundColor="transparent"
+      />
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={{ flex: 1 }}
+      >
         <ScrollView
           contentContainerStyle={{
             flexGrow: 1,
@@ -115,7 +139,9 @@ const OTPScreen = ({ navigation }) => {
           {/* Back button */}
           <View className="px-6 mb-2">
             <TouchableOpacity
-              onPress={() => navigation.navigate('Login')}
+              onPress={() => navigation.navigate("Login")}
+              accessibilityRole="button"
+              accessibilityLabel="Back to login"
               className="w-11 h-11 rounded-[14px] bg-surface items-center justify-center border border-border"
               style={colors.shadowSm}
             >
@@ -125,41 +151,59 @@ const OTPScreen = ({ navigation }) => {
 
           <View
             className="flex-1 justify-center px-6"
-            style={{ alignItems: isTablet ? 'center' : 'stretch' }}
+            style={{ alignItems: isTablet ? "center" : "stretch" }}
           >
-            <View className="w-full" style={{ maxWidth: maxCardWidth ?? '100%' }}>
-
+            <View
+              className="w-full"
+              style={{ maxWidth: maxCardWidth ?? "100%" }}
+            >
               {/* Shield badge */}
               <View className="self-center mb-8">
                 <View className="w-[88px] h-[88px] rounded-[44px] bg-primary-light justify-center items-center">
                   <View className="w-[60px] h-[60px] rounded-[30px] bg-primary justify-center items-center">
-                    <Ionicons name="shield-checkmark" size={30} color="#fff" />
+                    <Ionicons
+                      name="shield-checkmark"
+                      size={30}
+                      color={colors.primaryForeground}
+                    />
                   </View>
                 </View>
               </View>
 
               {/* Title */}
-              <Text className="text-[30px] font-black text-foreground text-center tracking-[-1px] mb-2.5">
+              <Text className="text-[30px] font-black text-foreground text-center mb-2.5">
                 Verify it's you
               </Text>
               <Text className="text-[15px] text-muted-foreground text-center leading-[22px] mb-10">
-                We sent a 6-digit code to{'\n'}
-                <Text className="font-extrabold text-foreground">{maskedPhone}</Text>
+                We sent a 6-digit code to{"\n"}
+                <Text className="font-extrabold text-foreground">
+                  {maskedPhone}
+                </Text>
               </Text>
 
               {/* OTP boxes */}
-              <View className="flex-row justify-center flex-wrap mb-2" style={{ gap: isTablet ? 12 : 8 }}>
+              <View
+                className="flex-row justify-center flex-wrap mb-2"
+                style={{ gap: isTablet ? 12 : 8 }}
+              >
                 {otp.map((digit, index) => (
                   <TextInput
                     key={index}
-                    ref={(el) => { inputRefs.current[index] = el; }}
+                    ref={(el) => {
+                      inputRefs.current[index] = el;
+                    }}
                     value={digit}
                     onChangeText={(value) => handleChange(index, value)}
-                    onKeyPress={({ nativeEvent }) => handleKeyPress(index, nativeEvent.key)}
+                    onKeyPress={({ nativeEvent }) =>
+                      handleKeyPress(index, nativeEvent.key)
+                    }
                     onFocus={() => setFocused(index)}
                     onBlur={() => setFocused(null)}
-                    maxLength={1}
+                    maxLength={OTP_LENGTH}
                     keyboardType="number-pad"
+                    textContentType={index === 0 ? "oneTimeCode" : "none"}
+                    autoComplete={index === 0 ? "sms-otp" : "off"}
+                    accessibilityLabel={`Verification code digit ${index + 1}`}
                     style={{
                       width: BOX_SIZE,
                       height: BOX_SIZE + 8,
@@ -167,19 +211,19 @@ const OTPScreen = ({ navigation }) => {
                       borderColor: error
                         ? colors.danger
                         : focused === index
-                        ? colors.primary
-                        : digit
-                        ? colors.primary
-                        : colors.border,
+                          ? colors.primary
+                          : digit
+                            ? colors.primary
+                            : colors.border,
                       borderRadius: 16,
                       backgroundColor: digit
                         ? colors.primaryLight
                         : focused === index
-                        ? colors.surface
-                        : colors.surface,
-                      textAlign: 'center',
+                          ? colors.surface
+                          : colors.surface,
+                      textAlign: "center",
                       fontSize: 24,
-                      fontWeight: '800',
+                      fontWeight: "800",
                       color: digit ? colors.primary : colors.text,
                     }}
                   />
@@ -188,8 +232,14 @@ const OTPScreen = ({ navigation }) => {
 
               {error ? (
                 <View className="flex-row items-center justify-center gap-1.5 mb-6 mt-2">
-                  <Ionicons name="alert-circle" size={15} color={colors.danger} />
-                  <Text className="text-danger text-[13px] font-semibold">{error}</Text>
+                  <Ionicons
+                    name="alert-circle"
+                    size={15}
+                    color={colors.danger}
+                  />
+                  <Text className="text-destructive-muted-foreground text-[13px] font-semibold">
+                    {error}
+                  </Text>
                 </View>
               ) : (
                 <View className="h-10" />
@@ -200,18 +250,34 @@ const OTPScreen = ({ navigation }) => {
                 onPress={handleSubmit}
                 disabled={!otpComplete || loading}
                 activeOpacity={0.82}
+                accessibilityRole="button"
+                accessibilityLabel="Verify and continue"
+                accessibilityState={{
+                  disabled: !otpComplete || loading,
+                  busy: loading,
+                }}
               >
                 <LinearGradient
-                  colors={otpComplete ? ['#6b4b41', '#3D1D1C'] : [colors.border, colors.borderStrong || '#d1d5db']}
+                  colors={
+                    otpComplete
+                      ? [colors.primary, colors.primaryDark]
+                      : [colors.border, colors.borderStrong || "#d1d5db"]
+                  }
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   className="h-[62px] rounded-[18px] items-center justify-center"
                   style={colors.shadowMd}
                 >
                   {loading ? (
-                    <View className="w-[22px] h-[22px] rounded-full border-[2.5px] border-white/30 border-t-white" />
+                    <ActivityIndicator
+                      size="small"
+                      color={colors.primaryForeground}
+                    />
                   ) : (
-                    <Text className="text-white text-[17px] font-extrabold">
+                    <Text
+                      className="text-[17px] font-extrabold"
+                      style={{ color: colors.primaryForeground }}
+                    >
                       Verify & Continue
                     </Text>
                   )}
@@ -222,10 +288,13 @@ const OTPScreen = ({ navigation }) => {
               <View className="items-center mt-7">
                 {timer > 0 ? (
                   <View className="flex-row items-center gap-1.5">
-                    <Text className="text-sm text-muted-foreground">Resend code in</Text>
+                    <Text className="text-sm text-muted-foreground">
+                      Resend code in
+                    </Text>
                     <View className="px-2.5 py-1 bg-primary-light rounded-lg">
                       <Text className="text-sm text-primary font-extrabold">
-                        {String(Math.floor(timer / 60)).padStart(2, '0')}:{String(timer % 60).padStart(2, '0')}
+                        {String(Math.floor(timer / 60)).padStart(2, "0")}:
+                        {String(timer % 60).padStart(2, "0")}
                       </Text>
                     </View>
                   </View>
@@ -233,15 +302,20 @@ const OTPScreen = ({ navigation }) => {
                   <TouchableOpacity
                     onPress={handleResend}
                     disabled={resendLoading}
+                    accessibilityRole="button"
+                    accessibilityLabel="Resend verification code"
+                    accessibilityState={{
+                      disabled: resendLoading,
+                      busy: resendLoading,
+                    }}
                     className="py-2.5 px-5 bg-primary-light rounded-xl"
                   >
                     <Text className="text-sm font-extrabold text-primary">
-                      {resendLoading ? 'Sending…' : 'Resend Code'}
+                      {resendLoading ? "Sending…" : "Resend Code"}
                     </Text>
                   </TouchableOpacity>
                 )}
               </View>
-
             </View>
           </View>
         </ScrollView>

@@ -7,13 +7,12 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_current_user
 from app.database import get_db
-from app.model.site_grn import AdminNotification, GRNPackage, SiteGRN
+from app.model.site_grn import GRNPackage, SiteGRN
 from app.model.user import User
 from app.schemas.site_grn import (
     GRNCreate,
     GRNResponse,
     GRNSubmit,
-    NotificationResponse,
     OdooPickingInfo,
     OdooPackageInfo,
 )
@@ -181,52 +180,12 @@ def get_grn(
     return _load_grn(db, grn_id)
 
 
-# ─── Admin: notifications ─────────────────────────────────────────────────────
-
-@admin_router.get("/notifications/list", response_model=List[NotificationResponse])
-def get_notifications(
-    unread_only: bool = Query(False),
-    limit: int = Query(50, ge=1, le=200),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(_require_admin),
-):
-    q = db.query(AdminNotification)
-    if unread_only:
-        q = q.filter(AdminNotification.is_read == False)
-    notifs = q.order_by(AdminNotification.created_at.desc()).limit(limit).all()
-    return notifs
-
-
-@admin_router.patch("/notifications/{notif_id}/read")
-def mark_notification_read(
-    notif_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(_require_admin),
-):
-    notif = db.query(AdminNotification).filter(AdminNotification.id == notif_id).first()
-    if not notif:
-        raise HTTPException(status_code=404, detail="Notification not found")
-    notif.is_read = True
-    db.commit()
-    return {"message": "Marked as read"}
-
-
 @admin_router.get("/debug/grn-line-fields")
 def probe_grn_line_fields(
     current_user: User = Depends(_require_admin),
 ):
     """Introspect x_site_grn_line fields to understand types before writeback."""
     return OdooService.probe_grn_line_fields()
-
-
-@admin_router.patch("/notifications/read-all")
-def mark_all_notifications_read(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(_require_admin),
-):
-    db.query(AdminNotification).filter(AdminNotification.is_read == False).update({"is_read": True})
-    db.commit()
-    return {"message": "All notifications marked as read"}
 
 
 # ─── IP: get assigned GRNs ────────────────────────────────────────────────────
@@ -282,26 +241,11 @@ def submit_grn(
 
     db.commit()
 
-    # Create in-app notification if any packages missing
-    if has_missing:
-        missing_list = ", ".join(missing_packages[:5])
-        if len(missing_packages) > 5:
-            missing_list += f" (+{len(missing_packages) - 5} more)"
-
-        notif = AdminNotification(
-            title=f"Missing packages on GRN #{grn_id}",
-            body=f"GRN for {grn.source_document} submitted with {len(missing_packages)} missing package(s): {missing_list}",
-            grn_id=grn_id,
-            is_read=False,
-        )
-        db.add(notif)
-        db.commit()
-
     # Writeback to Odoo (non-fatal)
     if grn.odoo_picking_id:
         try:
             OdooService.post_grn_result_to_odoo(grn.odoo_picking_id, missing_packages)
-            OdooService.update_x_site_grn_status(grn.odoo_picking_id, has_missing)
+            OdooService.update_x_site_grn_status(grn.odoo_picking_id, has_missing, grn.submitted_at)
         except Exception as e:
             logger.warning("Odoo GRN writeback failed for GRN %s: %s", grn_id, e)
 

@@ -7,6 +7,7 @@ import {
   View,
   TouchableOpacity,
   StatusBar,
+  ActivityIndicator,
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -23,7 +24,7 @@ import Ionicons from "@react-native-vector-icons/ionicons";
 const LoginScreen = ({ navigation }) => {
   const { login } = useAuth();
   const { maxCardWidth, isTablet, height } = useResponsive();
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
   const [phoneNumber, setPhoneNumber] = React.useState("");
@@ -56,7 +57,7 @@ const LoginScreen = ({ navigation }) => {
 
       {/* Full-screen brand gradient */}
       <LinearGradient
-        colors={["#1a0a0a", "#3D1D1C", "#6b4b41"]}
+        colors={colors.brandGradient as [string, string, string]}
         start={{ x: 0.15, y: 0 }}
         end={{ x: 0.85, y: 1 }}
         style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
@@ -90,7 +91,7 @@ const LoginScreen = ({ navigation }) => {
                 fontSize: 38,
                 fontWeight: "900",
                 color: "#fff",
-                letterSpacing: -1.5,
+                letterSpacing: 0,
                 lineHeight: 44,
               }}
             >
@@ -131,11 +132,11 @@ const LoginScreen = ({ navigation }) => {
                     fontSize: 26,
                     fontWeight: "800",
                     color: colors.text,
-                    letterSpacing: -0.5,
+                    letterSpacing: 0,
                     marginBottom: 6,
                   }}
                 >
-                  Welcome back 👋
+                  Welcome back
                 </Text>
                 <Text style={{ fontSize: 15, color: colors.textSecondary, lineHeight: 22 }}>
                   Enter your number to receive a login code
@@ -150,7 +151,7 @@ const LoginScreen = ({ navigation }) => {
                     fontWeight: "700",
                     color: colors.textMuted,
                     textTransform: "uppercase",
-                    letterSpacing: 1.2,
+                    letterSpacing: 0,
                     marginBottom: 8,
                     marginLeft: 2,
                   }}
@@ -180,7 +181,6 @@ const LoginScreen = ({ navigation }) => {
                       borderRightColor: colors.border,
                     }}
                   >
-                    <Text style={{ fontSize: 20 }}>🇮🇳</Text>
                     <Text
                       style={{
                         fontSize: 16,
@@ -196,6 +196,9 @@ const LoginScreen = ({ navigation }) => {
                     placeholder="9876543210"
                     keyboardType="phone-pad"
                     value={phoneNumber}
+                    accessibilityLabel="Mobile number"
+                    textContentType="telephoneNumber"
+                    autoComplete="tel"
                     onChangeText={(text) => {
                       setPhoneNumber(text);
                       setError("");
@@ -206,7 +209,7 @@ const LoginScreen = ({ navigation }) => {
                       fontSize: 20,
                       fontWeight: "700",
                       color: colors.text,
-                      letterSpacing: 1.5,
+                      letterSpacing: 0,
                       backgroundColor: "transparent",
                       borderWidth: 0,
                     }}
@@ -238,9 +241,12 @@ const LoginScreen = ({ navigation }) => {
                 activeOpacity={0.82}
                 disabled={loading}
                 style={{ marginTop: 32 }}
+                accessibilityRole="button"
+                accessibilityLabel="Get access code"
+                accessibilityState={{ busy: loading, disabled: loading }}
               >
                 <LinearGradient
-                  colors={["#6b4b41", "#3D1D1C"]}
+                  colors={[colors.primary, colors.primaryDark]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={{
@@ -254,19 +260,10 @@ const LoginScreen = ({ navigation }) => {
                   }}
                 >
                   {loading ? (
-                    <View
-                      style={{
-                        width: 22,
-                        height: 22,
-                        borderRadius: 11,
-                        borderWidth: 2.5,
-                        borderColor: "rgba(255,255,255,0.3)",
-                        borderTopColor: "#fff",
-                      }}
-                    />
+                    <ActivityIndicator size="small" color={colors.primaryForeground} />
                   ) : (
                     <>
-                      <Text style={{ color: "#fff", fontSize: 17, fontWeight: "800" }}>
+                      <Text style={{ color: colors.primaryForeground, fontSize: 17, fontWeight: "800" }}>
                         Get Access Code
                       </Text>
                       <View
@@ -279,7 +276,7 @@ const LoginScreen = ({ navigation }) => {
                           justifyContent: "center",
                         }}
                       >
-                        <Ionicons name="arrow-forward" size={16} color="#fff" />
+                        <Ionicons name="arrow-forward" size={16} color={colors.primaryForeground} />
                       </View>
                     </>
                   )}
@@ -301,6 +298,8 @@ const LoginScreen = ({ navigation }) => {
                 </Text>
                 <TouchableOpacity
                   onPress={() => navigation.navigate(ROUTES.REGISTER)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Join now"
                   style={{
                     paddingVertical: 6,
                     paddingHorizontal: 14,
@@ -326,7 +325,7 @@ const LoginScreen = ({ navigation }) => {
                 }}
               >
                 <Ionicons name="lock-closed" size={12} color={colors.textMuted} />
-                <Text style={{ fontSize: 12, color: colors.textMuted, letterSpacing: 0.3 }}>
+                <Text style={{ fontSize: 12, color: colors.textMuted, letterSpacing: 0 }}>
                   Secured by SSL • Trusted by 5,000+ partners
                 </Text>
               </View>

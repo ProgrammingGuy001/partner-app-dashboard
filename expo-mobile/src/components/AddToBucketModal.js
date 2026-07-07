@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Modal, ScrollView, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Text } from '@/components/ui/text';
@@ -16,11 +17,21 @@ const DEPARTMENTS = [
 
 const AddToBucketModal = ({ visible, item, onSave, onClose }) => {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const [formData, setFormData] = useState({
     quantity: '1',
     issue_description: '',
     responsible_department: null,
   });
+
+  useEffect(() => {
+    if (!visible || !item) return;
+    setFormData({
+      quantity: '1',
+      issue_description: '',
+      responsible_department: null,
+    });
+  }, [visible, item]);
 
   const handleSubmit = () => {
     onSave({
@@ -34,37 +45,42 @@ const AddToBucketModal = ({ visible, item, onSave, onClose }) => {
   if (!item) return null;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View className="flex-1 justify-center bg-black/45 px-4">
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} accessibilityViewIsModal>
+      <View className="flex-1 justify-end px-4" style={{ backgroundColor: colors.overlay, paddingBottom: insets.bottom + 12 }}>
         <View
-          className="bg-surface rounded-3xl p-6 border border-border"
+          className="bg-surface rounded-2xl p-6 border border-border"
           style={colors.shadowMd}
         >
-          <Text className="mb-5 text-xl font-extrabold text-foreground tracking-tight">Add to Bucket</Text>
+          <Text className="mb-5 text-xl font-extrabold text-foreground">Add to Bucket</Text>
 
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-            <Text className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-2 mt-1">Product Name</Text>
+            <Text className="text-[11px] font-bold text-muted-foreground uppercase mb-2 mt-1">Product Name</Text>
             <Input
               value={item.product_name}
               editable={false}
+              accessibilityLabel="Product name"
               className="h-[52px] rounded-xl bg-muted px-4 border-0 font-semibold text-muted-foreground"
             />
 
-            <Text className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-2 mt-4">Quantity</Text>
+            <Text className="text-[11px] font-bold text-muted-foreground uppercase mb-2 mt-4">Quantity</Text>
             <Input
               value={formData.quantity}
               onChangeText={(text) => setFormData((prev) => ({ ...prev, quantity: text }))}
               keyboardType="decimal-pad"
+              accessibilityLabel="Quantity"
               className="h-[52px] rounded-xl bg-background border px-4"
             />
 
-            <Text className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-2 mt-4">Department</Text>
+            <Text className="text-[11px] font-bold text-muted-foreground uppercase mb-2 mt-4">Department</Text>
             <View className="flex-row flex-wrap gap-2 mb-1">
               {DEPARTMENTS.map((dept) => {
                 const selected = formData.responsible_department === dept.value;
                 return (
                   <TouchableOpacity
                     key={dept.value}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Responsible department ${dept.label}`}
+                    accessibilityState={{ selected }}
                     onPress={() =>
                       setFormData((prev) => ({
                         ...prev,
@@ -79,7 +95,7 @@ const AddToBucketModal = ({ visible, item, onSave, onClose }) => {
                   >
                     <Text
                       className="text-xs font-bold"
-                      style={{ color: selected ? '#fff' : colors.textSecondary }}
+                      style={{ color: selected ? colors.primaryForeground : colors.textSecondary }}
                     >
                       {dept.label}
                     </Text>
@@ -88,12 +104,13 @@ const AddToBucketModal = ({ visible, item, onSave, onClose }) => {
               })}
             </View>
 
-            <Text className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-2 mt-4">Issue Description</Text>
+            <Text className="text-[11px] font-bold text-muted-foreground uppercase mb-2 mt-4">Issue Description</Text>
             <Input
               value={formData.issue_description}
               onChangeText={(text) => setFormData((prev) => ({ ...prev, issue_description: text }))}
               multiline
               textAlignVertical="top"
+              accessibilityLabel="Issue description"
               className="min-h-[80px] rounded-xl bg-background border pt-3 px-4"
             />
           </ScrollView>
@@ -103,7 +120,7 @@ const AddToBucketModal = ({ visible, item, onSave, onClose }) => {
               <Text className="text-foreground font-bold">Cancel</Text>
             </Button>
             <Button className="flex-1 h-14 rounded-2xl bg-primary" onPress={handleSubmit}>
-              <Text className="text-white font-bold">Add</Text>
+              <Text className="text-primary-foreground font-bold">Add</Text>
             </Button>
           </View>
         </View>

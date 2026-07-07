@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react';
-import { Animated, View } from 'react-native';
+import React from 'react';
+import { View } from 'react-native';
+import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { Text } from '@/components/ui';
 import { useTheme } from '../../hooks/useTheme';
@@ -8,13 +9,17 @@ import { useTheme } from '../../hooks/useTheme';
  * Reusable empty state component.
  */
 const EmptyState = ({ icon = 'folder-open-outline', title = 'Nothing here', subtitle, style }) => {
+  const { colors } = useTheme();
+
   return (
     <View
       className="items-center justify-center rounded-2xl border border-border bg-card p-10 gap-3"
-      style={style}
+      style={[colors.shadowSm, style]}
+      accessible
+      accessibilityRole="summary"
     >
       <View className="w-[72px] h-[72px] rounded-full bg-primary-light items-center justify-center">
-        <Ionicons name={icon} size={36} className="text-muted-foreground" color="#9a8b84" />
+        <Ionicons name={icon} size={34} color={colors.primary} />
       </View>
       <Text className="text-base font-bold text-foreground text-center">{title}</Text>
       {subtitle ? (
@@ -28,23 +33,27 @@ const EmptyState = ({ icon = 'folder-open-outline', title = 'Nothing here', subt
  * Animated pulsing skeleton block — use for loading placeholders.
  */
 export const SkeletonBlock = ({ width = '100%', height = 16, borderRadius = 8, style }) => {
-  const opacity = useRef(new Animated.Value(0.4)).current;
+  const opacity = useSharedValue(0.45);
 
-  useEffect(() => {
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0.4, duration: 700, useNativeDriver: true }),
-      ])
+  React.useEffect(() => {
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 700 }),
+        withTiming(0.45, { duration: 700 })
+      ),
+      -1,
+      false
     );
-    anim.start();
-    return () => anim.stop();
   }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   return (
     <Animated.View
+      entering={FadeIn.duration(180)}
+      exiting={FadeOut.duration(140)}
       className="bg-border"
-      style={[{ width, height, borderRadius, opacity }, style]}
+      style={[{ width, height, borderRadius }, animatedStyle, style]}
     />
   );
 };

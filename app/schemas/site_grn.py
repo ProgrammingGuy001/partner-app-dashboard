@@ -70,15 +70,3 @@ class OdooPickingInfo(BaseModel):
     origin: Optional[str]
     partner_name: Optional[str]
     packages: List[OdooPackageInfo]
-
-
-class NotificationResponse(BaseModel):
-    id: int
-    title: str
-    body: str
-    grn_id: Optional[int]
-    is_read: bool
-    created_at: datetime
-
-    class Config:
-        from_attributes = True

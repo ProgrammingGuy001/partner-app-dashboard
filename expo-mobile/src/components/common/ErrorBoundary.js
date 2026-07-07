@@ -1,17 +1,20 @@
 import React from 'react';
-import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity } from 'react-native';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { Text } from '@/components/ui';
+import { useTheme } from '../../hooks/useTheme';
 
 /**
  * Theme-aware fallback UI component, used by ErrorBoundary.
  */
 const ErrorFallback = ({ error, onRetry }) => {
+  const { colors } = useTheme();
+
   return (
     <View className="flex-1 justify-center items-center p-6 bg-background">
       <View className="items-center max-w-[320px]">
         <View className="w-[120px] h-[120px] rounded-full bg-destructive-muted justify-center items-center mb-6">
-          <Ionicons name="warning-outline" size={64} color="#e11d48" />
+          <Ionicons name="warning-outline" size={64} color={colors.danger} />
         </View>
         <Text className="text-[22px] font-bold text-foreground mb-3 text-center">
           Something went wrong
@@ -25,9 +28,11 @@ const ErrorFallback = ({ error, onRetry }) => {
           className="flex-row items-center bg-primary py-3.5 px-7 rounded-xl gap-2"
           onPress={onRetry}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Try again"
         >
-          <Ionicons name="refresh-outline" size={20} color="#fff" />
-          <Text className="text-white text-base font-semibold">Try Again</Text>
+          <Ionicons name="refresh-outline" size={20} color={colors.primaryForeground} />
+          <Text className="text-base font-semibold" style={{ color: colors.primaryForeground }}>Try Again</Text>
         </TouchableOpacity>
       </View>
     </View>

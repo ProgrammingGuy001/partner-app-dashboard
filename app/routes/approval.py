@@ -385,6 +385,8 @@ async def mark_admin_attendance(
         form = await request.form()
         notes = _limited_form_text(form.get("notes"), "notes", 1000)
         manual_location = _limited_form_text(form.get("manual_location"), "manual_location", 255)
+        if not manual_location:
+            raise HTTPException(status_code=422, detail="Manual location is required")
         latitude_value = form.get("latitude")
         longitude_value = form.get("longitude")
         if latitude_value in (None, "") or longitude_value in (None, ""):

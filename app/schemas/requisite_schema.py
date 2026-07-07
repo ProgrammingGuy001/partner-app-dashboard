@@ -55,6 +55,8 @@ class SODetailResponse(BaseModel):
     repair_reference: Optional[str] = None
     expected_delivery: Optional[date] = None
     do_number: Optional[str] = None
+    odoo_repair_order_id: Optional[int] = None
+    odoo_repair_order_name: Optional[str] = None
     site_requisites: List[SiteRequisiteResponse] = []
 
     class Config:

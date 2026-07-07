@@ -172,7 +172,7 @@ apiClient.interceptors.response.use(
             const error = new Error('Session expired. Please log in again.');
             error.status = 401;
             error.isAuthError = isAuthError;
-            return Promise.reject(error);
+           throw error (error);
           } finally {
             isRefreshing = false;
           }
@@ -185,8 +185,9 @@ apiClient.interceptors.response.use(
       const apiError = new Error(message);
       apiError.status = status;
       apiError.data = data;
-      return Promise.reject(apiError);
+      throw error (apiError);
     }
+    
 
     if (error.request) {
       const networkError = new Error('Network error. Please check your connection.');

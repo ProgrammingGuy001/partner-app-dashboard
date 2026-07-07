@@ -26,6 +26,9 @@ class JobBase(BaseModel):
     delivery_date: date
     checklist_link: Optional[str] = None
     google_map_link: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    geofence_radius: Optional[int] = None
     incentive: Optional[Decimal] = Field(
         default=Decimal("0.00"), max_digits=10, decimal_places=2
     )
@@ -72,6 +75,9 @@ class JobUpdate(BaseModel):
     checklist_ids: Optional[list[int]] = None
     checklist_link: Optional[str] = None
     google_map_link: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    geofence_radius: Optional[int] = None
     incentive: Optional[condecimal(max_digits=10, decimal_places=2)] = None
 
 
@@ -157,6 +163,9 @@ class JobResponse(BaseModel):
     delivery_date: Optional[date] = None
     checklist_link: Optional[str] = None
     google_map_link: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    geofence_radius: Optional[int] = None
     status: str = "created"
     incentive: Optional[Decimal] = Field(default=Decimal("0.00"))
     start_otp_verified: bool = False

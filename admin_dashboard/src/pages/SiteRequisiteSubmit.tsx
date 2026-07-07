@@ -15,7 +15,6 @@ const SiteRequisiteSubmit: React.FC = () => {
     const { bucket, salesOrder, cabinetPosition, soDetails } = state;
 
     const [srPoc, setSrPoc] = useState('');
-    const [repairReference, setRepairReference] = useState('');
     const [expectedDelivery, setExpectedDelivery] = useState('');
     const [doNumber, setDoNumber] = useState('');
     const [loading, setLoading] = useState(false);
@@ -91,7 +90,6 @@ const SiteRequisiteSubmit: React.FC = () => {
                 sales_order: salesOrder,
                 cabinet_position: cabinetPosition,
                 sr_poc: srPoc || undefined,
-                repair_reference: repairReference || undefined,
                 expected_delivery: expectedDelivery || undefined,
                 do_number: doNumber || undefined,
                 items: bucket,
@@ -123,7 +121,7 @@ const SiteRequisiteSubmit: React.FC = () => {
                         </div>
                         <h2 className="text-2xl font-bold text-foreground mb-3">Requisite Submitted!</h2>
                         <p className="text-muted-foreground mb-8">
-                            The site requisite has been created successfully. Redirecting to BOM history...
+                            The repair order has been created successfully. Redirecting to BOM history...
                         </p>
                         <Button onClick={() => { clear(); navigate('/dashboard/bom'); }} size="lg" className="w-full">
                             View BOM History
@@ -263,15 +261,6 @@ const SiteRequisiteSubmit: React.FC = () => {
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="space-y-2">
-                                        <Label>Repair Reference</Label>
-                                        <Input
-                                            type="text"
-                                            value={repairReference}
-                                            onChange={(e) => setRepairReference(e.target.value)}
-                                            placeholder="Enter repair reference"
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
                                         <Label>Expected Delivery</Label>
                                         <Input
                                             type="date"
@@ -279,7 +268,7 @@ const SiteRequisiteSubmit: React.FC = () => {
                                             onChange={(e) => setExpectedDelivery(e.target.value)}
                                         />
                                     </div>
-                                    <div className="space-y-2 md:col-span-2">
+                                    <div className="space-y-2">
                                         <Label>DO Number</Label>
                                         <Input
                                             type="text"
@@ -314,7 +303,7 @@ const SiteRequisiteSubmit: React.FC = () => {
                                         ) : (
                                             <>
                                                 <Send className="w-4 h-4 mr-2" />
-                                                Submit Request
+                                                Create Repair Order
                                             </>
                                         )}
                                     </Button>

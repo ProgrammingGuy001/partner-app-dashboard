@@ -78,9 +78,7 @@ export const dashboardApi = {
     const formData = new FormData();
     formData.append('latitude', String(latitude));
     formData.append('longitude', String(longitude));
-    if (manualLocation?.trim()) {
-      formData.append('manual_location', manualLocation.trim());
-    }
+    formData.append('manual_location', manualLocation?.trim() || '');
 
     const filename = photoUri.split('/').pop();
     const ext = filename?.split('.').pop()?.toLowerCase() ?? 'jpg';

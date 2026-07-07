@@ -6,11 +6,11 @@ export type InputProps = TextInputProps & {
   className?: string;
 };
 
-export function Input({ className, editable = true, ...props }: InputProps) {
+export function Input({ className, editable = true, allowFontScaling = true, ...props }: InputProps) {
   return (
     <PrimitiveTextInput
       className={cn(
-        'dark:bg-input/30 border-input bg-background text-foreground flex h-10 w-full min-w-0 flex-row items-center rounded-md border px-3 py-1 text-base leading-5 shadow-sm shadow-black/5 sm:h-9',
+        'dark:bg-input/30 border-input bg-card text-foreground flex min-h-12 w-full min-w-0 flex-row items-center rounded-xl border px-4 py-3 text-base leading-5 shadow-sm shadow-black/5',
         editable === false &&
           cn(
             'opacity-50',
@@ -27,6 +27,8 @@ export function Input({ className, editable = true, ...props }: InputProps) {
         className
       )}
       editable={editable}
+      allowFontScaling={allowFontScaling}
+      accessibilityState={{ disabled: editable === false }}
       {...props}
     />
   );

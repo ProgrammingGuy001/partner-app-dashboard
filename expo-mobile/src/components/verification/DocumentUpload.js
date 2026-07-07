@@ -1,13 +1,13 @@
-import React, { useEffect, useState } from 'react';
-import { View } from 'react-native';
-import Ionicons from '@react-native-vector-icons/ionicons';
-import { Button } from '@/components/ui/button';
-import { Text } from '@/components/ui/text';
-import FileUpload from '../common/FileUpload';
-import { verificationApi } from '../../api/verificationApi';
-import { useFileUpload } from '../../hooks/useFileUpload';
-import { useToast } from '../../hooks/useToast';
-import { useTheme } from '../../hooks/useTheme';
+import React, { useEffect, useState } from "react";
+import { View } from "react-native";
+import Ionicons from "@react-native-vector-icons/ionicons";
+import { Button } from "@/components/ui/button";
+import { Text } from "@/components/ui/text";
+import FileUpload from "../common/FileUpload";
+import { verificationApi } from "../../api/verificationApi";
+import { useFileUpload } from "../../hooks/useFileUpload";
+import { useToast } from "../../hooks/useToast";
+import { useTheme } from "../../hooks/useTheme";
 
 const DocumentUpload = ({ canProceed, isDocumentUploaded, onDone }) => {
   const toast = useToast();
@@ -23,19 +23,19 @@ const DocumentUpload = ({ canProceed, isDocumentUploaded, onDone }) => {
 
   const handleUpload = async () => {
     if (!file) {
-      toast.error('Please select a file to upload');
+      toast.error("Please select a file to upload");
       return;
     }
 
     setUploading(true);
     try {
       await verificationApi.uploadDocument(file);
-      toast.success('Document uploaded successfully!');
+      toast.success("Document uploaded successfully!");
       setUploaded(true);
       clearFile();
       onDone?.();
     } catch (err) {
-      toast.error(err.message || 'Document upload failed');
+      toast.error(err.message || "Document upload failed");
     } finally {
       setUploading(false);
     }
@@ -43,9 +43,7 @@ const DocumentUpload = ({ canProceed, isDocumentUploaded, onDone }) => {
 
   if (!canProceed) {
     return (
-      <View 
-        className="bg-surface rounded-3xl p-8 items-center opacity-60 border border-border border-dashed"
-      >
+      <View className="bg-surface rounded-2xl p-8 items-center opacity-60 border border-border border-dashed">
         <View className="w-16 h-16 rounded-[32px] bg-background items-center justify-center mb-4">
           <Ionicons name="lock-closed" size={28} color={colors.textMuted} />
         </View>
@@ -61,15 +59,15 @@ const DocumentUpload = ({ canProceed, isDocumentUploaded, onDone }) => {
 
   if (uploaded) {
     return (
-      <View 
-        className="bg-surface rounded-3xl p-8 items-center border border-border"
+      <View
+        className="bg-surface rounded-2xl p-8 items-center border border-border"
         style={colors.shadowSm}
       >
-        <View 
+        <View
           className="w-20 h-20 rounded-[40px] items-center justify-center mb-5"
-          style={{ backgroundColor: colors.success + '15' }}
+          style={{ backgroundColor: colors.primaryLight }}
         >
-          <Ionicons name="checkmark-circle" size={40} color={colors.success} />
+          <Ionicons name="checkmark-circle" size={40} color={colors.primary} />
         </View>
         <Text className="text-xl font-extrabold text-foreground mb-2">
           Document Uploaded
@@ -77,19 +75,18 @@ const DocumentUpload = ({ canProceed, isDocumentUploaded, onDone }) => {
         <Text className="text-sm text-muted-foreground text-center leading-5 mb-6">
           Your verification is complete. Continue to dashboard.
         </Text>
-        <Button 
-          className="w-full h-14 rounded-2xl bg-primary" 
-          onPress={onDone}
-        >
-          <Text className="text-white text-base font-bold">Continue to Dashboard</Text>
+        <Button className="w-full h-14 rounded-2xl bg-primary" onPress={onDone}>
+          <Text className="text-primary-foreground text-base font-bold">
+            Continue to Dashboard
+          </Text>
         </Button>
       </View>
     );
   }
 
   return (
-    <View 
-      className="bg-surface rounded-3xl p-6 border border-border"
+    <View
+      className="bg-surface rounded-2xl p-6 border border-border"
       style={colors.shadowSm}
     >
       <View className="mb-5">
@@ -112,19 +109,23 @@ const DocumentUpload = ({ canProceed, isDocumentUploaded, onDone }) => {
       </View>
 
       <View className="flex-row gap-3">
-        <Button 
-          className="flex-1 h-14 rounded-2xl bg-background border border-border" 
+        <Button
+          className="flex-1 h-14 rounded-2xl bg-background border border-border"
           onPress={onDone}
         >
-          <Text className="text-foreground font-bold text-[15px]">Skip for Now</Text>
+          <Text className="text-foreground font-bold text-[15px]">
+            Skip for Now
+          </Text>
         </Button>
-        <Button 
+        <Button
           className="flex-1 h-14 rounded-2xl bg-primary"
-          loading={uploading} 
-          disabled={!file} 
-          onPress={handleUpload} 
+          loading={uploading}
+          disabled={!file}
+          onPress={handleUpload}
         >
-          <Text className="text-white font-bold text-[15px]">Upload & Continue</Text>
+          <Text className="text-primary-foreground font-bold text-[15px]">
+            Upload & Continue
+          </Text>
         </Button>
       </View>
     </View>

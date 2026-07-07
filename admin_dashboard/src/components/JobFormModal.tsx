@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ChevronDown, Trash2, Search, Loader2, CheckCircle2 } from "lucide-react"
+import LocationPicker from "@/components/LocationPicker"
 
 const jobSchema = z.object({
   name: z.string().min(1, "Job Name is required"),
@@ -45,7 +46,9 @@ const jobSchema = z.object({
   city: z.string().min(1, "City is required"),
   state: z.string().min(1, "State is required"),
   pincode: z.string().min(6, "Pincode must be 6 digits").max(6, "Pincode must be 6 digits").regex(/^\d+$/, "Must be numbers"),
-  google_map_link: z.string().url("Invalid URL").optional().or(z.literal("")),
+  latitude: z.number().nullable().optional(),
+  longitude: z.number().nullable().optional(),
+  geofence_radius: z.number().nullable().optional(),
   type: z.string().min(1, "Type is required"),
   rate: z.string().min(1, "Rate is required").refine((val) => !isNaN(Number(val)) && Number(val) >= 0, { message: "Rate must be a positive number" }),
   size: z.string().optional().refine((val) => !val || (!isNaN(Number(val)) && Number(val) >= 0), { message: "Size must be a positive number" }),
@@ -118,7 +121,9 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess, is
       city: '',
       state: '',
       pincode: '',
-      google_map_link: '',
+      latitude: null,
+      longitude: null,
+      geofence_radius: 100,
       type: '',
       rate: '',
       size: '',
@@ -131,6 +136,9 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess, is
 
   const assignedIpId = watch('assigned_ip_id');
   const jobType = watch('type');
+  const latitude = watch('latitude');
+  const longitude = watch('longitude');
+  const geofenceRadius = watch('geofence_radius');
   const normalizedJobType = (jobType || '').trim().toLowerCase();
 
   useEffect(() => {
@@ -152,7 +160,9 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess, is
         city: job.city || '',
         state: job.state || '',
         pincode: (job.pincode ?? '').toString(),
-        google_map_link: job.google_map_link || '',
+        latitude: job.latitude ?? null,
+        longitude: job.longitude ?? null,
+        geofence_radius: job.geofence_radius ?? 100,
         type: job.type || '',
         rate: (job.rate ?? '').toString(),
         size: job.size?.toString() || '',
@@ -284,7 +294,9 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess, is
         assigned_ip_id: data.assigned_ip_id ? parseInt(data.assigned_ip_id, 10) : undefined,
         start_date: data.start_date,
         delivery_date: data.delivery_date,
-        google_map_link: data.google_map_link || undefined,
+        latitude: data.latitude ?? undefined,
+        longitude: data.longitude ?? undefined,
+        geofence_radius: data.geofence_radius ?? undefined,
         checklist_ids: selectedChecklistIds,
       };
 
@@ -497,16 +509,19 @@ const JobFormModal: React.FC<JobFormModalProps> = ({ job, onClose, onSuccess, is
                 {errors.address_line_2 && <p className="text-xs text-destructive">{errors.address_line_2.message}</p>}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="google_map_link">Google Map Link</Label>
-                <Input
-                  id="google_map_link"
-                  type="url"
-                  placeholder="https://maps.google.com/..."
-                  {...register("google_map_link")}
-                  aria-invalid={!!errors.google_map_link}
+              <div className="space-y-2 md:col-span-2">
+                <LocationPicker
+                  value={{
+                    latitude: latitude ?? null,
+                    longitude: longitude ?? null,
+                    geofenceRadius: geofenceRadius ?? null,
+                  }}
+                  onChange={(v) => {
+                    setValue('latitude', v.latitude, { shouldValidate: true });
+                    setValue('longitude', v.longitude, { shouldValidate: true });
+                    setValue('geofence_radius', v.geofenceRadius, { shouldValidate: true });
+                  }}
                 />
-                {errors.google_map_link && <p className="text-xs text-destructive">{errors.google_map_link.message}</p>}
               </div>
 
               <div className="space-y-2">

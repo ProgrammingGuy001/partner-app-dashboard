@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Package, Plus, Search, Bell, BellDot, AlertTriangle, CheckCircle2,
-  Clock, ChevronDown, ChevronUp, X
+  Package, Plus, Search, AlertTriangle, CheckCircle2,
+  Clock, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { grnAPI, adminAPI, type GRN, type OdooPickingInfo } from '@/api/services';
@@ -55,9 +55,7 @@ const StatusBadge = ({ status, hasMissing }: { status: string; hasMissing: boole
 
 const GRNRow = ({ grn }: { grn: GRN }) => {
   const [expanded, setExpanded] = useState(false);
-  const ipName = grn.ip_user
-    ? `${grn.ip_user.first_name ?? ''} ${grn.ip_user.last_name ?? ''}`.trim() || grn.ip_user.phone_number
-    : `IP #${grn.ip_user_id}`;
+  const ipName = getIPName(grn);
 
   return (
     <div className={`border rounded-lg overflow-hidden ${grn.has_missing ? 'border-red-300 dark:border-red-700' : 'border-border'}`}>
@@ -105,6 +103,68 @@ const GRNRow = ({ grn }: { grn: GRN }) => {
           )}
         </div>
       )}
+    </div>
+  );
+};
+
+type GRNGroup = {
+  key: string;
+  ipName: string;
+  phone: string;
+  grns: GRN[];
+  latestMs: number;
+};
+
+const getIPName = (grn: GRN) =>
+  grn.ip_user
+    ? `${grn.ip_user.first_name ?? ''} ${grn.ip_user.last_name ?? ''}`.trim() || grn.ip_user.phone_number
+    : `IP #${grn.ip_user_id}`;
+
+const groupGRNsByIP = (grns: GRN[]) => {
+  const groups = new Map<string, GRNGroup>();
+  for (const grn of grns) {
+    const key = String(grn.ip_user_id);
+    const createdMs = new Date(grn.created_at).getTime();
+    const group = groups.get(key);
+    if (group) {
+      group.grns.push(grn);
+      group.latestMs = Math.max(group.latestMs, createdMs);
+      continue;
+    }
+    groups.set(key, {
+      key,
+      ipName: getIPName(grn),
+      phone: grn.ip_user?.phone_number ?? `IP #${grn.ip_user_id}`,
+      grns: [grn],
+      latestMs: createdMs,
+    });
+  }
+  return [...groups.values()].sort((a, b) => b.latestMs - a.latestMs);
+};
+
+const IPGRNGroup = ({ group }: { group: GRNGroup }) => {
+  const pendingCount = group.grns.filter(g => g.status === 'pending').length;
+  const missingCount = group.grns.filter(g => g.has_missing).length;
+  const packageCount = group.grns.reduce((sum, g) => sum + g.packages.length, 0);
+
+  return (
+    <div className="rounded-lg border border-border overflow-hidden">
+      <div className="flex items-center justify-between gap-3 flex-wrap bg-muted/30 px-4 py-3">
+        <div className="min-w-0">
+          <p className="font-semibold text-sm truncate">{group.ipName}</p>
+          <p className="text-xs text-muted-foreground">
+            {group.phone} · {packageCount} package{packageCount !== 1 ? 's' : ''}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant="outline">{group.grns.length} GRN{group.grns.length !== 1 ? 's' : ''}</Badge>
+          {pendingCount > 0 && <Badge variant="secondary">{pendingCount} pending</Badge>}
+          {missingCount > 0 && <Badge variant="destructive">{missingCount} missing</Badge>}
+        </div>
+      </div>
+      <div className="space-y-3 p-3 bg-background">
+        {group.grns.map(g => <GRNRow key={g.id} grn={g} />)}
+      </div>
     </div>
   );
 };
@@ -309,80 +369,10 @@ const CreateGRNModal = ({
   );
 };
 
-// ─── Notifications panel ──────────────────────────────────────────────────────
-
-const NotificationsPanel = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
-  const qc = useQueryClient();
-
-  const { data: notifs = [], refetch } = useQuery({
-    queryKey: ['grn-notifications'],
-    queryFn: () => grnAPI.getNotifications(),
-    refetchInterval: 30000,
-  });
-
-  const markAllMutation = useMutation({
-    mutationFn: () => grnAPI.markAllRead(),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['grn-notifications'] });
-      refetch();
-    },
-  });
-
-  const markOneMutation = useMutation({
-    mutationFn: (id: number) => grnAPI.markRead(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['grn-notifications'] }),
-  });
-
-  return (
-    <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <div className="flex items-center justify-between">
-            <DialogTitle>Notifications</DialogTitle>
-            {notifs.some(n => !n.is_read) && (
-              <Button variant="ghost" size="sm" onClick={() => markAllMutation.mutate()}>
-                Mark all read
-              </Button>
-            )}
-          </div>
-        </DialogHeader>
-        <div className="space-y-2 max-h-96 overflow-y-auto">
-          {notifs.length === 0 && (
-            <p className="text-center text-sm text-muted-foreground py-8">No notifications</p>
-          )}
-          {notifs.map(n => (
-            <div
-              key={n.id}
-              className={`rounded-lg p-3 ${n.is_read ? 'bg-muted/30' : 'bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800'}`}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold">{n.title}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{n.body}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{new Date(n.created_at).toLocaleString()}</p>
-                </div>
-                {!n.is_read && (
-                  <button
-                    onClick={() => markOneMutation.mutate(n.id)}
-                    className="shrink-0 text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-};
-
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 const SiteGRN: React.FC = () => {
   const [createOpen, setCreateOpen] = useState(false);
-  const [notifOpen, setNotifOpen] = useState(false);
   const [search, setSearch] = useState('');
 
   const { data: grns = [], isLoading } = useQuery<GRN[]>({
@@ -391,20 +381,14 @@ const SiteGRN: React.FC = () => {
     refetchInterval: 30000,
   });
 
-  const { data: notifs = [] } = useQuery({
-    queryKey: ['grn-notifications'],
-    queryFn: () => grnAPI.getNotifications(),
-    refetchInterval: 30000,
-  });
-
-  const unreadCount = notifs.filter(n => !n.is_read).length;
-
   const filtered = grns.filter(g =>
     g.source_document.toLowerCase().includes(search.toLowerCase()) ||
+    (g.odoo_picking_name ?? '').toLowerCase().includes(search.toLowerCase()) ||
     (g.ip_user?.first_name ?? '').toLowerCase().includes(search.toLowerCase()) ||
     (g.ip_user?.last_name ?? '').toLowerCase().includes(search.toLowerCase()) ||
     (g.ip_user?.phone_number ?? '').includes(search)
   );
+  const grouped = groupGRNsByIP(filtered);
 
   const missingCount = grns.filter(g => g.has_missing).length;
 
@@ -420,20 +404,6 @@ const SiteGRN: React.FC = () => {
           </div>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={() => setNotifOpen(true)}
-            className="relative rounded-full p-2 hover:bg-muted transition-colors"
-          >
-            {unreadCount > 0
-              ? <BellDot className="h-5 w-5 text-amber-500" />
-              : <Bell className="h-5 w-5 text-muted-foreground" />
-            }
-            {unreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </button>
           <Button onClick={() => setCreateOpen(true)} className="gap-2">
             <Plus className="h-4 w-4" /> New GRN
           </Button>
@@ -478,12 +448,11 @@ const SiteGRN: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-3">
-          {filtered.map(g => <GRNRow key={g.id} grn={g} />)}
+          {grouped.map(group => <IPGRNGroup key={group.key} group={group} />)}
         </div>
       )}
 
       <CreateGRNModal open={createOpen} onClose={() => setCreateOpen(false)} />
-      <NotificationsPanel open={notifOpen} onClose={() => setNotifOpen(false)} />
     </div>
   );
 };

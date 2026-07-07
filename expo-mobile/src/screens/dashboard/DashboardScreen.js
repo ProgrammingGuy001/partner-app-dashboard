@@ -11,7 +11,8 @@ import JobFilters from "../../components/dashboard/JobFilters";
 import JobList from "../../components/dashboard/JobList";
 import StatsCards from "../../components/dashboard/StatsCards";
 import DailyAttendance from "../../components/dashboard/DailyAttendance";
-import EmptyState from "../../components/common/EmptyState";
+import ScreenHeader from "../../components/common/ScreenHeader";
+import { SkeletonList } from "../../components/common/EmptyState";
 import { Text } from "@/components/ui/text";
 import { dashboardApi } from "../../api/dashboardApi";
 import { useDashboardStore } from "../../store/dashboardStore";
@@ -28,16 +29,9 @@ const getGreeting = () => {
   return "Good evening";
 };
 
-const formatDate = () =>
-  new Date().toLocaleDateString("en-IN", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
-
 const DashboardScreen = ({ navigation }) => {
   const toast = useToast();
-  const { px, width } = useResponsive();
+  const { px } = useResponsive();
   const { colors } = useTheme();
   const user = useAuthStore((state) => state.user);
   const firstName = user?.first_name || "Partner";
@@ -99,31 +93,29 @@ const DashboardScreen = ({ navigation }) => {
   const ListHeader = useCallback(() => (
     <View>
       {/* Modern Header */}
-      <Animated.View
-        entering={FadeInUp.duration(600)}
-        className="flex-row justify-between items-center pt-4 pb-5"
-      >
-        <View>
-          <Text className="text-[13px] font-semibold text-muted-foreground uppercase tracking-wide">
-            {getGreeting()} · OTA ✓
-          </Text>
-          <Text className="text-[22px] font-extrabold text-foreground tracking-tight">
-            {firstName} 👋
-          </Text>
-        </View>
-        <View className="flex-row gap-3 items-center">
-          <TouchableOpacity
-            onPress={() => handlePress(ROUTES.ACCOUNT)}
-            className="w-11 h-11 rounded-full bg-primary items-center justify-center"
-            style={colors.shadowSm}
-            accessibilityRole="button"
-            accessibilityLabel="Account Settings"
-          >
-            <Text className="text-primary-foreground text-base font-bold">
-              {initials}
-            </Text>
-          </TouchableOpacity>
-        </View>
+      <Animated.View entering={FadeInUp.duration(600)}>
+        <ScreenHeader
+          eyebrow={getGreeting()}
+          title={firstName}
+          subtitle={new Date().toLocaleDateString("en-IN", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+          })}
+          right={
+            <TouchableOpacity
+              onPress={() => handlePress(ROUTES.ACCOUNT)}
+              className="w-11 h-11 rounded-full bg-primary items-center justify-center"
+              style={colors.shadowSm}
+              accessibilityRole="button"
+              accessibilityLabel="Open account settings"
+            >
+              <Text className="text-primary-foreground text-base font-bold">
+                {initials}
+              </Text>
+            </TouchableOpacity>
+          }
+        />
       </Animated.View>
 
       <Animated.View entering={FadeInUp.delay(200).duration(600)}>
@@ -136,28 +128,23 @@ const DashboardScreen = ({ navigation }) => {
 
       {/* Job Queue section */}
       <Animated.View entering={FadeInUp.delay(700).duration(600)} className="mt-6">
-        <View className="flex-row justify-between items-center mb-3">
-          <Text className="text-[17px] font-bold text-foreground">
-            Ongoing Jobs
-          </Text>
-          <TouchableOpacity
-            onPress={() =>
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-            }
-          ></TouchableOpacity>
+        <View className="flex-row items-end justify-between mb-3">
+          <View>
+            <Text className="text-[18px] font-extrabold text-foreground">Your Jobs</Text>
+            <Text className="text-[13px] font-medium text-muted-foreground mt-0.5">
+              Active work queue
+            </Text>
+          </View>
+          <View className="rounded-xl bg-primary-light px-3 py-1.5">
+            <Text className="text-[12px] font-extrabold text-primary" style={{ fontVariant: ["tabular-nums"] }}>
+              {jobs.length} total
+            </Text>
+          </View>
         </View>
         <JobFilters />
-        {!loading && jobs.length === 0 ? (
-          <EmptyState
-            icon="briefcase-outline"
-            title="No jobs yet"
-            subtitle="Your assigned jobs will appear here"
-            style={{ marginTop: 16 }}
-          />
-        ) : null}
       </Animated.View>
     </View>
-  ), [firstName, handlePress, colors, initials, stats, user, loading, jobs.length]);
+  ), [firstName, handlePress, colors, initials, stats, user, jobs.length]);
 
   useEffect(() => {
     fetchJobs();
@@ -166,23 +153,7 @@ const DashboardScreen = ({ navigation }) => {
   if (loading) {
     return (
       <SafeAreaView className="flex-1 bg-background">
-        <View className="flex-1 gap-3 pt-5" style={{ padding: px }}>
-          <View className="h-12 w-full bg-muted rounded-xl mb-2" />
-          <View className="flex-row gap-2.5">
-            {[1, 2].map((i) => (
-              <View key={i} className="flex-1 h-[100px] bg-muted rounded-[20px]" />
-            ))}
-          </View>
-          <View className="flex-row gap-2.5">
-            {[1, 2].map((i) => (
-              <View key={i} className="flex-1 h-[100px] bg-muted rounded-[20px]" />
-            ))}
-          </View>
-          <View className="h-5 w-[40%] bg-muted rounded mt-3" />
-          {[1, 2, 3].map((i) => (
-            <View key={i} className="h-[110px] bg-muted rounded-[20px]" />
-          ))}
-        </View>
+        <SkeletonList rows={5} px={px} />
       </SafeAreaView>
     );
   }

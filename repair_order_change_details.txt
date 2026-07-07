@@ -1,0 +1,209 @@
+Repair Order Change Details
+Generated: 2026-07-06
+
+1. Purpose
+
+The site requisite flow now creates a real Odoo repair order with Parts tab line items.
+Previously, the requested parts were only written into the repair order internal notes.
+That made the repair order visible in Odoo, but its Parts table stayed empty.
+
+2. Backend repair order creation
+
+File:
+app/services/odoo_service.py
+
+Main function:
+OdooService.create_repair_order_for_requisite
+
+What it does:
+It creates an Odoo repair.order for a submitted site requisite.
+It links the repair order to the sale order.
+It sets partner, schedule date, locations, internal notes, and now Parts line items.
+
+3. Parts line creation
+
+File:
+app/services/odoo_service.py
+
+Main function:
+OdooService._repair_order_part_moves
+
+What it does for each requested item:
+It reads the submitted product_name.
+It finds the matching Odoo product.product with name_search.
+It reads the product UoM from Odoo.
+It builds a stock.move command for repair.order.move_ids.
+
+Fields sent to Odoo for each Parts line:
+name: submitted product name
+product_id: resolved Odoo product id
+product_uom_qty: requested quantity
+product_uom: resolved Odoo unit of measure
+repair_line_type: add
+location_id: repair source location
+location_dest_id: repair destination location
+company_id: company id
+picking_type_id: repair operation type, when available
+date: scheduled date, when available
+description_picking: issue description, when available
+x_studio_description: issue description, when available
+
+Important behavior:
+If a product cannot be found in Odoo, submission fails instead of creating an empty repair order.
+If required repair locations are missing, submission fails instead of creating an unusable order.
+
+4. Internal notes
+
+File:
+app/services/odoo_service.py
+
+Main function:
+OdooService._repair_order_notes
+
+What it does:
+It still writes a readable HTML summary into the repair order notes.
+This includes sales order, cabinet position, SR POC, expected delivery, DO number, and item details.
+User-entered text is escaped before being inserted into the HTML note.
+
+5. Stored repair order reference
+
+Files:
+app/model/so_detail.py
+app/schemas/requisite_schema.py
+app/services/requisite_service.py
+
+What is stored:
+odoo_repair_order_id
+odoo_repair_order_name
+
+Why:
+The application can show the actual Odoo repair order name, such as WH/RO/00482, instead of only the sales order.
+
+Fallback order used by the UI:
+odoo_repair_order_name
+repair_reference
+sales_order
+
+6. Partner web history
+
+File:
+partnerfrontend/src/pages/HistoryPage.jsx
+
+What changed:
+The history card title now shows the repair order name first.
+If the title is different from the sales order, the sales order is shown underneath.
+Search now matches repair order name, sales order, or POC.
+The expanded details section labels the field as Repair Order.
+
+Download behavior:
+Downloads still use sales order for the filename.
+Repair order names can contain slashes, for example WH/RO/00482, so they are not safe raw filenames.
+
+7. Admin web history
+
+File:
+admin_dashboard/src/pages/BOMHistory.tsx
+
+What changed:
+The main table column is now Repair Order instead of Sales Order.
+The table shows the actual repair order name first.
+The sales order is shown under it when different.
+The details dialog title uses the repair order name.
+The details dialog labels the field as Repair Order.
+Mobile admin cards use the same repair order title behavior.
+
+Download behavior:
+Downloads still use sales order for the filename for the same slash-safety reason.
+
+8. Mobile history
+
+File:
+expo-mobile/src/screens/requisite/HistoryScreen.js
+
+What changed:
+History cards show the repair order name first.
+The sales order is shown underneath when different.
+Search matches repair order name, sales order, or POC.
+Download still uses the sales order for the local file path.
+
+9. Submit screen reduction
+
+Files:
+partnerfrontend/src/pages/SubmitPage.jsx
+admin_dashboard/src/pages/SiteRequisiteSubmit.tsx
+
+What was removed:
+Manual Repair Reference input.
+
+Why:
+Odoo now generates the repair order name when the repair order is created.
+Asking the user for a repair reference is redundant and can create mismatched names.
+
+What remains:
+Sales order
+Cabinet position
+SR POC
+Expected delivery
+DO number
+Items summary
+
+Button text:
+Create Repair Order
+
+10. Existing mobile submit screen
+
+File:
+expo-mobile/src/screens/requisite/SubmitScreen.js
+
+Current state:
+The mobile submit screen was already minimal.
+It only sends sales order, cabinet position, SR POC, and bucket items.
+No manual repair reference field needed removal there.
+
+11. Test coverage
+
+File:
+app/test_site_requisite_odoo.py
+
+Checks included:
+ALL cabinet lookup omits cabinet position filtering.
+Repair order notes escape user-entered text.
+Repair order creation payload includes move_ids for Parts lines.
+
+12. Verification run
+
+Backend:
+app/venv/bin/python app/test_site_requisite_odoo.py
+app/venv/bin/python -m py_compile app/services/odoo_service.py app/test_site_requisite_odoo.py
+
+Partner web:
+npm run build
+Direct ESLint on edited partner files passed.
+
+Admin web:
+Direct ESLint on edited admin files passed.
+Direct Vite build passed.
+
+Known unrelated issue:
+Full admin npm run build still fails because of pre-existing TypeScript errors in JobActionsModal and Checklist.
+
+13. One-time Odoo backfill
+
+Repair order:
+WH/RO/00482
+
+What happened:
+The existing order already had item details in notes but no Parts lines.
+A one-time Odoo write added Parts lines to its move_ids.
+Odoo expanded the selected kit into component stock moves.
+
+14. What was intentionally skipped
+
+No new frontend payload fields were added.
+The backend resolves products by the submitted product name, so existing clients keep working.
+
+No new dependency was added.
+The fix uses the existing Odoo XML-RPC service.
+
+No custom filename sanitizer was added.
+Downloads continue using sales order filenames because that already works and avoids slashes in repair order names.

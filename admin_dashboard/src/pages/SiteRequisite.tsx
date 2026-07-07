@@ -17,6 +17,7 @@ const SiteRequisite: React.FC = () => {
 
     const [salesOrderInput, setSalesOrderInput] = useState(state.salesOrder);
     const [cabinetInput, setCabinetInput] = useState(state.cabinetPosition);
+    const [allCabinets, setAllCabinets] = useState(state.cabinetPosition === 'ALL');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [bomData, setBomData] = useState<BOMTreeNodeType[]>([]);
@@ -40,7 +41,7 @@ const SiteRequisite: React.FC = () => {
     const handleFetchBOM = async (e: React.FormEvent) => {
         e.preventDefault();
         const so = salesOrderInput.trim();
-        const cab = cabinetInput.trim();
+        const cab = allCabinets ? 'ALL' : cabinetInput.trim();
 
         if (!so || !cab) {
             setError('Sales order and cabinet position are required.');
@@ -115,12 +116,23 @@ const SiteRequisite: React.FC = () => {
                             />
                         </div>
                         <div className="flex-1 w-full space-y-2">
-                            <Label htmlFor="cabinetPosition">Cabinet Position</Label>
+                            <div className="flex items-center justify-between gap-3">
+                                <Label htmlFor="cabinetPosition">Cabinet Position</Label>
+                                <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground">
+                                    <input
+                                        type="checkbox"
+                                        checked={allCabinets}
+                                        onChange={(e) => setAllCabinets(e.target.checked)}
+                                    />
+                                    All cabinets
+                                </label>
+                            </div>
                             <Input
                                 id="cabinetPosition"
                                 placeholder="Enter Cabinet Position"
-                                value={cabinetInput}
+                                value={allCabinets ? 'ALL' : cabinetInput}
                                 onChange={(e) => setCabinetInput(e.target.value)}
+                                disabled={allCabinets}
                                 required
                             />
                         </div>

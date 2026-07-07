@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator } from 'react-native';
 import { Text } from '@/components/ui/text';
+import { Button } from '@/components/ui/button';
+import { Notice } from '../common/Primitives';
 import { dashboardApi } from '../../api/dashboardApi';
 import { useToast } from '../../hooks/useToast';
 import { useTheme } from '../../hooks/useTheme';
@@ -70,7 +72,7 @@ const BillingSection = ({ job }) => {
       </View>
 
       {loading && (
-        <ActivityIndicator size="small" color={colors.primary} />
+        <ActivityIndicator size="small" color={colors.primary} accessibilityLabel="Loading billing status" />
       )}
 
       {!loading && !invoiceRequest && (
@@ -78,27 +80,20 @@ const BillingSection = ({ job }) => {
           <Text className="text-sm text-muted-foreground">
             No invoice request yet. Submit a request to generate your invoice.
           </Text>
-          <TouchableOpacity
+          <Button
             onPress={handleRequest}
             disabled={requesting}
-            className="rounded-xl bg-primary items-center justify-center py-3 px-5"
-            style={{ opacity: requesting ? 0.6 : 1 }}
+            loading={requesting}
+            className="w-full"
           >
-            <Text className="text-sm font-bold text-white">
-              {requesting ? 'Submitting…' : 'Request Invoice'}
-            </Text>
-          </TouchableOpacity>
+            <Text className="text-sm font-bold text-primary-foreground">Request Invoice</Text>
+          </Button>
         </View>
       )}
 
       {!loading && status === 'pending' && (
         <View className="gap-2">
-          <View className="flex-row items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3">
-            <Ionicons name="time-outline" size={16} color="#d97706" />
-            <Text className="text-sm font-semibold" style={{ color: '#d97706' }}>
-              Invoice request pending admin approval
-            </Text>
-          </View>
+          <Notice tone="warning" title="Invoice request pending" message="Admin approval is required before the bill can be downloaded." />
           <Text className="text-xs text-muted-foreground">
             Requested on {new Date(invoiceRequest.requested_at).toLocaleDateString('en-IN')}
           </Text>
@@ -107,51 +102,38 @@ const BillingSection = ({ job }) => {
 
       {!loading && status === 'rejected' && (
         <View className="gap-3">
-          <View className="flex-row items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
-            <Ionicons name="close-circle-outline" size={16} color="#dc2626" style={{ marginTop: 1 }} />
-            <View className="flex-1">
-              <Text className="text-sm font-semibold" style={{ color: '#dc2626' }}>
-                Invoice request rejected
-              </Text>
-              {invoiceRequest.rejection_reason ? (
-                <Text className="text-xs mt-1" style={{ color: '#dc2626' }}>
-                  {invoiceRequest.rejection_reason}
-                </Text>
-              ) : null}
-            </View>
-          </View>
-          <TouchableOpacity
+          <Notice
+            tone="danger"
+            title="Invoice request rejected"
+            message={invoiceRequest.rejection_reason || 'Submit a new invoice request after reviewing the job billing details.'}
+          />
+          <Button
+            variant="outline"
             onPress={handleRequest}
             disabled={requesting}
-            className="rounded-xl border border-border items-center justify-center py-3 px-5"
-            style={{ opacity: requesting ? 0.6 : 1 }}
+            loading={requesting}
+            className="w-full"
           >
-            <Text className="text-sm font-bold text-foreground">
-              {requesting ? 'Submitting…' : 'Re-request Invoice'}
-            </Text>
-          </TouchableOpacity>
+            <Text className="text-sm font-bold text-primary">Re-request Invoice</Text>
+          </Button>
         </View>
       )}
 
       {!loading && status === 'approved' && (
         <View className="gap-4">
-          <View className="flex-row items-center gap-2 bg-green-50 border border-green-200 rounded-xl p-3">
-            <Ionicons name="checkmark-circle-outline" size={16} color="#16a34a" />
-            <Text className="text-sm font-semibold" style={{ color: '#16a34a' }}>
-              Invoice approved
-            </Text>
-          </View>
-          <TouchableOpacity
+          <Notice tone="success" title="Invoice approved" message="The bill is ready to download." />
+          <Button
+            variant="outline"
             onPress={handleDownload}
             disabled={downloading}
-            className="flex-row items-center justify-center gap-2 rounded-xl border border-border py-3 px-5"
-            style={{ opacity: downloading ? 0.6 : 1 }}
+            loading={downloading}
+            className="w-full"
           >
-            <Ionicons name="download-outline" size={16} color={colors.text} />
+            <Ionicons name="download-outline" size={16} color={colors.primary} />
             <Text className="text-sm font-bold text-foreground">
-              {downloading ? 'Downloading…' : 'Download Bill XLSX'}
+              Download Bill XLSX
             </Text>
-          </TouchableOpacity>
+          </Button>
         </View>
       )}
     </View>

@@ -1,6 +1,8 @@
 import logging
 import ssl
+import threading
 import xmlrpc.client  # nosec B411  — monkey-patched below via defusedxml
+from html import escape
 from typing import Any, Dict, List, Optional, Set
 from urllib.parse import urlparse
 
@@ -73,11 +75,11 @@ class OdooService:
     DB = settings.ODOO_DB
     USERNAME = settings.ODOO_USERNAME
     PASSWORD = settings.ODOO_PASSWORD
+    REPAIR_ORDER_SALE_FIELD = "x_studio_many2one_field_3d_1j5irl101"
 
-    # Initialize connections
-    _common = None
-    _uid = None
-    _models = None
+    # Per-thread connection state. xmlrpc ServerProxy is not thread-safe and FastAPI
+    # runs sync endpoints in a threadpool, so each thread gets its own connection.
+    _local = threading.local()
 
     # Use verified SSL by default. Set ODOO_SSL_VERIFY=false only in dev.
     _ssl_context = _build_odoo_ssl_context()
@@ -101,28 +103,29 @@ class OdooService:
                 detail=f"Odoo service not configured. Missing: {', '.join(missing)}"
             )
 
-        if force or cls._uid is None:
+        local = cls._local
+        if force or getattr(local, "uid", None) is None:
             try:
                 logger.info("Connecting to Odoo: %s (db=%s, user=%s)", cls.URL, cls.DB, cls.USERNAME)
-                cls._common = xmlrpc.client.ServerProxy(
+                local.common = xmlrpc.client.ServerProxy(
                     f'{cls.URL}/xmlrpc/2/common',
                     transport=_build_odoo_transport(cls.URL, cls._ssl_context),
                     allow_none=True,
                 )
-                cls._uid = cls._common.authenticate(cls.DB, cls.USERNAME, cls.PASSWORD, {})
-                cls._models = xmlrpc.client.ServerProxy(
+                local.uid = local.common.authenticate(cls.DB, cls.USERNAME, cls.PASSWORD, {})
+                local.models = xmlrpc.client.ServerProxy(
                     f'{cls.URL}/xmlrpc/2/object',
                     transport=_build_odoo_transport(cls.URL, cls._ssl_context),
                     allow_none=True,
                 )
 
-                if not cls._uid:
+                if not local.uid:
                     logger.error("Odoo authentication failed - invalid credentials")
                     raise HTTPException(
                         status_code=401,
                         detail="Failed to authenticate with Odoo - check credentials"
                     )
-                logger.info("Odoo connection successful (uid=%s)", cls._uid)
+                logger.info("Odoo connection successful (uid=%s)", local.uid)
             except HTTPException:
                 raise
             except Exception as e:
@@ -143,12 +146,13 @@ class OdooService:
     def _execute_kw(cls, model: str, method: str, args: List, kwargs: Dict = None) -> Any:
         """Execute Odoo XML-RPC method with error handling and retry mechanism"""
         cls._initialize_connection()
+        local = cls._local
         if kwargs is None:
             kwargs = {}
 
         try:
-            return cls._models.execute_kw(
-                cls.DB, cls._uid, cls.PASSWORD,
+            return local.models.execute_kw(
+                cls.DB, local.uid, cls.PASSWORD,
                 model, method, args, kwargs
             )
         except (xmlrpc.client.ProtocolError, OSError, ConnectionError) as net_err:
@@ -156,8 +160,8 @@ class OdooService:
             logger.warning("Odoo connection dropped, attempting reconnect... Error: %s", net_err)
             try:
                 cls._initialize_connection(force=True)
-                return cls._models.execute_kw(
-                    cls.DB, cls._uid, cls.PASSWORD,
+                return local.models.execute_kw(
+                    cls.DB, local.uid, cls.PASSWORD,
                     model, method, args, kwargs
                 )
             except Exception as retry_err:
@@ -230,15 +234,19 @@ class OdooService:
         Raises:
             HTTPException: If no BOM items found or Odoo error occurs
         """
+        is_all_cabinets = cabinet_position.strip().lower() in {"all", "all cabinets", "*"}
+        domain = [
+            ('order_id.name', '=', sales_order),
+            ('company_id', '=', 1),
+        ]
+        if not is_all_cabinets:
+            domain.append(('x_studio_cabinet_position', '=', cabinet_position))
+
         # Fetch sale.order.line items
         sale_lines = cls._execute_kw(
             'sale.order.line',
             'search_read',
-            [[
-                ('order_id.name', '=', sales_order),
-                ('x_studio_cabinet_position', '=', cabinet_position),
-                ('company_id', '=', 1),
-            ]],
+            [domain],
             {
                 'fields': [
                     'id', 'name', 'product_id', 'x_studio_cabinet_position',
@@ -248,9 +256,12 @@ class OdooService:
         )
 
         if not sale_lines:
+            target = f"sales order '{sales_order}'"
+            if not is_all_cabinets:
+                target += f" and cabinet position '{cabinet_position}'"
             raise HTTPException(
                 status_code=404,
-                detail=f"No BOM items found for sales order '{sales_order}' and cabinet position '{cabinet_position}'"
+                detail=f"No BOM items found for {target}"
             )
 
         def explode_bom(
@@ -407,6 +418,187 @@ class OdooService:
 
         return processed_items
 
+    @staticmethod
+    def _repair_order_notes(
+        *,
+        sales_order: str,
+        cabinet_position: str,
+        sr_poc: str | None,
+        repair_reference: str | None,
+        expected_delivery: Any,
+        do_number: str | None,
+        items: List[Any],
+    ) -> str:
+        meta = [
+            ("Sales Order", sales_order),
+            ("Cabinet Position", cabinet_position),
+            ("SR POC", sr_poc),
+            ("Repair Reference", repair_reference),
+            ("Expected Delivery", expected_delivery),
+            ("DO Number", do_number),
+        ]
+        rows = "".join(
+            "<tr>"
+            f"<td>{escape(str(getattr(item, 'product_name', '')))}</td>"
+            f"<td>{escape(str(getattr(item, 'quantity', '') or ''))}</td>"
+            f"<td>{escape(str(getattr(item, 'component_status', '') or ''))}</td>"
+            f"<td>{escape(str(getattr(item, 'responsible_department', '') or ''))}</td>"
+            f"<td>{escape(str(getattr(item, 'issue_description', '') or ''))}</td>"
+            "</tr>"
+            for item in items
+        )
+        meta_html = "".join(
+            f"<li><b>{label}:</b> {escape(str(value))}</li>"
+            for label, value in meta
+            if value
+        )
+        return (
+            "<p><b>Site Requisite</b></p>"
+            f"<ul>{meta_html}</ul>"
+            "<table border='1' cellpadding='4' cellspacing='0'>"
+            "<thead><tr><th>Product</th><th>Qty</th><th>Status</th><th>Department</th><th>Issue</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table>"
+        )
+
+    @classmethod
+    def _repair_order_part_moves(cls, items: List[Any], values: Dict[str, Any]) -> List[tuple]:
+        for field in ('location_id', 'location_dest_id'):
+            if not values.get(field):
+                raise HTTPException(status_code=422, detail=f"Repair order missing {field}")
+
+        moves = []
+        for item in items:
+            product_name = (getattr(item, 'product_name', '') or '').strip()
+            if not product_name:
+                continue
+
+            matches = cls._execute_kw(
+                'product.product',
+                'name_search',
+                [product_name],
+                {'operator': 'ilike', 'limit': 1},
+            )
+            product_id = cls.safe_extract_id(matches[0]) if matches else None
+            if not product_id:
+                raise HTTPException(status_code=404, detail=f"Odoo product not found: {product_name}")
+
+            products = cls._execute_kw(
+                'product.product',
+                'read',
+                [[product_id]],
+                {'fields': ['uom_id']},
+            )
+            uom_id = cls.safe_extract_id(products[0].get('uom_id')) if products else None
+            if not uom_id:
+                raise HTTPException(status_code=422, detail=f"Odoo product has no UoM: {product_name}")
+
+            issue = (getattr(item, 'issue_description', '') or '').strip()
+            move = {
+                'name': product_name,
+                'product_id': product_id,
+                'product_uom_qty': float(getattr(item, 'quantity', None) or 1),
+                'product_uom': uom_id,
+                'repair_line_type': 'add',
+                'location_id': values['location_id'],
+                'location_dest_id': values['location_dest_id'],
+                'company_id': values.get('company_id') or 1,
+            }
+            if values.get('picking_type_id'):
+                move['picking_type_id'] = values['picking_type_id']
+            if values.get('schedule_date'):
+                move['date'] = values['schedule_date']
+            if issue:
+                move['description_picking'] = issue
+                move['x_studio_description'] = issue
+            moves.append((0, 0, move))
+
+        if items and not moves:
+            raise HTTPException(status_code=422, detail="No repair order line items to create")
+        return moves
+
+    @classmethod
+    def create_repair_order_for_requisite(
+        cls,
+        *,
+        sales_order: str,
+        cabinet_position: str,
+        sr_poc: str | None,
+        repair_reference: str | None,
+        expected_delivery: Any,
+        do_number: str | None,
+        items: List[Any],
+    ) -> Dict[str, Any]:
+        orders = cls._execute_kw(
+            'sale.order',
+            'search_read',
+            [[('name', '=', sales_order), ('company_id', '=', 1)]],
+            {'fields': ['id', 'partner_id'], 'limit': 1},
+        )
+        if not orders:
+            raise HTTPException(status_code=404, detail=f"Sales order '{sales_order}' not found in Odoo")
+
+        defaults = cls._execute_kw(
+            'repair.order',
+            'default_get',
+            [[
+                'company_id', 'picking_type_id', 'schedule_date', 'location_id',
+                'location_dest_id', 'parts_location_id', 'recycle_location_id',
+            ]],
+        )
+        values = {key: value for key, value in defaults.items() if value}
+        values[cls.REPAIR_ORDER_SALE_FIELD] = orders[0]['id']
+        if sr_poc:
+            values['x_studio_sr_poc'] = sr_poc
+
+        partner_id = cls.safe_extract_id(orders[0].get('partner_id'))
+        if partner_id:
+            values['partner_id'] = partner_id
+
+        if expected_delivery:
+            values['schedule_date'] = f"{expected_delivery} 00:00:00"
+
+        picking_type_id = cls.safe_extract_id(values.get('picking_type_id')) or values.get('picking_type_id')
+        if picking_type_id:
+            picking_type = cls._execute_kw(
+                'stock.picking.type',
+                'read',
+                [[picking_type_id]],
+                {'fields': ['default_location_src_id', 'default_location_dest_id']},
+            )
+            if picking_type:
+                src_id = cls.safe_extract_id(picking_type[0].get('default_location_src_id'))
+                dest_id = cls.safe_extract_id(picking_type[0].get('default_location_dest_id'))
+                if src_id:
+                    values.setdefault('location_id', src_id)
+                    values.setdefault('recycle_location_id', src_id)
+                if dest_id:
+                    values.setdefault('location_dest_id', dest_id)
+
+        if 'parts_location_id' not in values:
+            scrap_locations = cls._execute_kw(
+                'stock.location',
+                'search_read',
+                [[('scrap_location', '=', True), ('company_id', 'in', [1, False])]],
+                {'fields': ['id'], 'limit': 1},
+            )
+            if scrap_locations:
+                values['parts_location_id'] = scrap_locations[0]['id']
+
+        values['internal_notes'] = cls._repair_order_notes(
+            sales_order=sales_order,
+            cabinet_position=cabinet_position,
+            sr_poc=sr_poc,
+            repair_reference=repair_reference,
+            expected_delivery=expected_delivery,
+            do_number=do_number,
+            items=items,
+        )
+        values['move_ids'] = cls._repair_order_part_moves(items, values)
+
+        repair_id = cls._execute_kw('repair.order', 'create', [values])
+        repair = cls._execute_kw('repair.order', 'read', [[repair_id]], {'fields': ['name']})
+        return {'id': repair_id, 'name': repair[0].get('name') if repair else ''}
+
     @classmethod
     def get_sales_order_details(cls, sales_order: str) -> Dict[str, Any]:
         """
@@ -472,42 +664,77 @@ class OdooService:
         if project_field and isinstance(project_field, list) and len(project_field) >= 2:
             result['project_name'] = project_field[1]
 
-        # Fetch partner (customer) details
-        if partner_id:
-            partners = cls._execute_kw(
+        # Fetch partner (customer) details.
+        # The shipping id often resolves to a delivery-type child contact whose own
+        # address/phone fields are empty (the data lives on the parent / commercial
+        # partner). So read BOTH shipping and billing contacts and fall back field by
+        # field, then gap-fill from the commercial/parent partner if still empty.
+        partner_fields = [
+            'name', 'phone', 'mobile', 'email',
+            'street', 'street2', 'city', 'zip',
+            'state_id', 'country_id', 'parent_id', 'commercial_partner_id',
+        ]
+
+        partner_ids = [pid for pid in dict.fromkeys([shipping_partner_id, billing_partner_id]) if pid]
+        if partner_ids:
+            records = cls._execute_kw(
                 'res.partner',
                 'read',
-                [[partner_id]],
-                {
-                    'fields': [
-                        'name', 'phone', 'mobile', 'email',
-                        'street', 'street2', 'city', 'zip',
-                        'state_id', 'country_id',
-                    ]
-                }
+                [partner_ids],
+                {'fields': partner_fields},
             )
+            partners = {p['id']: p for p in records}
+            ship = partners.get(shipping_partner_id, {})
+            bill = partners.get(billing_partner_id, {})
 
-            if partners:
-                partner = partners[0]
-                result['customer_name'] = partner.get('name') or ''
-                result['phone'] = partner.get('phone') or partner.get('mobile') or ''
-                result['email'] = partner.get('email') or ''
+            def pick(field: str) -> str:
+                return ship.get(field) or bill.get(field) or ''
 
-                # Store street and street2 as separate address lines
-                result['address_line_1'] = partner.get('street') or ''
-                result['address_line_2'] = partner.get('street2') or ''
-
-                result['city'] = partner.get('city') or ''
-                result['pincode'] = partner.get('zip') or ''
-
-                # Extract state name
-                state_field = partner.get('state_id')
+            def extract_state(state_field: Any) -> str:
                 if state_field and isinstance(state_field, list) and len(state_field) >= 2:
-                    # Remove country suffix like " (IN)"
                     state_name = state_field[1]
+                    # Remove country suffix like " (IN)"
                     if ' (' in state_name:
                         state_name = state_name.split(' (')[0]
-                    result['state'] = state_name
+                    return state_name
+                return ''
+
+            result['customer_name'] = pick('name')
+            result['phone'] = (
+                ship.get('phone') or ship.get('mobile')
+                or bill.get('phone') or bill.get('mobile') or ''
+            )
+            result['email'] = pick('email')
+            result['address_line_1'] = pick('street')
+            result['address_line_2'] = pick('street2')
+            result['city'] = pick('city')
+            result['pincode'] = pick('zip')
+            result['state'] = extract_state(ship.get('state_id') or bill.get('state_id'))
+
+            # Gap-fill from the commercial / parent partner if address is still empty
+            if not result['address_line_1']:
+                parent_id = cls.safe_extract_id(
+                    ship.get('commercial_partner_id') or ship.get('parent_id')
+                    or bill.get('commercial_partner_id') or bill.get('parent_id')
+                )
+                if parent_id and parent_id not in (shipping_partner_id, billing_partner_id):
+                    parents = cls._execute_kw(
+                        'res.partner',
+                        'read',
+                        [[parent_id]],
+                        {'fields': partner_fields},
+                    )
+                    if parents:
+                        parent = parents[0]
+                        result['address_line_1'] = result['address_line_1'] or parent.get('street') or ''
+                        result['address_line_2'] = result['address_line_2'] or parent.get('street2') or ''
+                        result['city'] = result['city'] or parent.get('city') or ''
+                        result['pincode'] = result['pincode'] or parent.get('zip') or ''
+                        result['phone'] = result['phone'] or parent.get('phone') or parent.get('mobile') or ''
+                        result['email'] = result['email'] or parent.get('email') or ''
+                        result['customer_name'] = result['customer_name'] or parent.get('name') or ''
+                        if not result['state']:
+                            result['state'] = extract_state(parent.get('state_id'))
 
         return result
 
@@ -647,15 +874,16 @@ class OdooService:
         """
         try:
             cls._initialize_connection()
+            local = cls._local
 
             # Get server version
-            version = cls._common.version()
+            version = local.common.version()
 
             return {
                 'status': 'connected',
                 'url': cls.URL,
                 'database': cls.DB,
-                'user_id': cls._uid,
+                'user_id': local.uid,
                 'server_version': version.get('server_version', 'unknown'),
                 'protocol_version': version.get('protocol_version', 'unknown')
             }
@@ -789,22 +1017,9 @@ class OdooService:
             logger.warning("Failed to post GRN result to Odoo picking %s: %s", picking_id, e)
 
     @classmethod
-    def update_x_site_grn_status(cls, picking_id: int, has_missing: bool) -> None:
-        """Write GRN submission status back to X_site_grn linked to the picking."""
+    def update_x_site_grn_status(cls, picking_id: int, has_missing: bool, submitted_at: Any = None) -> None:
+        """Write GRN submission status back to x_site_grn linked to the picking."""
         try:
-            grn_fields = cls._execute_kw(
-                'x_site_grn',
-                'fields_get',
-                [],
-                {'attributes': ['type']}
-            )
-            if 'x_studio_grn_status' not in grn_fields:
-                logger.info(
-                    "Skipping x_site_grn status writeback for picking %s; x_studio_grn_status field is not present",
-                    picking_id,
-                )
-                return
-
             grn_records = cls._execute_kw(
                 'x_site_grn',
                 'search_read',
@@ -813,14 +1028,16 @@ class OdooService:
             )
             grn_ids = [r['id'] for r in grn_records]
             if grn_ids:
-                status_val = 'missing' if has_missing else 'received'
-                cls._execute_kw(
-                    'x_site_grn',
-                    'write',
-                    [grn_ids, {'x_studio_grn_status': status_val}]
-                )
+                # x_studio_status selection: Done / Pending / Partially complete
+                vals: Dict[str, Any] = {
+                    'x_studio_status': 'Partially complete' if has_missing else 'Done'
+                }
+                if submitted_at and hasattr(submitted_at, 'strftime'):
+                    # Odoo expects UTC datetime string
+                    vals['x_studio_received_date'] = submitted_at.strftime('%Y-%m-%d %H:%M:%S')
+                cls._execute_kw('x_site_grn', 'write', [grn_ids, vals])
         except Exception as e:
-            # x_studio_grn_status may not exist — non-fatal
+            # Non-fatal: GRN submit must succeed even if Odoo writeback fails
             logger.warning("Failed to update x_site_grn status for picking %s: %s", picking_id, e)
 
     @classmethod

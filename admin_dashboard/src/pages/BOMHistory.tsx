@@ -97,6 +97,9 @@ const BOMHistory: React.FC = () => {
         return new Date(dateString).toLocaleDateString();
     };
 
+    const getRepairOrderName = (item: SODetail) =>
+        item.odoo_repair_order_name || item.repair_reference || item.sales_order;
+
     return (
         <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 sm:gap-6 lg:gap-8">
             <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -153,7 +156,7 @@ const BOMHistory: React.FC = () => {
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead>Sales Order</TableHead>
+                                    <TableHead>Repair Order</TableHead>
                                     <TableHead>Partner POC</TableHead>
                                     <TableHead>Date</TableHead>
                                     <TableHead>Cabinet Position</TableHead>
@@ -180,7 +183,12 @@ const BOMHistory: React.FC = () => {
                                 ) : (
                                     history?.map((item) => (
                                         <TableRow key={item.id}>
-                                            <TableCell className="font-medium">{item.sales_order}</TableCell>
+                                            <TableCell className="font-medium">
+                                                <div>{getRepairOrderName(item)}</div>
+                                                {getRepairOrderName(item) !== item.sales_order && (
+                                                    <div className="text-xs font-normal text-muted-foreground">SO: {item.sales_order}</div>
+                                                )}
+                                            </TableCell>
                                             <TableCell>{item.sr_poc || '-'}</TableCell>
                                             <TableCell>{new Date(item.created_date).toLocaleDateString()}</TableCell>
                                             <TableCell>{item.cabinet_position || '-'}</TableCell>
@@ -237,7 +245,7 @@ const BOMHistory: React.FC = () => {
                 <DialogContent className="flex max-h-[calc(100svh-1rem)] flex-col p-0 sm:max-w-3xl">
                     <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
                     <DialogHeader>
-                        <DialogTitle>Requisition Details - {selectedSO?.sales_order}</DialogTitle>
+                        <DialogTitle>Requisition Details - {selectedSO ? getRepairOrderName(selectedSO) : ''}</DialogTitle>
                         <DialogDescription>
                             Review items and update status
                         </DialogDescription>
@@ -281,8 +289,8 @@ const BOMHistory: React.FC = () => {
                                     <p className="font-medium">{selectedSO.so_status || 'N/A'}</p>
                                 </div>
                                 <div>
-                                    <span className="text-muted-foreground">Repair Reference:</span>
-                                    <p className="font-medium">{selectedSO.repair_reference || 'N/A'}</p>
+                                    <span className="text-muted-foreground">Repair Order:</span>
+                                    <p className="font-medium">{getRepairOrderName(selectedSO) || 'N/A'}</p>
                                 </div>
                                 <div>
                                     <span className="text-muted-foreground">Expected Delivery:</span>
@@ -417,7 +425,10 @@ const BOMMobileCard: React.FC<{
     <article className="p-4">
         <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-                <h3 className="truncate text-sm font-semibold">{item.sales_order}</h3>
+                <h3 className="truncate text-sm font-semibold">{item.odoo_repair_order_name || item.repair_reference || item.sales_order}</h3>
+                {(item.odoo_repair_order_name || item.repair_reference) && (
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">SO: {item.sales_order}</p>
+                )}
                 <p className="mt-1 text-xs text-muted-foreground">
                     {new Date(item.created_date).toLocaleDateString()} · {item.sr_poc || 'No POC'}
                 </p>

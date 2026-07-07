@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, TouchableOpacity, Linking, ActivityIndicator } from "react-native";
+import { Alert, View, TouchableOpacity, Linking, ActivityIndicator } from "react-native";
 import * as Haptics from "expo-haptics";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { Button, Text } from "@/components/ui";
@@ -8,7 +8,8 @@ import { useFileUpload } from "../../hooks/useFileUpload";
 import { useTheme } from "../../hooks/useTheme";
 
 const ChecklistDocumentUpload = ({ checklistId, jobId }) => {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
+  const onPrimary = isDark ? colors.background : "#fff";
   const [isUploading, setIsUploading] = useState(false);
   
   const checklistDocumentLink = useChecklistStore(
@@ -30,7 +31,7 @@ const ChecklistDocumentUpload = ({ checklistId, jobId }) => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       console.error("Upload failed:", error);
-      alert("Failed to upload checklist document. Please try again.");
+      Alert.alert("Upload failed", "Failed to upload checklist document. Please try again.");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsUploading(false);
@@ -39,7 +40,7 @@ const ChecklistDocumentUpload = ({ checklistId, jobId }) => {
 
   return (
     <View
-      className="mt-6 bg-surface rounded-[24px] overflow-hidden border border-border"
+      className="mt-6 bg-surface rounded-2xl overflow-hidden border border-border"
       style={colors.shadowSm}
     >
       <View className="px-5 bg-card border-b border-border flex-row items-center gap-2 py-3.5">
@@ -83,6 +84,9 @@ const ChecklistDocumentUpload = ({ checklistId, jobId }) => {
             <TouchableOpacity
               onPress={handleUploadConfirm}
               disabled={isUploading}
+              accessibilityRole="button"
+              accessibilityLabel="Upload selected checklist document"
+              accessibilityState={{ disabled: isUploading, busy: isUploading }}
               style={{
                 backgroundColor: isUploading
                   ? colors.textMuted
@@ -94,11 +98,11 @@ const ChecklistDocumentUpload = ({ checklistId, jobId }) => {
               }}
             >
               {isUploading ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <ActivityIndicator size="small" color={onPrimary} />
               ) : (
                 <Text
                   style={{
-                    color: "#fff",
+                    color: onPrimary,
                     fontSize: 12,
                     fontWeight: "700",
                   }}
@@ -112,6 +116,8 @@ const ChecklistDocumentUpload = ({ checklistId, jobId }) => {
                 Haptics.selectionAsync();
                 clearFile();
               }}
+              accessibilityRole="button"
+              accessibilityLabel="Remove selected checklist document"
               style={{
                 width: 28,
                 height: 28,
@@ -150,6 +156,8 @@ const ChecklistDocumentUpload = ({ checklistId, jobId }) => {
                 Haptics.selectionAsync();
                 Linking.openURL(checklistDocumentLink);
               }}
+              accessibilityRole="link"
+              accessibilityLabel="View checklist document"
               style={{ flex: 1 }}
             >
               <Text
@@ -181,6 +189,8 @@ const ChecklistDocumentUpload = ({ checklistId, jobId }) => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             handleFileSelect();
           }}
+          accessibilityRole="button"
+          accessibilityLabel={checklistDocumentLink ? "Replace checklist document" : "Upload checklist document"}
           style={{
             flexDirection: "row",
             alignItems: "center",

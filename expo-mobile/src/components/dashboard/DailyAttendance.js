@@ -37,8 +37,10 @@ const getAttendanceLocation = async () => {
 
 const DailyAttendance = () => {
   const toast = useToast();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
+  const onPrimary = isDark ? colors.background : '#fff';
 
+  const [expanded, setExpanded] = useState(false);
   const [photoUri, setPhotoUri] = useState(null);
   const [cameraFacing, setCameraFacing] = useState('back');
   const [manualLocation, setManualLocation] = useState('');
@@ -52,7 +54,7 @@ const DailyAttendance = () => {
       const data = await dashboardApi.getAttendance();
       setRecords(data.records || []);
     } catch {
-      // non-critical
+      toast.error('Failed to load attendance records');
     } finally {
       setLoadingRecords(false);
     }
@@ -89,6 +91,10 @@ const DailyAttendance = () => {
   const handleSubmit = async () => {
     if (!photoUri) {
       toast.error('Photo is required for attendance');
+      return;
+    }
+    if (!manualLocation.trim()) {
+      toast.error('Manual location is required for attendance');
       return;
     }
 
@@ -143,15 +149,38 @@ const DailyAttendance = () => {
 
   return (
     <View
-      className="bg-surface rounded-2xl p-5 border border-border"
+      className="bg-surface rounded-2xl border border-border overflow-hidden"
       style={colors.shadowSm}
     >
-      <Text className="text-base font-extrabold text-foreground tracking-tight mb-4">
-        Daily Attendance
-      </Text>
+      <TouchableOpacity
+        onPress={() => setExpanded((e) => !e)}
+        accessibilityRole="button"
+        accessibilityLabel="Daily attendance"
+        accessibilityState={{ expanded }}
+        className="flex-row items-center justify-between p-4"
+      >
+        <View className="flex-row items-center gap-3 flex-1">
+          <View className="w-9 h-9 rounded-xl bg-primary-light items-center justify-center">
+            <Ionicons name="finger-print-outline" size={18} color={colors.primary} />
+          </View>
+          <View className="flex-1">
+            <Text className="text-[15px] font-bold text-foreground">Daily Attendance</Text>
+            <Text className="text-[12px] text-muted-foreground">
+              {records.length} record{records.length === 1 ? '' : 's'} · tap to {expanded ? 'hide' : 'mark'}
+            </Text>
+          </View>
+        </View>
+        <Ionicons
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={20}
+          color={colors.textMuted}
+        />
+      </TouchableOpacity>
 
+      {expanded ? (
+      <View className="px-5 pb-5">
       <View className="gap-3 mb-5">
-        <Text className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+        <Text className="text-xs font-semibold text-muted-foreground uppercase">
           Attendance Photo <Text className="text-destructive">*</Text>
         </Text>
 
@@ -209,8 +238,8 @@ const DailyAttendance = () => {
         )}
 
         <View className="gap-2">
-          <Text className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-            Manual Location
+          <Text className="text-xs font-semibold text-muted-foreground uppercase">
+            Manual Location <Text className="text-destructive">*</Text>
           </Text>
           <TextInput
             value={manualLocation}
@@ -229,22 +258,22 @@ const DailyAttendance = () => {
         >
           {locating || submitting ? (
             <View className="flex-row items-center gap-2">
-              <ActivityIndicator color="#fff" size="small" />
-              <Text className="text-white font-bold text-sm">
+              <ActivityIndicator color={onPrimary} size="small" />
+              <Text className="font-bold text-sm" style={{ color: onPrimary }}>
                 {locating ? 'Getting location…' : 'Saving…'}
               </Text>
             </View>
           ) : (
             <View className="flex-row items-center gap-2">
-              <Ionicons name="location-outline" size={16} color="#fff" />
-              <Text className="text-white font-bold text-sm">Mark Attendance</Text>
+              <Ionicons name="location-outline" size={16} color={onPrimary} />
+              <Text className="font-bold text-sm" style={{ color: onPrimary }}>Mark Attendance</Text>
             </View>
           )}
         </Button>
       </View>
 
       <View>
-        <Text className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+        <Text className="text-xs font-semibold text-muted-foreground uppercase mb-3">
           Records ({records.length})
         </Text>
 
@@ -292,6 +321,8 @@ const DailyAttendance = () => {
           </View>
         )}
       </View>
+      </View>
+      ) : null}
     </View>
   );
 };

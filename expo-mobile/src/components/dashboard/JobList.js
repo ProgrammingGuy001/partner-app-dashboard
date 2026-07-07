@@ -1,21 +1,16 @@
 import React, { useCallback } from 'react';
 import { View, FlatList, Platform } from 'react-native';
-import Ionicons from '@react-native-vector-icons/ionicons';
-import { Text } from '@/components/ui';
 import JobCard from './JobCard';
+import EmptyState from '../common/EmptyState';
 import { useDashboardStore } from '../../store/dashboardStore';
 import { useResponsive } from '../../hooks/useResponsive';
 
 const EmptyJobs = React.memo(() => (
-  <View className="items-center rounded-2xl border border-border bg-card p-9 gap-2.5">
-    <View className="bg-primary-light rounded-full p-4 mb-1">
-      <Ionicons name="briefcase-outline" size={36} color="#9a8b84" />
-    </View>
-    <Text className="text-[15px] font-bold text-foreground">No Jobs Found</Text>
-    <Text className="text-[13px] text-muted-foreground text-center leading-[18px]">
-      There are no jobs matching the selected filter.
-    </Text>
-  </View>
+  <EmptyState
+    icon="briefcase-outline"
+    title="No jobs found"
+    subtitle="There are no jobs matching the selected filter."
+  />
 ));
 
 const MemoizedJobCard = React.memo(JobCard);
@@ -26,7 +21,10 @@ const JobList = ({ onJobPress, ...props }) => {
   const { isTablet, gap } = useResponsive();
 
   const filteredJobs = React.useMemo(
-    () => jobs.filter((job) => job.status === activeFilter),
+    () =>
+      activeFilter === 'all'
+        ? jobs
+        : jobs.filter((job) => job.status === activeFilter),
     [jobs, activeFilter]
   );
 
@@ -36,6 +34,12 @@ const JobList = ({ onJobPress, ...props }) => {
 
   const renderItem = useCallback(({ item }) => (
     <MemoizedJobCard job={item} onPress={() => handleJobPress(item)} />
+  ), [handleJobPress]);
+
+  const renderTabletItem = useCallback(({ item }) => (
+    <View style={{ flex: 1, maxWidth: '50%' }}>
+      <MemoizedJobCard job={item} onPress={() => handleJobPress(item)} />
+    </View>
   ), [handleJobPress]);
 
   const keyExtractor = useCallback((item) => String(item.id), []);
@@ -48,12 +52,9 @@ const JobList = ({ onJobPress, ...props }) => {
         numColumns={2}
         columnWrapperStyle={{ gap }}
         contentContainerStyle={{ gap, paddingBottom: 120 }}
-        renderItem={({ item }) => (
-          <View style={{ flex: 1, maxWidth: '50%' }}>
-            <MemoizedJobCard job={item} onPress={() => handleJobPress(item)} />
-          </View>
-        )}
+        renderItem={renderTabletItem}
         ListEmptyComponent={EmptyJobs}
+        contentInsetAdjustmentBehavior="automatic"
         initialNumToRender={4}
         maxToRenderPerBatch={4}
         windowSize={5}
@@ -69,8 +70,9 @@ const JobList = ({ onJobPress, ...props }) => {
       data={filteredJobs}
       keyExtractor={keyExtractor}
       renderItem={renderItem}
-      contentContainerStyle={{ gap: 0, paddingBottom: 120 }}
+      contentContainerStyle={{ gap: 2, paddingBottom: 120 }}
       ListEmptyComponent={EmptyJobs}
+      contentInsetAdjustmentBehavior="automatic"
       initialNumToRender={6}
       maxToRenderPerBatch={5}
       windowSize={5}

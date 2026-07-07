@@ -102,6 +102,9 @@ export interface Job {
   checklist_ids?: number[];
   job_checklists?: { checklist_id: number }[];
   google_map_link?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  geofence_radius?: number | null;
   status: string;
   incentive?: number;
   additional_expense?: number;
@@ -720,15 +723,6 @@ export interface OdooPickingInfo {
   packages: OdooPackageInfo[];
 }
 
-export interface GRNNotification {
-  id: number;
-  title: string;
-  body: string;
-  grn_id: number | null;
-  is_read: boolean;
-  created_at: string;
-}
-
 // ─── Site GRN API ─────────────────────────────────────────────────────────────
 
 export const grnAPI = {
@@ -743,13 +737,4 @@ export const grnAPI = {
 
   get: (id: number): Promise<GRN> =>
     axiosInstance.get(`/admin/grn/${id}`).then(res => handleResponse(res)),
-
-  getNotifications: (unreadOnly = false): Promise<GRNNotification[]> =>
-    axiosInstance.get('/admin/grn/notifications/list', { params: { unread_only: unreadOnly } }).then(res => handleResponse(res)),
-
-  markRead: (notifId: number): Promise<void> =>
-    axiosInstance.patch(`/admin/grn/notifications/${notifId}/read`).then(res => handleResponse(res)),
-
-  markAllRead: (): Promise<void> =>
-    axiosInstance.patch('/admin/grn/notifications/read-all').then(res => handleResponse(res)),
 };

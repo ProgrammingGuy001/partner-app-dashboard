@@ -1,52 +1,49 @@
-import React, { useMemo } from 'react';
-import { View } from 'react-native';
-import Ionicons from '@react-native-vector-icons/ionicons';
-import { Text } from '@/components/ui';
-import { formatters } from '../../util/formatters';
-import { useResponsive } from '../../hooks/useResponsive';
-import { useTheme } from '../../hooks/useTheme';
+import React, { useMemo } from "react";
+import { View } from "react-native";
+import Ionicons from "@react-native-vector-icons/ionicons";
+import { Text } from "@/components/ui";
+import { formatters } from "../../util/formatters";
+import { useTheme } from "../../hooks/useTheme";
 
 const getStatConfig = (colors, isInternal = false) => {
   const baseCards = [
     {
-      key: 'completedJobs',
-      title: 'Completed',
-      icon: 'checkmark-circle-outline',
+      key: "completedJobs",
+      title: "Completed",
+      icon: "checkmark-circle-outline",
       iconColor: colors.success,
-      bgColor: colors.success + '15',
+      bgColor: colors.success + "15",
       format: (v) => String(v ?? 0),
     },
     {
-      key: 'inProgressJobs',
-      title: 'In Progress',
-      icon: 'time-outline',
+      key: "inProgressJobs",
+      title: "In Progress",
+      icon: "time-outline",
       iconColor: colors.warning,
-      bgColor: colors.warning + '15',
+      bgColor: colors.warning + "15",
       format: (v) => String(v ?? 0),
     },
   ];
 
-  // For external partners (is_internal=false): show Earnings only 
+  // For external partners (is_internal=false): show Earnings only
   // For internal partners (is_internal=true): show only Incentives (no Earnings/Payout)
   if (!isInternal) {
-    baseCards.push(
-      {
-        key: 'totalEarnings',
-        title: 'Earnings',
-        icon: 'wallet-outline',
-        iconColor: colors.info,
-        bgColor: colors.info + '15',
-        format: formatters.currency,
-      }
-    );
+    baseCards.push({
+      key: "totalEarnings",
+      title: "Earnings",
+      icon: "wallet-outline",
+      iconColor: colors.primary,
+      bgColor: colors.primaryLight,
+      format: formatters.currency,
+    });
   } else {
     // Internal partners see only incentives, not earnings/payout
     baseCards.push({
-      key: 'totalIncentives',
-      title: 'Incentives',
-      icon: 'sparkles-outline',
-      iconColor: '#7c3aed',
-      bgColor: '#7c3aed15',
+      key: "totalIncentives",
+      title: "Incentives",
+      icon: "sparkles-outline",
+      iconColor: colors.accent,
+      bgColor: colors.accentLight,
       format: formatters.currency,
     });
   }
@@ -54,49 +51,61 @@ const getStatConfig = (colors, isInternal = false) => {
   return baseCards;
 };
 
-const StatCard = React.memo(({ config, value, cardWidth, colors }) => (
+const StatItem = React.memo(({ config, value, colors, isLast }) => (
   <View
-    className="rounded-[20px] border border-border bg-card p-4"
-    style={{ width: cardWidth, ...colors.shadowSm }}
+    className="flex-1 px-3 py-3.5"
+    style={{
+      minHeight: 84,
+      borderRightWidth: isLast ? 0 : 1,
+      borderRightColor: colors.border,
+    }}
+    accessible
+    accessibilityLabel={`${config.title}: ${config.format(value)}`}
   >
     <View
-      className="w-9 h-9 rounded-[10px] items-center justify-center mb-2.5"
+      className="w-9 h-9 rounded-xl items-center justify-center mb-2"
       style={{ backgroundColor: config.bgColor }}
     >
       <Ionicons name={config.icon} size={18} color={config.iconColor} />
     </View>
-    <View>
-      <Text className="text-lg font-extrabold text-foreground tracking-tight mb-px">
-        {config.format(value)}
-      </Text>
-      <Text className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-        {config.title}
-      </Text>
-    </View>
+    <Text
+      className="text-[17px] font-extrabold text-foreground"
+      style={{ fontVariant: ["tabular-nums"] }}
+      numberOfLines={1}
+      adjustsFontSizeToFit
+      minimumFontScale={0.82}
+    >
+      {config.format(value)}
+    </Text>
+    <Text
+      className="text-[10px] font-bold text-muted-foreground uppercase mt-0.5"
+      numberOfLines={1}
+    >
+      {config.title}
+    </Text>
   </View>
 ));
 
 const StatsCards = ({ stats, isInternal = false }) => {
-  const { width, px, gap } = useResponsive();
   const { colors } = useTheme();
-  
-  const { cardWidth, STAT_CONFIG } = useMemo(() => {
+
+  const STAT_CONFIG = useMemo(() => {
     const statConfig = getStatConfig(colors, isInternal);
-    const cols = 2;
-    const totalGaps = (cols - 1) * gap;
-    const cardWidth = (width - px * 2 - totalGaps) / cols;
-    return { cardWidth, STAT_CONFIG: statConfig };
-  }, [gap, width, px, colors, isInternal]);
+    return statConfig;
+  }, [colors, isInternal]);
 
   return (
-    <View className="flex-row flex-wrap mb-5" style={{ gap }}>
-      {STAT_CONFIG.map((config) => (
-        <StatCard
+    <View
+      className="flex-row rounded-2xl border border-border bg-card mb-5 overflow-hidden"
+      style={colors.shadowSm}
+    >
+      {STAT_CONFIG.map((config, index) => (
+        <StatItem
           key={config.key}
           config={config}
           value={stats?.[config.key]}
-          cardWidth={cardWidth}
           colors={colors}
+          isLast={index === STAT_CONFIG.length - 1}
         />
       ))}
     </View>

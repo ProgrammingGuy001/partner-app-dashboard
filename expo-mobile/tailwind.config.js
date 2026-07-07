@@ -1,36 +1,38 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  darkMode: 'class',
-  content: ['./App.{js,jsx,ts,tsx}', './src/**/*.{js,jsx,ts,tsx}'],
+  darkMode: "class",
+  content: ["./App.{js,jsx,ts,tsx}", "./src/**/*.{js,jsx,ts,tsx}"],
   presets: [require("nativewind/preset")],
   theme: {
     extend: {
       fontFamily: {
-        heading: ['Montserrat', 'System'],
-        body: ['Nunito', 'System'],
-        sans: ['Nunito', 'System'],
+        heading: ["System"],
+        body: ["System"],
+        sans: ["System"],
       },
       borderRadius: {
-        lg: '0.75rem',
-        xl: '1rem',
-        '2xl': '1.25rem',
-        '3xl': '1.5rem',
-        '4xl': '2rem',
+        lg: "0.75rem",
+        xl: "1rem",
+        "2xl": "1.25rem",
+        "3xl": "1.5rem",
+        "4xl": "2rem",
       },
       boxShadow: {
-        sm: '0 1px 2px rgba(58, 26, 26, 0.06)',
-        card: '0 1px 3px rgba(58, 26, 26, 0.06), 0 2px 8px rgba(58, 26, 26, 0.06)',
-        'card-hover': '0 4px 12px rgba(58, 26, 26, 0.10), 0 2px 4px rgba(58, 26, 26, 0.06)',
-        lg: '0 8px 24px rgba(58, 26, 26, 0.10), 0 4px 8px rgba(58, 26, 26, 0.06)',
-        elevated: '0 12px 32px rgba(58, 26, 26, 0.14), 0 4px 8px rgba(58, 26, 26, 0.06)',
-        none: 'none',
+        sm: "0 1px 2px rgba(0, 0, 0, 0.42), 0 1px 8px rgba(196, 175, 158, 0.05)",
+        card: "0 1px 2px rgba(0, 0, 0, 0.42), 0 1px 8px rgba(196, 175, 158, 0.05)",
+        "card-hover":
+          "0 10px 28px rgba(0, 0, 0, 0.52), 0 2px 10px rgba(196, 175, 158, 0.06)",
+        lg: "0 22px 48px rgba(0, 0, 0, 0.62), 0 8px 18px rgba(196, 175, 158, 0.08)",
+        elevated:
+          "0 22px 48px rgba(0, 0, 0, 0.62), 0 8px 18px rgba(196, 175, 158, 0.08)",
+        none: "none",
       },
       spacing: {
-        '4.5': '1.125rem',
-        '13': '3.25rem',
-        '15': '3.75rem',
-        '18': '4.5rem',
-        '22': '5.5rem',
+        4.5: "1.125rem",
+        13: "3.25rem",
+        15: "3.75rem",
+        18: "4.5rem",
+        22: "5.5rem",
       },
       colors: {
         background: "hsl(var(--background))",
@@ -40,7 +42,7 @@ module.exports = {
           DEFAULT: "hsl(var(--surface))",
           alt: "hsl(var(--surface-alt))",
         },
-        'surface-elevated': "hsl(var(--surface-elevated))",
+        "surface-elevated": "hsl(var(--surface-elevated))",
 
         primary: {
           DEFAULT: "hsl(var(--primary))",
@@ -71,25 +73,25 @@ module.exports = {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
           muted: "hsl(var(--destructive-muted))",
-          'muted-foreground': "hsl(var(--destructive-muted-foreground))",
+          "muted-foreground": "hsl(var(--destructive-muted-foreground))",
         },
         success: {
           DEFAULT: "hsl(var(--success))",
           foreground: "hsl(var(--success-foreground))",
           muted: "hsl(var(--success-muted))",
-          'muted-foreground': "hsl(var(--success-muted-foreground))",
+          "muted-foreground": "hsl(var(--success-muted-foreground))",
         },
         warning: {
           DEFAULT: "hsl(var(--warning))",
           foreground: "hsl(var(--warning-foreground))",
           muted: "hsl(var(--warning-muted))",
-          'muted-foreground': "hsl(var(--warning-muted-foreground))",
+          "muted-foreground": "hsl(var(--warning-muted-foreground))",
         },
         info: {
           DEFAULT: "hsl(var(--info))",
           foreground: "hsl(var(--info-foreground))",
           muted: "hsl(var(--info-muted))",
-          'muted-foreground': "hsl(var(--info-muted-foreground))",
+          "muted-foreground": "hsl(var(--info-muted-foreground))",
         },
         border: {
           DEFAULT: "hsl(var(--border))",

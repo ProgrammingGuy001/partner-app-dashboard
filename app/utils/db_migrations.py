@@ -56,6 +56,7 @@ def run_migrations(db: Session) -> None:
     _create_daily_job_updates_tables(db)
     _create_site_grn_tables(db)
     _add_grn_package_barcode_columns(db)
+    _add_job_geofence_columns(db)
 
 
 def _add_job_manual_type_rate_columns(db: Session) -> None:
@@ -116,6 +117,8 @@ def _add_so_detail_odoo_columns(db: Session) -> None:
         ("repair_reference", "VARCHAR(255)"),
         ("expected_delivery", "DATE"),
         ("do_number", "VARCHAR(255)"),
+        ("odoo_repair_order_id", "INTEGER"),
+        ("odoo_repair_order_name", "VARCHAR(255)"),
     ]
     for col_name, col_type in columns:
         if not _column_exists(db, "so_detail", col_name):
@@ -482,7 +485,7 @@ def _add_site_requisite_export_columns(db: Session) -> None:
 
 
 def _create_site_grn_tables(db: Session) -> None:
-    """Create site_grn, grn_package, and admin_notification tables if they don't exist."""
+    """Create site_grn and grn_package tables if they don't exist."""
     statements = [
         """
         CREATE TABLE IF NOT EXISTS site_grn (
@@ -510,18 +513,6 @@ def _create_site_grn_tables(db: Session) -> None:
         )
         """,
         "CREATE INDEX IF NOT EXISTS ix_grn_package_grn_id ON grn_package(grn_id)",
-        """
-        CREATE TABLE IF NOT EXISTS admin_notification (
-            id SERIAL PRIMARY KEY,
-            admin_id INTEGER REFERENCES admin(id),
-            title VARCHAR(256) NOT NULL,
-            body TEXT NOT NULL,
-            grn_id INTEGER REFERENCES site_grn(id),
-            is_read BOOLEAN NOT NULL DEFAULT FALSE,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-        """,
-        "CREATE INDEX IF NOT EXISTS ix_admin_notification_is_read ON admin_notification(is_read)",
     ]
     for stmt in statements:
         try:
@@ -549,3 +540,23 @@ def _add_grn_package_barcode_columns(db: Session) -> None:
                 logger.error("Migration failed for grn_package.%s: %s", col_name, exc)
         else:
             logger.debug("Migration: grn_package.%s already exists, skipping.", col_name)
+
+
+def _add_job_geofence_columns(db: Session) -> None:
+    """Add map pin coordinates and geofence radius to jobs."""
+    columns = [
+        ("latitude", "DOUBLE PRECISION"),
+        ("longitude", "DOUBLE PRECISION"),
+        ("geofence_radius", "INTEGER"),
+    ]
+    for col_name, col_type in columns:
+        if not _column_exists(db, "jobs", col_name):
+            try:
+                db.execute(text(f"ALTER TABLE jobs ADD COLUMN {col_name} {col_type} NULL"))
+                db.commit()
+                logger.info("Migration: added column jobs.%s", col_name)
+            except Exception as exc:
+                db.rollback()
+                logger.error("Migration failed for jobs.%s: %s", col_name, exc)
+        else:
+            logger.debug("Migration: jobs.%s already exists, skipping.", col_name)

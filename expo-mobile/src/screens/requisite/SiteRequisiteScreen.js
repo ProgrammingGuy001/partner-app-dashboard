@@ -3,23 +3,29 @@ import { KeyboardAvoidingView, Platform, ScrollView, View, TouchableOpacity } fr
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AddToBucketModal from '../../components/AddToBucketModal';
 import BOMTreeNode from '../../components/BOMTreeNode';
+import ScreenHeader from '../../components/common/ScreenHeader';
+import EmptyState from '../../components/common/EmptyState';
+import { Notice } from '../../components/common/Primitives';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Text } from '@/components/ui/text';
 import { bomAPI } from '../../api/bomApi';
 import useRequisiteStore from '../../store/requisiteStore';
 import { useTheme } from '../../hooks/useTheme';
+import { useResponsive } from '../../hooks/useResponsive';
 import { ROUTES } from '../../util/constants';
 import Ionicons from '@react-native-vector-icons/ionicons';
 
 const SiteRequisiteScreen = ({ navigation }) => {
   const [salesOrder, setSalesOrder] = useState('');
   const [cabinetPosition, setCabinetPosition] = useState('');
+  const [allCabinets, setAllCabinets] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [detailsError, setDetailsError] = useState('');
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
+  const { px } = useResponsive();
 
   const { bomData, setBOMData, addToBucket, bucket, soDetails } = useRequisiteStore();
 
@@ -39,7 +45,9 @@ const SiteRequisiteScreen = ({ navigation }) => {
   };
 
   const handleFetchBOM = async () => {
-    if (!salesOrder.trim() || !cabinetPosition.trim()) {
+    const resolvedCabinetPosition = allCabinets ? 'ALL' : cabinetPosition.trim();
+
+    if (!salesOrder.trim() || !resolvedCabinetPosition) {
       setError('Sales order and cabinet position are required');
       return;
     }
@@ -50,7 +58,7 @@ const SiteRequisiteScreen = ({ navigation }) => {
 
     try {
       const [bomResult, soResult] = await Promise.allSettled([
-        bomAPI.fetchBOM(salesOrder.trim(), cabinetPosition.trim()),
+        bomAPI.fetchBOM(salesOrder.trim(), resolvedCabinetPosition),
         bomAPI.lookupSO(salesOrder.trim()),
       ]);
 
@@ -59,7 +67,7 @@ const SiteRequisiteScreen = ({ navigation }) => {
       }
 
       const resolvedDetails = soResult.status === 'fulfilled' ? soResult.value : null;
-      setBOMData(bomResult.value, salesOrder.trim(), cabinetPosition.trim(), resolvedDetails);
+      setBOMData(bomResult.value, salesOrder.trim(), resolvedCabinetPosition, resolvedDetails);
 
       if (soResult.status === 'rejected') {
         setDetailsError(soResult.reason?.message || 'Failed to fetch sales order details from Odoo.');
@@ -74,81 +82,102 @@ const SiteRequisiteScreen = ({ navigation }) => {
   return (
     <SafeAreaView className="flex-1 bg-background">
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={{ paddingHorizontal: px, paddingBottom: 120 }}
+        contentInsetAdjustmentBehavior="automatic"
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         
         {/* Premium Header */}
-        <View className="flex-row justify-between items-center pt-5 mb-6">
-          <View>
-            <Text className="text-2xl font-extrabold text-foreground tracking-tight">Site Requisite</Text>
-            <Text className="text-[13px] text-muted-foreground font-medium mt-1">Manage project materials</Text>
-          </View>
-          <View className="flex-row gap-2.5">
-            <TouchableOpacity 
-              onPress={() => navigation.navigate(ROUTES.HISTORY)}
-              className="w-10 h-10 rounded-xl bg-surface items-center justify-center border border-border"
-              style={colors.shadowSm}
-            >
-              <Ionicons name="time-outline" size={20} color={colors.text} />
-            </TouchableOpacity>
-            <TouchableOpacity 
-              onPress={() => navigation.navigate(ROUTES.BUCKET)}
-              className="h-10 rounded-xl bg-primary flex-row items-center gap-2 px-3"
-              style={colors.shadowSm}
-            >
-              <Ionicons name="basket-outline" size={20} color={isDark ? colors.background : "#fff"} />
-              <Text className="font-bold text-[13px]" style={{ color: isDark ? colors.background : "#fff" }}>
-                {bucket.length}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        <ScreenHeader
+          title="Site Requisite"
+          subtitle="Manage project materials"
+          right={
+            <View className="flex-row gap-2.5">
+              <TouchableOpacity
+                onPress={() => navigation.navigate(ROUTES.HISTORY)}
+                accessibilityRole="button"
+                accessibilityLabel="Requisite history"
+                className="w-10 h-10 rounded-xl bg-surface items-center justify-center border border-border"
+                style={colors.shadowSm}
+              >
+                <Ionicons name="time-outline" size={20} color={colors.text} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => navigation.navigate(ROUTES.BUCKET)}
+                accessibilityRole="button"
+                accessibilityLabel={`Open bucket, ${bucket.length} items`}
+                className="h-10 rounded-xl bg-primary flex-row items-center gap-2 px-3"
+                style={colors.shadowSm}
+              >
+                <Ionicons name="basket-outline" size={20} color={colors.primaryForeground} />
+                <Text className="font-bold text-[13px]" style={{ color: colors.primaryForeground }}>
+                  {bucket.length}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          }
+        />
 
         {/* Search Card */}
         <View 
-          className="bg-surface rounded-3xl p-6 mb-6 border border-border"
+          className="bg-surface rounded-2xl p-6 mb-6 border border-border"
           style={colors.shadowMd}
         >
           <Text className="text-[17px] font-extrabold text-foreground mb-4">Search Inventory</Text>
           
           <View className="gap-4 mb-6">
             <View className="gap-2">
-              <Text className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Sales Order</Text>
+              <Text className="text-xs font-bold text-muted-foreground uppercase">Sales Order</Text>
               <Input
                 value={salesOrder}
                 onChangeText={setSalesOrder}
                 placeholder="SO-XXXXX"
-                className="h-[52px] rounded-xl bg-background border border-border px-4 text-base font-semibold text-foreground"
+                accessibilityLabel="Sales order"
+                className="h-12 rounded-xl bg-background border border-border px-4 text-base font-semibold text-foreground"
               />
             </View>
 
             <View className="gap-2">
-              <Text className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Cabinet Position</Text>
+              <View className="flex-row items-center justify-between gap-3">
+                <Text className="text-xs font-bold text-muted-foreground uppercase">Cabinet Position</Text>
+                <TouchableOpacity
+                  onPress={() => setAllCabinets((prev) => !prev)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: allCabinets }}
+                  className="flex-row items-center gap-1.5"
+                >
+                  <Ionicons
+                    name={allCabinets ? 'checkbox' : 'square-outline'}
+                    size={16}
+                    color={colors.primary}
+                  />
+                  <Text className="text-xs font-bold text-muted-foreground">All cabinets</Text>
+                </TouchableOpacity>
+              </View>
               <Input
-                value={cabinetPosition}
+                value={allCabinets ? 'ALL' : cabinetPosition}
                 onChangeText={setCabinetPosition}
+                editable={!allCabinets}
                 placeholder="Enter position"
-                className="h-[52px] rounded-xl bg-background border border-border px-4 text-base font-semibold text-foreground"
+                accessibilityLabel="Cabinet position"
+                className="h-12 rounded-xl bg-background border border-border px-4 text-base font-semibold text-foreground"
               />
             </View>
           </View>
 
           {error ? (
-             <View className="flex-row items-center gap-1.5 mb-4 p-3 bg-danger-muted rounded-[10px] border border-danger-muted/20">
-                <Ionicons name="alert-circle" size={16} color={colors.danger} />
-                <Text className="text-danger text-[12px] font-semibold">{error}</Text>
-             </View>
+             <Notice tone="danger" message={error} className="mb-4" />
           ) : null}
 
           {detailsError ? (
-             <View className="flex-row items-start gap-1.5 mb-4 p-3 rounded-[10px] border border-amber-300/60 bg-amber-50">
-                <Ionicons name="warning-outline" size={16} color="#92400e" style={{ marginTop: 2 }} />
-                <View className="flex-1">
-                  <Text style={{ color: '#78350f' }} className="text-[12px] font-bold">SO details not available yet</Text>
-                  <Text style={{ color: '#92400e' }} className="text-[12px] font-medium mt-1">
-                    {detailsError} Fetch the SO details successfully before submitting the site requisite.
-                  </Text>
-                </View>
-             </View>
+             <Notice
+               tone="warning"
+               title="SO details not available yet"
+               message={`${detailsError} Fetch the SO details successfully before submitting the site requisite.`}
+               className="mb-4"
+             />
           ) : null}
 
           <Button 
@@ -156,7 +185,7 @@ const SiteRequisiteScreen = ({ navigation }) => {
             loading={loading} 
             onPress={handleFetchBOM}
           >
-            <Text className="text-base font-bold" style={{ color: isDark ? colors.background : "#fff" }}>
+            <Text className="text-base font-bold" style={{ color: colors.primaryForeground }}>
               Fetch Material List
             </Text>
           </Button>
@@ -164,15 +193,15 @@ const SiteRequisiteScreen = ({ navigation }) => {
 
         {soDetails && (soDetails.customer_name || soDetails.project_name || soDetails.address_line_1) && (
           <View
-            className="bg-surface rounded-3xl p-5 mb-6 border border-border"
+            className="bg-surface rounded-2xl p-5 mb-6 border border-border"
             style={colors.shadowSm}
           >
-            <Text className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">Sales Order Details</Text>
+            <Text className="text-xs font-bold text-muted-foreground uppercase mb-3">Sales Order Details</Text>
             {soDetails.customer_name ? (
               <View className="flex-row items-start gap-2 mb-2">
                 <Ionicons name="business-outline" size={15} color={colors.primary} />
                 <View>
-                  <Text className="text-[10px] text-muted-foreground uppercase tracking-wide">Customer</Text>
+                  <Text className="text-[10px] text-muted-foreground uppercase">Customer</Text>
                   <Text className="text-sm font-semibold text-foreground">{soDetails.customer_name}</Text>
                 </View>
               </View>
@@ -181,7 +210,7 @@ const SiteRequisiteScreen = ({ navigation }) => {
               <View className="flex-row items-start gap-2 mb-2">
                 <Ionicons name="folder-outline" size={15} color={colors.primary} />
                 <View>
-                  <Text className="text-[10px] text-muted-foreground uppercase tracking-wide">Project</Text>
+                  <Text className="text-[10px] text-muted-foreground uppercase">Project</Text>
                   <Text className="text-sm font-semibold text-foreground">{soDetails.project_name}</Text>
                 </View>
               </View>
@@ -190,7 +219,7 @@ const SiteRequisiteScreen = ({ navigation }) => {
               <View className="flex-row items-start gap-2 mb-2">
                 <Ionicons name="person-outline" size={15} color={colors.primary} />
                 <View>
-                  <Text className="text-[10px] text-muted-foreground uppercase tracking-wide">SO POC</Text>
+                  <Text className="text-[10px] text-muted-foreground uppercase">SO POC</Text>
                   <Text className="text-sm font-semibold text-foreground">{soDetails.client_order_ref}</Text>
                 </View>
               </View>
@@ -199,7 +228,7 @@ const SiteRequisiteScreen = ({ navigation }) => {
               <View className="flex-row items-start gap-2 mb-2">
                 <Ionicons name="shield-checkmark-outline" size={15} color={colors.primary} />
                 <View>
-                  <Text className="text-[10px] text-muted-foreground uppercase tracking-wide">Order Status</Text>
+                  <Text className="text-[10px] text-muted-foreground uppercase">Order Status</Text>
                   <Text className="text-sm font-semibold text-foreground">{formatOrderState(soDetails.order_state)}</Text>
                 </View>
               </View>
@@ -208,7 +237,7 @@ const SiteRequisiteScreen = ({ navigation }) => {
               <View className="flex-row items-start gap-2">
                 <Ionicons name="location-outline" size={15} color={colors.primary} />
                 <View className="flex-1">
-                  <Text className="text-[10px] text-muted-foreground uppercase tracking-wide">Delivery Address</Text>
+                  <Text className="text-[10px] text-muted-foreground uppercase">Delivery Address</Text>
                   <Text className="text-sm font-semibold text-foreground">
                     {[soDetails.address_line_1, soDetails.address_line_2, soDetails.city, soDetails.state, soDetails.pincode]
                       .filter(Boolean).join(', ')}
@@ -221,7 +250,7 @@ const SiteRequisiteScreen = ({ navigation }) => {
 
         {bomData.length ? (
           <View
-            className="bg-surface rounded-3xl p-5 border border-border"
+            className="bg-surface rounded-2xl p-5 border border-border"
             style={colors.shadowSm}
           >
             <View className="flex-row items-center gap-2 mb-4">
@@ -235,9 +264,12 @@ const SiteRequisiteScreen = ({ navigation }) => {
             </View>
           </View>
         ) : !loading && (
-          <View className="items-center py-[60px] opacity-50">
-             <Ionicons name="search-outline" size={48} color={colors.textMuted} />
-             <Text className="mt-3 text-sm font-semibold text-muted-foreground">Enter details above to fetch BOM</Text>
+          <View className="py-[40px]">
+            <EmptyState
+              icon="search-outline"
+              title="Search to fetch BOM"
+              subtitle="Enter the sales order and cabinet position to load the material hierarchy."
+            />
           </View>
         )}
       </ScrollView>

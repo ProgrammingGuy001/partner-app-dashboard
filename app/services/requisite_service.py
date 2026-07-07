@@ -111,6 +111,21 @@ class RequisiteService:
                 )
             )
 
+        from app.services.odoo_service import OdooService
+        repair_order = OdooService.create_repair_order_for_requisite(
+            sales_order=data.sales_order,
+            cabinet_position=data.cabinet_position,
+            sr_poc=data.sr_poc,
+            repair_reference=data.repair_reference,
+            expected_delivery=data.expected_delivery,
+            do_number=data.do_number,
+            items=data.items,
+        )
+        so_detail.odoo_repair_order_id = repair_order.get("id")
+        so_detail.odoo_repair_order_name = repair_order.get("name")
+        if not so_detail.repair_reference:
+            so_detail.repair_reference = so_detail.odoo_repair_order_name
+
         db.commit()
 
         return (
@@ -203,7 +218,7 @@ class RequisiteService:
         so_poc = so_detail.so_poc or ""
         sr_poc = so_detail.sr_poc or ""
         so_status = so_detail.so_status or so_detail.status.capitalize()
-        repair_reference = so_detail.repair_reference or ""
+        repair_reference = so_detail.repair_reference or so_detail.odoo_repair_order_name or ""
         expected_delivery = (
             so_detail.expected_delivery.strftime("%d-%m-%Y")
             if so_detail.expected_delivery

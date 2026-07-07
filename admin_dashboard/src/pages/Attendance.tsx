@@ -488,6 +488,11 @@ const MarkAttendanceDialog: React.FC<{
       return;
     }
 
+    if (!manualLocation.trim()) {
+      toast.error('Manual location is required for attendance');
+      return;
+    }
+
     if (!navigator.geolocation) {
       toast.error('Location is not supported in this browser');
       return;
@@ -517,7 +522,7 @@ const MarkAttendanceDialog: React.FC<{
       latitude,
       longitude,
       notes: notes.trim() || undefined,
-      manual_location: manualLocation.trim() || undefined,
+      manual_location: manualLocation.trim(),
       photo,
     }, {
       onSuccess: () => {
@@ -611,12 +616,13 @@ const MarkAttendanceDialog: React.FC<{
             </p>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs font-medium text-muted-foreground">Location (optional)</Label>
+            <Label className="text-xs font-medium text-muted-foreground">Location <span className="text-destructive">*</span></Label>
             <Input
               placeholder="Office, client site, branch, or area"
               value={manualLocation}
               onChange={e => setManualLocation(e.target.value)}
               maxLength={255}
+              required
             />
           </div>
           <div className="space-y-1">

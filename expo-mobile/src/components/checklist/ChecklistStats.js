@@ -22,7 +22,7 @@ const ChecklistStats = () => {
   return (
     <View className="mt-3 gap-4">
       {/* Progress card */}
-      <View className="rounded-3xl border border-border bg-card p-5" style={colors.shadowMd}>
+      <View className="rounded-2xl border border-border bg-card p-5" style={colors.shadowMd}>
         <View className="flex-row items-center justify-between mb-3">
           <View>
             <Text className="text-base font-extrabold text-foreground">Completion Progress</Text>
@@ -31,7 +31,7 @@ const ChecklistStats = () => {
             </Text>
           </View>
           <View className="items-end">
-            <Text style={{ fontSize: 24, fontWeight: '900', color: barColor, letterSpacing: -1 }}>{pct}%</Text>
+            <Text style={{ fontSize: 24, fontWeight: '900', color: barColor, letterSpacing: 0 }}>{pct}%</Text>
           </View>
         </View>
         {/* Track */}
@@ -45,7 +45,7 @@ const ChecklistStats = () => {
         {STAT_CHIPS.map((chip) => (
           <View
             key={chip.key}
-            className="flex-1 min-w-[45%] flex-row items-center gap-3 rounded-[20px] border border-border bg-card p-3.5"
+            className="flex-1 min-w-[45%] flex-row items-center gap-3 rounded-2xl border border-border bg-card p-3.5"
             style={colors.shadowSm}
           >
             <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: chip.bg, alignItems: 'center', justifyContent: 'center' }}>
@@ -55,7 +55,7 @@ const ChecklistStats = () => {
               <Text className="text-xl font-extrabold text-foreground leading-6">
                 {stats[chip.key] ?? 0}
               </Text>
-              <Text className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">{chip.label}</Text>
+              <Text className="text-[11px] font-bold text-muted-foreground uppercase">{chip.label}</Text>
             </View>
           </View>
         ))}

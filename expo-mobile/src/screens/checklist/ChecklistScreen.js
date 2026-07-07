@@ -3,7 +3,6 @@ import { RefreshControl, ScrollView, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Text } from "@/components/ui";
-import ChecklistHeader from "../../components/checklist/ChecklistHeader";
 import ChecklistItem from "../../components/checklist/ChecklistItem";
 import ChecklistStats from "../../components/checklist/ChecklistStats";
 import ChecklistDocumentUpload from "../../components/checklist/ChecklistDocumentUpload";
@@ -14,7 +13,6 @@ import EmptyState from "../../components/common/EmptyState";
 import useChecklistStore from "../../store/checklistStore";
 import { useTheme } from "../../hooks/useTheme";
 import Ionicons from "@react-native-vector-icons/ionicons";
-import { ROUTES } from "../../util/constants";
 
 const ChecklistScreen = ({ navigation, route }) => {
   const { jobId, checklistId } = route.params;
@@ -39,7 +37,7 @@ const ChecklistScreen = ({ navigation, route }) => {
   }, [jobId, checklistId]);
 
   const handleRefresh = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setIsRefreshing(true);
     invalidateChecklistCache(Number(jobId), Number(checklistId));
     await fetchChecklist(Number(jobId), Number(checklistId));
@@ -64,7 +62,11 @@ const ChecklistScreen = ({ navigation, route }) => {
     return (
       <SafeAreaView className="flex-1 bg-background">
         <View className="flex-1 items-center justify-center">
-          <Text className="text-muted-foreground">No checklist found</Text>
+          <EmptyState
+            icon="checkbox-outline"
+            title="No checklist found"
+            subtitle="Pull to refresh or return to the job detail screen."
+          />
         </View>
       </SafeAreaView>
     );
@@ -74,6 +76,7 @@ const ChecklistScreen = ({ navigation, route }) => {
     <SafeAreaView className="flex-1 bg-background">
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}
+        contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -90,7 +93,7 @@ const ChecklistScreen = ({ navigation, route }) => {
         <View className="flex-row items-center gap-3 mb-6">
           <View className="flex-1">
             <Text
-              className="text-xl font-extrabold text-foreground tracking-tight"
+              className="text-xl font-extrabold text-foreground"
               numberOfLines={1}
             >
               {checklist.name}
@@ -101,7 +104,7 @@ const ChecklistScreen = ({ navigation, route }) => {
         <ChecklistStats />
 
         <View
-          className="mt-6 bg-surface rounded-[24px] overflow-hidden border border-border"
+          className="mt-6 bg-surface rounded-2xl overflow-hidden border border-border"
           style={colors.shadowSm}
         >
           <View className="px-5 bg-card border-b border-border flex-row items-center gap-2 py-3.5">

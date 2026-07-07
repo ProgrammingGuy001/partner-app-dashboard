@@ -8,11 +8,14 @@ import { Text } from '@/components/ui/text';
 import { bomAPI } from '../../api/bomApi';
 import useRequisiteStore from '../../store/requisiteStore';
 import { useTheme } from '../../hooks/useTheme';
+import { useResponsive } from '../../hooks/useResponsive';
 import { ROUTES } from '../../util/constants';
+import { Notice } from '../../components/common/Primitives';
 
 const SubmitScreen = ({ navigation }) => {
   const { bucket, salesOrder, cabinetPosition, soDetails, setSODetails, clearBucket } = useRequisiteStore();
   const { colors } = useTheme();
+  const { px } = useResponsive();
 
   const [srPoc, setSrPoc] = useState('');
   const [loading, setLoading] = useState(false);
@@ -106,8 +109,8 @@ const SubmitScreen = ({ navigation }) => {
     return (
       <SafeAreaView className="flex-1 bg-background">
         <View className="flex-1 justify-center items-center px-6">
-          <View 
-            className="bg-surface rounded-[32px] p-8 items-center w-full border border-border"
+          <View
+            className="bg-surface rounded-2xl p-8 items-center w-full border border-border"
             style={colors.shadowMd}
           >
             <View 
@@ -116,7 +119,7 @@ const SubmitScreen = ({ navigation }) => {
             >
               <Ionicons name="checkmark-circle" size={48} color={colors.success} />
             </View>
-            <Text className="text-2xl font-extrabold text-foreground text-center mb-2 tracking-tight">
+            <Text className="text-2xl font-extrabold text-foreground text-center mb-2">
               Submitted!
             </Text>
             <Text className="text-[15px] text-muted-foreground text-center mb-8 leading-[22px]">
@@ -131,10 +134,12 @@ const SubmitScreen = ({ navigation }) => {
                   navigation.navigate(ROUTES.HISTORY);
                 }}
               >
-                <Text className="text-white font-bold">View Requisite History</Text>
+                <Text className="text-primary-foreground font-bold">View Requisite History</Text>
               </Button>
               <TouchableOpacity
                 className="h-[56px] items-center justify-center rounded-2xl"
+                accessibilityRole="button"
+                accessibilityLabel="Create new request"
                 onPress={() => {
                   clearBucket();
                   navigation.navigate(ROUTES.SITE_REQUISITE);
@@ -163,24 +168,21 @@ const SubmitScreen = ({ navigation }) => {
               <Ionicons name="arrow-back" size={20} color={colors.text} />
             </TouchableOpacity>
             <View>
-              <Text className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
+              <Text className="text-xs font-bold text-muted-foreground uppercase">
                 FINAL STEP
               </Text>
-              <Text className="text-xl font-extrabold text-foreground tracking-tight">
+              <Text className="text-xl font-extrabold text-foreground">
                 Confirm Requisite
               </Text>
             </View>
           </View>
 
           {error ? (
-            <View className="flex-row items-center gap-1.5 mb-4 p-3 bg-danger-muted rounded-[10px] border border-danger-muted/20">
-               <Ionicons name="alert-circle" size={16} color={colors.danger} />
-               <Text className="text-danger text-[13px] font-semibold">{error}</Text>
-            </View>
+            <Notice tone="danger" message={error} className="mb-4" />
           ) : null}
 
-          <View 
-            className="bg-surface rounded-3xl p-6 mb-6 border border-border"
+          <View
+            className="bg-surface rounded-2xl p-6 mb-6 border border-border"
             style={colors.shadowMd}
           >
             <Text className="text-[17px] font-extrabold text-foreground mb-5">Project Context</Text>
@@ -188,7 +190,7 @@ const SubmitScreen = ({ navigation }) => {
             <View className="rounded-2xl border border-border bg-background p-4 mb-5">
               <View className="flex-row items-start justify-between gap-3">
                 <View className="flex-1">
-                  <Text className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Sales-order details from Odoo</Text>
+                  <Text className="text-[11px] font-bold text-muted-foreground uppercase">Sales-order details from Odoo</Text>
                   <Text className="text-[12px] text-muted-foreground font-medium mt-1">
                     These values are refreshed before submission and will populate the site requisite.
                   </Text>
@@ -201,49 +203,41 @@ const SubmitScreen = ({ navigation }) => {
               </View>
 
               {detailsError ? (
-                <View className="flex-row items-start gap-2 mt-4 p-3 rounded-[10px]" style={{ backgroundColor: colors.warning + '12' }}>
-                  <Ionicons name="warning-outline" size={16} color={colors.warning} style={{ marginTop: 2 }} />
-                  <View className="flex-1">
-                    <Text className="text-[12px] font-bold" style={{ color: colors.warning }}>SO details not available yet</Text>
-                    <Text className="text-[12px] font-medium mt-1" style={{ color: colors.warning }}>
-                      {detailsError}
-                    </Text>
-                  </View>
-                </View>
+                <Notice tone="warning" title="SO details not available yet" message={detailsError} className="mt-4" />
               ) : soDetails ? (
                 <View className="gap-3 mt-4">
                   <View className="flex-row items-start gap-2">
                     <Ionicons name="business-outline" size={15} color={colors.primary} />
                     <View className="flex-1">
-                      <Text className="text-[10px] text-muted-foreground uppercase tracking-wide">Customer</Text>
+                      <Text className="text-[10px] text-muted-foreground uppercase">Customer</Text>
                       <Text className="text-sm font-semibold text-foreground">{soDetails.customer_name || 'N/A'}</Text>
                     </View>
                   </View>
                   <View className="flex-row items-start gap-2">
                     <Ionicons name="folder-outline" size={15} color={colors.primary} />
                     <View className="flex-1">
-                      <Text className="text-[10px] text-muted-foreground uppercase tracking-wide">Project</Text>
+                      <Text className="text-[10px] text-muted-foreground uppercase">Project</Text>
                       <Text className="text-sm font-semibold text-foreground">{soDetails.project_name || 'N/A'}</Text>
                     </View>
                   </View>
                   <View className="flex-row items-start gap-2">
                     <Ionicons name="person-outline" size={15} color={colors.primary} />
                     <View className="flex-1">
-                      <Text className="text-[10px] text-muted-foreground uppercase tracking-wide">SO POC</Text>
+                      <Text className="text-[10px] text-muted-foreground uppercase">SO POC</Text>
                       <Text className="text-sm font-semibold text-foreground">{soDetails.client_order_ref || 'N/A'}</Text>
                     </View>
                   </View>
                   <View className="flex-row items-start gap-2">
                     <Ionicons name="shield-checkmark-outline" size={15} color={colors.primary} />
                     <View className="flex-1">
-                      <Text className="text-[10px] text-muted-foreground uppercase tracking-wide">Order Status</Text>
+                      <Text className="text-[10px] text-muted-foreground uppercase">Order Status</Text>
                       <Text className="text-sm font-semibold text-foreground">{formatOrderState(soDetails.order_state) || 'N/A'}</Text>
                     </View>
                   </View>
                   <View className="flex-row items-start gap-2">
                     <Ionicons name="location-outline" size={15} color={colors.primary} />
                     <View className="flex-1">
-                      <Text className="text-[10px] text-muted-foreground uppercase tracking-wide">Delivery Address</Text>
+                      <Text className="text-[10px] text-muted-foreground uppercase">Delivery Address</Text>
                       <Text className="text-sm font-semibold text-foreground">
                         {[soDetails.address_line_1, soDetails.address_line_2, soDetails.city, soDetails.state, soDetails.pincode]
                           .filter(Boolean)
@@ -257,25 +251,26 @@ const SubmitScreen = ({ navigation }) => {
             
             <View className="gap-4 mb-6">
               <View className="gap-2">
-                <Text className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Sales Order</Text>
+                <Text className="text-[11px] font-bold text-muted-foreground uppercase">Sales Order</Text>
                 <View className="h-[56px] rounded-xl bg-background justify-center px-4 border border-border flex-row items-center">
                    <Text className="text-base font-bold text-muted-foreground">{salesOrder}</Text>
                 </View>
               </View>
 
               <View className="gap-2">
-                <Text className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Cabinet Position</Text>
+                <Text className="text-[11px] font-bold text-muted-foreground uppercase">Cabinet Position</Text>
                 <View className="h-[56px] rounded-xl bg-background justify-center px-4 border border-border flex-row items-center">
                    <Text className="text-base font-bold text-muted-foreground">{cabinetPosition}</Text>
                 </View>
               </View>
 
               <View className="gap-2">
-                <Text className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">SR POC (Optional)</Text>
+                <Text className="text-[11px] font-bold text-muted-foreground uppercase">SR POC (Optional)</Text>
                 <Input
                   value={srPoc}
                   onChangeText={setSrPoc}
                   placeholder="Enter contact name"
+                  accessibilityLabel="Site requisite point of contact"
                   className="h-[56px] rounded-xl bg-background border border-border px-4"
                 />
               </View>
@@ -287,7 +282,7 @@ const SubmitScreen = ({ navigation }) => {
               onPress={handleSubmit}
               className="h-[56px] rounded-2xl bg-primary"
             >
-              <Text className="text-white text-base font-bold">Confirm & Submit</Text>
+              <Text className="text-primary-foreground text-base font-bold">Confirm & Submit</Text>
             </Button>
           </View>
 
@@ -335,7 +330,8 @@ const SubmitScreen = ({ navigation }) => {
           keyExtractor={(item) => item.product_name}
           renderItem={renderItem}
           ListHeaderComponent={renderHeader}
-          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}
+          contentContainerStyle={{ paddingHorizontal: px, paddingBottom: 120 }}
+          contentInsetAdjustmentBehavior="automatic"
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         />

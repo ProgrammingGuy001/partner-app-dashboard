@@ -1,17 +1,19 @@
 import React, { useMemo, useCallback } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { Text } from '@/components/ui';
 import { JOB_STATUS, JOB_STATUS_ACCENT, JOB_STATUS_LABELS } from '../../util/constants';
 import { useDashboardStore } from '../../store/dashboardStore';
 import { useTheme } from '../../hooks/useTheme';
 
-const filters = [JOB_STATUS.IN_PROGRESS, JOB_STATUS.CREATED, JOB_STATUS.COMPLETED, JOB_STATUS.PAUSED];
+const STATUS_FILTERS = [JOB_STATUS.IN_PROGRESS, JOB_STATUS.CREATED, JOB_STATUS.COMPLETED, JOB_STATUS.PAUSED];
+const filters = ['all', ...STATUS_FILTERS];
 
-const FilterButton = React.memo(({ status, isActive, count, accent, colors, onPress }) => (
+const FilterButton = React.memo(({ label, isActive, count, accent, colors, onPress }) => (
   <Pressable
     onPress={onPress}
     accessibilityRole="button"
-    accessibilityLabel={`Filter by ${JOB_STATUS_LABELS[status]}, ${count} jobs`}
+    accessibilityLabel={`Filter by ${label}, ${count} jobs`}
     accessibilityState={{ selected: isActive }}
     style={({ pressed }) => ({
       flexDirection: 'row',
@@ -22,8 +24,10 @@ const FilterButton = React.memo(({ status, isActive, count, accent, colors, onPr
       borderColor: isActive ? accent.border : colors.border,
       backgroundColor: isActive ? accent.badge : colors.surface,
       paddingHorizontal: 14,
-      paddingVertical: 8,
+      minHeight: 44,
+      paddingVertical: 9,
       opacity: pressed ? 0.8 : 1,
+      transform: [{ scale: pressed ? 0.98 : 1 }],
     })}
   >
     {isActive && (
@@ -36,7 +40,7 @@ const FilterButton = React.memo(({ status, isActive, count, accent, colors, onPr
         color: isActive ? accent.text : colors.textSecondary,
       }}
     >
-      {JOB_STATUS_LABELS[status]}
+      {label}
     </Text>
     <View
       className="rounded-[10px] px-[7px] py-0.5"
@@ -49,6 +53,7 @@ const FilterButton = React.memo(({ status, isActive, count, accent, colors, onPr
           fontSize: 11,
           fontWeight: '700',
           color: isActive ? accent.text : colors.textMuted,
+          fontVariant: ['tabular-nums'],
         }}
       >
         {count}
@@ -63,30 +68,47 @@ const JobFilters = () => {
 
   const filterCounts = useMemo(() => {
     const counts = {};
-    filters.forEach((status) => {
+    STATUS_FILTERS.forEach((status) => {
       counts[status] = jobs.filter((job) => job.status === status).length;
     });
     return counts;
   }, [jobs]);
 
   const handleFilterPress = useCallback((status) => {
+    Haptics.selectionAsync().catch(() => {});
     setActiveFilter(status);
   }, [setActiveFilter]);
 
+  // Neutral accent for the "All" chip — uses the brand primary
+  const allAccent = useMemo(() => ({
+    border: colors.primary,
+    badge: colors.primaryLight,
+    text: colors.primary,
+    dot: colors.primary,
+  }), [colors]);
+
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-3">
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      className="mb-3"
+      contentContainerStyle={{ paddingRight: 4 }}
+    >
       <View className="flex-row gap-2 pb-0.5">
-        {filters.map((status) => (
-          <FilterButton
-            key={status}
-            status={status}
-            isActive={activeFilter === status}
-            count={filterCounts[status]}
-            accent={JOB_STATUS_ACCENT[status]}
-            colors={colors}
-            onPress={() => handleFilterPress(status)}
-          />
-        ))}
+        {filters.map((status) => {
+          const isAll = status === 'all';
+          return (
+            <FilterButton
+              key={status}
+              label={isAll ? 'All' : JOB_STATUS_LABELS[status]}
+              isActive={activeFilter === status}
+              count={isAll ? jobs.length : filterCounts[status]}
+              accent={isAll ? allAccent : JOB_STATUS_ACCENT[status]}
+              colors={colors}
+              onPress={() => handleFilterPress(status)}
+            />
+          );
+        })}
       </View>
     </ScrollView>
   );

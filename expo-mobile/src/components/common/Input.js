@@ -41,7 +41,7 @@ const Input = React.forwardRef(
           <TextInput
             ref={ref}
             editable={!disabled}
-            placeholderTextColor="#7c685f"
+            placeholderTextColor="#7c736e"
             accessible={true}
             accessibilityRole="text"
             accessibilityLabel={a11yLabel}

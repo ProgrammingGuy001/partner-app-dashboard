@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Alert, FlatList, KeyboardAvoidingView, Platform, ScrollView, View, TouchableOpacity } from 'react-native';
+import { Alert, FlatList, KeyboardAvoidingView, Platform, View, TouchableOpacity } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Text } from '@/components/ui/text';
+import EmptyState from '../../components/common/EmptyState';
 import useRequisiteStore from '../../store/requisiteStore';
 import { useTheme } from '../../hooks/useTheme';
 import { ROUTES } from '../../util/constants';
@@ -20,8 +21,9 @@ const DEPARTMENTS = [
 ];
 
 const BucketScreen = ({ navigation }) => {
-  const { bucket, removeFromBucket, updateBucketItem, salesOrder, cabinetPosition } = useRequisiteStore();
+  const { bucket, removeFromBucket, updateBucketItem } = useRequisiteStore();
   const { colors } = useTheme();
+  const onPrimary = colors.primaryForeground;
 
   const [editingItem, setEditingItem] = useState(null);
   const [editForm, setEditForm] = useState({
@@ -55,7 +57,7 @@ const BucketScreen = ({ navigation }) => {
         {/* Header */}
         <View className="flex-row items-center gap-3 pt-4 mb-6">
           <TouchableOpacity
-            onPress={() => { Haptics.selectionAsync(); navigation.goBack(); }}
+            onPress={() => { Haptics.selectionAsync().catch(() => {}); navigation.goBack(); }}
             accessible={true}
             accessibilityRole="button"
             accessibilityLabel="Go back"
@@ -65,40 +67,39 @@ const BucketScreen = ({ navigation }) => {
             <Ionicons name="arrow-back" size={20} color={colors.text} />
           </TouchableOpacity>
           <View className="flex-1">
-            <Text className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
+            <Text className="text-xs font-bold text-muted-foreground uppercase">
               BOM BUCKET
             </Text>
-            <Text className="text-xl font-extrabold text-foreground tracking-tight">
+            <Text className="text-xl font-extrabold text-foreground">
               My Selection ({bucket.length})
             </Text>
           </View>
           <TouchableOpacity
             disabled={!bucket.length}
-            onPress={() => { Haptics.selectionAsync(); navigation.navigate(ROUTES.SUBMIT); }}
+            onPress={() => { Haptics.selectionAsync().catch(() => {}); navigation.navigate(ROUTES.SUBMIT); }}
             accessible={true}
             accessibilityRole="button"
             accessibilityLabel="Proceed to submit"
+            accessibilityState={{ disabled: !bucket.length }}
             className="h-11 px-4 rounded-xl items-center justify-center"
             style={{
               backgroundColor: colors.primary,
               opacity: bucket.length ? 1 : 0.4
             }}
           >
-            <Text className="text-white font-bold text-[13px]">Submit</Text>
+            <Text className="font-bold text-[13px]" style={{ color: onPrimary }}>Submit</Text>
           </TouchableOpacity>
         </View>
 
         {!bucket.length ? (
           <View className="flex-1 items-center justify-center pb-[100px]">
-             <View className="w-20 h-20 rounded-[40px] bg-muted items-center justify-center mb-5">
-               <Ionicons name="basket-outline" size={40} color={colors.textMuted} />
-             </View>
-             <Text className="text-xl font-extrabold text-foreground mb-2">Your bucket is empty</Text>
-             <Text className="text-sm text-muted-foreground text-center mb-6 px-10">
-               Add items from the material hierarchy to create a site requisite request.
-             </Text>
-             <Button className="rounded-xl px-8" onPress={() => navigation.goBack()}>
-               <Text className="text-white font-bold">Browse Materials</Text>
+             <EmptyState
+               icon="basket-outline"
+               title="Your bucket is empty"
+               subtitle="Add items from the material hierarchy to create a site requisite request."
+             />
+             <Button className="rounded-xl px-8 mt-6" onPress={() => navigation.goBack()}>
+               <Text className="text-primary-foreground font-bold">Browse Materials</Text>
              </Button>
           </View>
         ) : (
@@ -106,10 +107,11 @@ const BucketScreen = ({ navigation }) => {
             data={bucket}
             keyExtractor={(item) => item.product_name}
             contentContainerStyle={{ gap: 16, paddingBottom: 40 }}
+            contentInsetAdjustmentBehavior="automatic"
             showsVerticalScrollIndicator={false}
             renderItem={({ item, index }) => (
-               <View 
-                className="bg-surface rounded-[20px] p-5 border border-border"
+               <View
+                className="bg-surface rounded-2xl p-5 border border-border"
                 style={colors.shadowSm}
                >
                  <View className="flex-row items-center gap-2.5 mb-3">
@@ -122,23 +124,27 @@ const BucketScreen = ({ navigation }) => {
                  {editingItem === item.product_name ? (
                    <View className="gap-3">
                      <View className="gap-1.5">
-                       <Text className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Quantity</Text>
+                       <Text className="text-[11px] font-bold text-muted-foreground uppercase">Quantity</Text>
                        <Input
                          value={editForm.quantity}
                          onChangeText={(text) => setEditForm((prev) => ({ ...prev, quantity: text }))}
                          keyboardType="decimal-pad"
-                         className="h-11 rounded-[10px] bg-background px-3"
+                         accessibilityLabel={`Quantity for ${item.product_name}`}
+                         className="h-11 rounded-xl bg-background px-3"
                        />
                      </View>
 
                      <View className="gap-1.5">
-                       <Text className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Department</Text>
+                       <Text className="text-[11px] font-bold text-muted-foreground uppercase">Department</Text>
                        <View className="flex-row flex-wrap gap-2">
                          {DEPARTMENTS.map((dept) => {
                            const selected = editForm.responsible_department === dept.value;
                            return (
                              <TouchableOpacity
                                key={dept.value}
+                               accessibilityRole="button"
+                               accessibilityLabel={`Responsible department ${dept.label}`}
+                               accessibilityState={{ selected }}
                                onPress={() =>
                                  setEditForm((prev) => ({
                                    ...prev,
@@ -153,7 +159,7 @@ const BucketScreen = ({ navigation }) => {
                              >
                                <Text
                                  className="text-xs font-bold"
-                                 style={{ color: selected ? '#fff' : colors.textSecondary }}
+                                 style={{ color: selected ? onPrimary : colors.textSecondary }}
                                >
                                  {dept.label}
                                </Text>
@@ -164,13 +170,14 @@ const BucketScreen = ({ navigation }) => {
                      </View>
 
                      <View className="gap-1.5">
-                       <Text className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Issue Description</Text>
+                       <Text className="text-[11px] font-bold text-muted-foreground uppercase">Issue Description</Text>
                        <Input
                          value={editForm.issue_description}
                          onChangeText={(text) => setEditForm((prev) => ({ ...prev, issue_description: text }))}
                          multiline
                          textAlignVertical="top"
-                         className="min-h-[80px] rounded-[10px] bg-background pt-2.5 px-3"
+                         accessibilityLabel={`Issue description for ${item.product_name}`}
+                         className="min-h-[80px] rounded-xl bg-background pt-2.5 px-3"
                        />
                      </View>
 
@@ -185,7 +192,7 @@ const BucketScreen = ({ navigation }) => {
                          onPress={() => saveEdit(item.product_name)}
                          className="flex-1 h-11 rounded-xl items-center justify-center bg-primary"
                        >
-                         <Text className="font-bold text-white">Save Changes</Text>
+                         <Text className="font-bold text-primary-foreground">Save Changes</Text>
                        </TouchableOpacity>
                      </View>
                    </View>
@@ -193,12 +200,12 @@ const BucketScreen = ({ navigation }) => {
                    <View>
                      <View className="flex-row gap-5 mb-3">
                         <View>
-                           <Text className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">QTY</Text>
+                           <Text className="text-[10px] font-bold text-muted-foreground uppercase">QTY</Text>
                            <Text className="text-sm font-bold text-foreground">{item.quantity || 1}</Text>
                         </View>
                         {item.responsible_department && (
                           <View>
-                            <Text className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">DEPT</Text>
+                            <Text className="text-[10px] font-bold text-muted-foreground uppercase">DEPT</Text>
                             <View
                               className="px-2 py-0.5 rounded-lg"
                               style={{ backgroundColor: colors.primary + '20' }}
@@ -214,23 +221,23 @@ const BucketScreen = ({ navigation }) => {
                         )}
                      </View>
 
-                     <Text className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide mb-1">ISSUE DESCRIPTION</Text>
+                     <Text className="text-[10px] font-bold text-muted-foreground uppercase mb-1">ISSUE DESCRIPTION</Text>
                      <Text className="text-sm text-muted-foreground font-medium leading-5 mb-4">{item.issue_description || 'Not specified'}</Text>
 
                      <View className="flex-row gap-2.5">
                        <TouchableOpacity
-                         onPress={() => { Haptics.selectionAsync(); startEdit(item); }}
+                         onPress={() => { Haptics.selectionAsync().catch(() => {}); startEdit(item); }}
                          accessible={true}
                          accessibilityRole="button"
                          accessibilityLabel={`Edit ${item.product_name}`}
-                         className="flex-1 h-11 rounded-[10px] flex-row items-center justify-center gap-1.5 border border-border bg-muted"
+                         className="flex-1 h-11 rounded-xl flex-row items-center justify-center gap-1.5 border border-border bg-muted"
                        >
                          <Ionicons name="create-outline" size={16} color={colors.textSecondary} />
                          <Text className="text-[13px] font-bold text-muted-foreground">Edit</Text>
                        </TouchableOpacity>
                        <TouchableOpacity
                          onPress={() => {
-                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
                            Alert.alert('Remove item?', `Remove "${item.product_name}" from bucket?`, [
                              { text: 'Cancel', style: 'cancel' },
                              {
@@ -243,11 +250,11 @@ const BucketScreen = ({ navigation }) => {
                          accessible={true}
                          accessibilityRole="button"
                          accessibilityLabel={`Remove ${item.product_name}`}
-                         className="flex-1 h-11 rounded-[10px] flex-row items-center justify-center gap-1.5 border"
+                         className="flex-1 h-11 rounded-xl flex-row items-center justify-center gap-1.5 border"
                          style={{ backgroundColor: colors.danger + '10', borderColor: colors.danger + '20' }}
                        >
                          <Ionicons name="trash-outline" size={16} color={colors.danger} />
-                         <Text className="text-[13px] font-bold text-danger">Remove</Text>
+                         <Text className="text-[13px] font-bold text-destructive-muted-foreground">Remove</Text>
                        </TouchableOpacity>
                      </View>
                    </View>

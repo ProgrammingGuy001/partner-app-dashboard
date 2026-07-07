@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import { Linking, View, TouchableOpacity } from "react-native";
+import { Alert, Linking, View, TouchableOpacity } from "react-native";
 import * as Haptics from "expo-haptics";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { Button, Input, Text } from "@/components/ui";
@@ -16,7 +16,8 @@ const ChecklistItem = ({ item }) => {
   const [isEditingComment, setIsEditingComment] = useState(false);
   const [commentValue, setCommentValue] = useState(item.comment || "");
   const [isUploading, setIsUploading] = useState(false);
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
+  const onPrimary = isDark ? colors.background : "#fff";
 
   // Sync commentValue when item.comment changes from external update
   React.useEffect(() => {
@@ -61,7 +62,7 @@ const ChecklistItem = ({ item }) => {
       clearFile();
     } catch (error) {
       console.error('Upload failed:', error);
-      alert('Failed to upload document. Please try again.');
+      Alert.alert('Upload failed', 'Failed to upload document. Please try again.');
     } finally {
       setIsUploading(false);
     }
@@ -80,11 +81,11 @@ const ChecklistItem = ({ item }) => {
     // Prevent checking if photo or notes are missing
     if (!item.checked) {
       if (!item.document_link) {
-        alert('⚠️ Please upload a photo before marking this item complete.');
+        Alert.alert('Photo required', 'Please upload a photo before marking this item complete.');
         return;
       }
       if (!item.comment || item.comment.trim() === '') {
-        alert('⚠️ Please add notes/comment before marking this item complete.');
+        Alert.alert('Notes required', 'Please add notes before marking this item complete.');
         return;
       }
     }
@@ -110,7 +111,13 @@ const ChecklistItem = ({ item }) => {
         borderBottomColor: colors.background,
       }}
     >
-      <TouchableOpacity onPress={handleToggle} style={{ marginTop: 2 }}>
+      <TouchableOpacity
+        onPress={handleToggle}
+        accessibilityRole="checkbox"
+        accessibilityLabel={`Mark ${item.text} complete`}
+        accessibilityState={{ checked: Boolean(item.checked) }}
+        style={{ marginTop: 2 }}
+      >
         <Ionicons
           name={item.checked ? "checkmark-circle" : "ellipse-outline"}
           size={26}
@@ -188,6 +195,9 @@ const ChecklistItem = ({ item }) => {
             <TouchableOpacity
               onPress={handleUploadConfirm}
               disabled={isUploading}
+              accessibilityRole="button"
+              accessibilityLabel={`Upload evidence for ${item.text}`}
+              accessibilityState={{ disabled: isUploading, busy: isUploading }}
               style={{
                 backgroundColor: isUploading ? colors.textMuted : colors.primary,
                 borderRadius: 8,
@@ -196,7 +206,7 @@ const ChecklistItem = ({ item }) => {
                 opacity: isUploading ? 0.6 : 1,
               }}
             >
-              <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700" }}>
+              <Text style={{ color: onPrimary, fontSize: 12, fontWeight: "700" }}>
                 {isUploading ? "Uploading..." : "Upload"}
               </Text>
             </TouchableOpacity>
@@ -205,6 +215,8 @@ const ChecklistItem = ({ item }) => {
                 Haptics.selectionAsync();
                 clearFile();
               }}
+              accessibilityRole="button"
+              accessibilityLabel="Remove selected evidence file"
               style={{
                 width: 28,
                 height: 28,
@@ -226,6 +238,8 @@ const ChecklistItem = ({ item }) => {
                 Haptics.selectionAsync();
                 Linking.openURL(item.document_link);
               }}
+              accessibilityRole="link"
+              accessibilityLabel={`View evidence for ${item.text}`}
               style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
             >
               <Ionicons
@@ -249,6 +263,8 @@ const ChecklistItem = ({ item }) => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               handleFileSelect();
             }}
+            accessibilityRole="button"
+            accessibilityLabel={item.document_link ? `Replace evidence for ${item.text}` : `Attach photo for ${item.text}`}
             style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
           >
             <Ionicons
@@ -276,6 +292,7 @@ const ChecklistItem = ({ item }) => {
               multiline
               textAlignVertical="top"
               placeholder="Add notes or comments..."
+              accessibilityLabel={`Notes for ${item.text}`}
               style={{
                 minHeight: 80,
                 borderRadius: 12,
@@ -288,7 +305,7 @@ const ChecklistItem = ({ item }) => {
                 className="flex-1 bg-primary h-10 rounded-xl"
                 onPress={handleSaveComment}
               >
-                <Text style={{ color: "#fff", fontWeight: "700" }}>
+                <Text style={{ color: onPrimary, fontWeight: "700" }}>
                   Save Note
                 </Text>
               </Button>
@@ -318,6 +335,8 @@ const ChecklistItem = ({ item }) => {
               Haptics.selectionAsync();
               setIsEditingComment(true);
             }}
+            accessibilityRole="button"
+            accessibilityLabel={`Edit note for ${item.text}`}
             style={{
               backgroundColor: colors.background,
               borderRadius: 12,
@@ -367,6 +386,8 @@ const ChecklistItem = ({ item }) => {
               Haptics.selectionAsync();
               setIsEditingComment(true);
             }}
+            accessibilityRole="button"
+            accessibilityLabel={`Add notes for ${item.text}`}
             style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
           >
             <Ionicons
