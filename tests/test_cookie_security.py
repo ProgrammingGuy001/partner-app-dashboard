@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 import unittest
 
 from starlette.requests import Request
@@ -21,6 +23,21 @@ os.environ.setdefault("ModulaCare_URL", "https://example.com")
 
 from app.api.cookie_security import cookie_bearer
 from app.config import settings
+
+
+class ConfigPrecedenceTests(unittest.TestCase):
+    def test_runtime_database_url_wins_over_prod_env_file(self):
+        runtime_url = "postgresql://runtime:runtime@runtime.invalid/runtime"
+        env = {**os.environ, "DATABASE_URL": runtime_url}
+        result = subprocess.run(
+            [sys.executable, "-c", "from app.config import settings; print(settings.DATABASE_URL)"],
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.stdout.strip(), runtime_url)
 
 
 def make_request(path: str, cookies: dict[str, str], authorization: str | None = None) -> Request:

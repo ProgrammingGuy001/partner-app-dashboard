@@ -2,6 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
 
+from dotenv import load_dotenv
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -40,13 +41,10 @@ def get_env_file() -> str:
 
     return env_path(".env.test")
 
-from dotenv import load_dotenv
-
-# Force-load the correct env file, overriding any variables already in os.environ.
-# This prevents tools like Uvicorn or VS Code from locking the app into the wrong
-# environment by automatically loading a default .env file before this script runs.
+# Load file defaults without replacing deployment-provided environment variables.
+# In production, DATABASE_URL and secrets must come from the runtime environment.
 _active_env_file = get_env_file()
-load_dotenv(_active_env_file, override=True)
+load_dotenv(_active_env_file, override=False)
 
 
 class Settings(BaseSettings):
