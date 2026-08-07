@@ -1,18 +1,19 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   RefreshControl,
   ScrollView,
   View,
   TouchableOpacity,
+  TextInput,
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import JobDetails from "../../components/dashboard/JobDetails";
-import ProgressTimeline from "../../components/dashboard/ProgressTimeline";
+import JobHistoryTimeline from "../../components/dashboard/JobHistoryTimeline";
 import BillingSection from "../../components/dashboard/BillingSection";
-import DailyJobUpdate from "../../components/dashboard/DailyJobUpdate";
 import EmptyState from "../../components/common/EmptyState";
 import { useAuthStore } from "../../store/authStore";
 import Loader from "../../components/common/Loader";
@@ -21,7 +22,6 @@ import { useDashboardStore } from "../../store/dashboardStore";
 import { useToast } from "../../hooks/useToast";
 import { useTheme } from "../../hooks/useTheme";
 import { ROUTES } from "../../util/constants";
-import { logger } from "../../util/helpers";
 import Ionicons from "@react-native-vector-icons/ionicons";
 
 const JobDetailScreen = ({ navigation, route }) => {
@@ -42,12 +42,17 @@ const JobDetailScreen = ({ navigation, route }) => {
   const cached = getJobDetailFromCache(id);
   const [loading, setLoading] = useState(!cached);
   const [job, setJob] = useState(cached?.job ?? null);
-  const [progress, setProgress] = useState(cached?.progress ?? []);
+  const [jobError, setJobError] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState(false);
+  const [note, setNote] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const hasValidJobId = Number.isInteger(id) && id > 0;
   const checklistCount = job?.checklists?.length ?? 0;
 
-  const fetchJobDetails = useCallback(async () => {
+  const fetchJobDetails = useCallback(async (force = false) => {
     if (!hasValidJobId) {
       toast.error("Invalid job selected");
       navigation.goBack();
@@ -55,36 +60,38 @@ const JobDetailScreen = ({ navigation, route }) => {
     }
 
     try {
-      const response = await dashboardApi.getJob(id);
+      const response = await dashboardApi.getJob(id, { force });
       const jobData = response.job || response.data;
-      if (isMountedRef.current) setJob(jobData);
+      if (isMountedRef.current) {
+        setJob(jobData);
+        setJobError(null);
+      }
       return jobData;
     } catch (error) {
       if (isMountedRef.current) {
-        toast.error(error.message || "Failed to fetch job details");
-        navigation.goBack();
+        const message = error.message || "Failed to fetch job details";
+        setJobError({ message, status: error.status });
+        toast.error(message);
       }
       return null;
     }
   }, [id, hasValidJobId, toast, navigation]);
 
-  const fetchJobProgress = useCallback(async () => {
+  const fetchJobHistory = useCallback(async () => {
     if (!hasValidJobId) return [];
-
+    if (isMountedRef.current) setHistoryLoading(true);
     try {
-      const response = await dashboardApi.getJobProgress(id);
-      const uploads = response.uploads || [];
-      if (isMountedRef.current) setProgress(uploads);
-      return uploads;
-    } catch (error) {
-      logger.warn(
-        "JobDetailScreen",
-        `Failed to fetch progress: ${error?.message}`,
-      );
+      const entries = await dashboardApi.getJobHistory(id);
       if (isMountedRef.current) {
-        setProgress([]);
+        setHistory(entries || []);
+        setHistoryError(false);
       }
+      return entries || [];
+    } catch {
+      if (isMountedRef.current) setHistoryError(true);
       return [];
+    } finally {
+      if (isMountedRef.current) setHistoryLoading(false);
     }
   }, [id, hasValidJobId]);
 
@@ -93,29 +100,54 @@ const JobDetailScreen = ({ navigation, route }) => {
       setLoading(false);
       return;
     }
-    if (cached) return;
+    if (cached) {
+      fetchJobHistory();
+      return;
+    }
 
     (async () => {
       if (isMountedRef.current) setLoading(true);
-      const [jobData, uploads] = await Promise.all([
+      const [jobData] = await Promise.all([
         fetchJobDetails(),
-        fetchJobProgress(),
+        fetchJobHistory(),
       ]);
-      if (jobData) cacheJobDetail(id, jobData, uploads);
+      if (jobData) cacheJobDetail(id, jobData);
       if (isMountedRef.current) setLoading(false);
     })();
-  }, [id, hasValidJobId]);
+  }, [id, hasValidJobId, cached, fetchJobDetails, fetchJobHistory, cacheJobDetail]);
 
   const handleRefresh = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setRefreshing(true);
-    const [jobData, uploads] = await Promise.all([
-      fetchJobDetails(),
-      fetchJobProgress(),
+    const [jobData] = await Promise.all([
+      fetchJobDetails(true),
+      fetchJobHistory(),
     ]);
-    if (jobData) cacheJobDetail(id, jobData, uploads);
+    if (jobData) cacheJobDetail(id, jobData);
     setRefreshing(false);
-  }, [id, fetchJobDetails, fetchJobProgress, cacheJobDetail]);
+  }, [id, fetchJobDetails, fetchJobHistory, cacheJobDetail]);
+
+  const handleRetry = async () => {
+    setLoading(true);
+    const [jobData] = await Promise.all([fetchJobDetails(true), fetchJobHistory()]);
+    if (jobData) cacheJobDetail(id, jobData);
+    if (isMountedRef.current) setLoading(false);
+  };
+
+  const handleAddNote = async () => {
+    if (!note.trim()) return;
+    setNoteSaving(true);
+    try {
+      await dashboardApi.addJobNote(id, note);
+      setNote("");
+      await fetchJobHistory();
+      toast.success("Job note added");
+    } catch (error) {
+      toast.error(error.message || "Failed to add job note");
+    } finally {
+      setNoteSaving(false);
+    }
+  };
 
   if (loading) {
     return <Loader fullScreen text="Loading job details..." />;
@@ -126,8 +158,11 @@ const JobDetailScreen = ({ navigation, route }) => {
       <SafeAreaView className="flex-1 bg-background">
         <View className="flex-1 items-center justify-center gap-3 p-6">
           <Text className="text-xl font-bold text-foreground">
-            Job not found
+            {jobError?.status === 404 ? "Job not found" : "Could not load job"}
           </Text>
+          {jobError?.status !== 404 && (
+            <Button variant="outline" onPress={handleRetry}><Text>Try again</Text></Button>
+          )}
           <Button onPress={() => navigation.goBack()}>
             <Text>Back to Dashboard</Text>
           </Button>
@@ -157,6 +192,41 @@ const JobDetailScreen = ({ navigation, route }) => {
       >
         {/* Header */}
         <JobDetails job={job} />
+
+        {/* Mission Control Quick Actions */}
+        <View className="flex-row gap-3 mt-4">
+          <TouchableOpacity
+            onPress={() => navigation.navigate(ROUTES.MAIN_TABS, {
+              screen: ROUTES.SITE_GRN,
+              params: { jobId: job.id, salesOrder: job.sales_order },
+            })}
+            accessibilityRole="button"
+            accessibilityLabel={`Open site GRN for ${job.name}`}
+            className="flex-1 rounded-2xl p-4 items-center justify-center border border-border bg-surface"
+            style={colors.shadowSm}
+          >
+            <View className="w-12 h-12 rounded-full bg-primary-light items-center justify-center mb-2">
+              <Ionicons name="cube" size={24} color={colors.primary} />
+            </View>
+            <Text className="text-[13px] font-extrabold text-foreground text-center">Upload GRN</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => navigation.navigate(ROUTES.MAIN_TABS, {
+              screen: ROUTES.SITE_REQUISITE,
+              params: { salesOrder: job.sales_order },
+            })}
+            accessibilityRole="button"
+            accessibilityLabel={`Create a site requisite for ${job.name}`}
+            className="flex-1 rounded-2xl p-4 items-center justify-center border border-border bg-surface"
+            style={colors.shadowSm}
+          >
+            <View className="w-12 h-12 rounded-full bg-primary-light items-center justify-center mb-2">
+              <Ionicons name="construct" size={24} color={colors.primary} />
+            </View>
+            <Text className="text-[13px] font-extrabold text-foreground text-center">Missing Part</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Billing Section — external IP users only */}
         {isExternalIP && <BillingSection job={job} />}
@@ -240,13 +310,35 @@ const JobDetailScreen = ({ navigation, route }) => {
           )}
         </View>
 
-        {/* Daily Progress Update */}
-        <View className="mt-4">
-          <DailyJobUpdate jobId={job.id} />
-        </View>
-
-        <View className="mt-4">
-          <ProgressTimeline progress={progress} />
+        <View className="mt-4 rounded-2xl border border-border bg-surface p-5" style={colors.shadowSm}>
+          <Text className="text-base font-extrabold text-foreground">Job activity</Text>
+          <TextInput
+            value={note}
+            onChangeText={setNote}
+            placeholder="Record a site update or blocker"
+            placeholderTextColor={colors.textMuted}
+            multiline
+            numberOfLines={3}
+            textAlignVertical="top"
+            className="mt-3 min-h-20 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground"
+          />
+          <Button className="mt-3" onPress={handleAddNote} loading={noteSaving} disabled={!note.trim()}>
+            <Text>Add note</Text>
+          </Button>
+          <View className="mt-5">
+            {historyLoading ? (
+              <ActivityIndicator color={colors.primary} accessibilityLabel="Loading job activity" />
+            ) : historyError ? (
+              <View className="gap-2">
+                <Text className="text-sm text-destructive">Could not load job activity.</Text>
+                <Button variant="outline" onPress={fetchJobHistory}><Text>Retry</Text></Button>
+              </View>
+            ) : history.length === 0 ? (
+              <Text className="text-sm text-muted-foreground">No job activity recorded yet.</Text>
+            ) : (
+              <JobHistoryTimeline history={history} />
+            )}
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>

@@ -10,11 +10,14 @@ from app.config import settings
 from app.model.ip import ip
 from app.core.security import (
     clear_cookie,
+    consume_refresh_token,
     create_access_token,
     create_refresh_token,
     decode_access_token,
     decode_refresh_token,
+    revoke_refresh_tokens,
     set_bearer_cookie,
+    store_refresh_token,
     strip_bearer_prefix,
 )
 
@@ -55,7 +58,7 @@ def register_user(user_data: UserRegistration, db: Session = Depends(get_db)):
         city=user_data.city,
         pincode=int(user_data.pincode),
         is_phone_verified=False,
-        is_internal=user_data.is_internal
+        is_internal=user_data.is_internal,
     )
 
     db.add(new_user)
@@ -75,29 +78,20 @@ def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_
     if not phone_number.startswith('91') and len(phone_number) == 10:
         phone_number = '91' + phone_number
 
-    # Check if user exists
+    # Uniform response whether or not the phone is registered — prevents
+    # attackers probing which numbers have accounts (no SMS sent for unknown numbers).
     user = db.query(ip).filter(ip.phone_number == phone_number).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found. Please register first."
-        )
-
-    # Generate and send OTP
-    # Extract first name from phone number or use default
-    first_name = user.first_name.split()[0] if user.phone_number else "User"
-
-    # otp_result = OTPService.send_otp(phone_number, first_name)
-    otp_result = OTPService.send_otp(db, phone_number, first_name)
-
-    if not otp_result["success"]:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to send OTP. Please try again."
-        )
+    if user:
+        first_name = user.first_name.split()[0] if user.first_name else "User"
+        otp_result = OTPService.send_otp(db, phone_number, first_name)
+        if not otp_result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send OTP. Please try again."
+            )
 
     return {
-        "message": "OTP sent successfully to your phone_number",
+        "message": "If this number is registered, an OTP has been sent.",
         "phone_number": phone_number
     }
 
@@ -112,16 +106,9 @@ def verify_otp(request: Request, otp_data: OTPVerification, response: Response, 
     if not phone_number.startswith('91') and len(phone_number) == 10:
         phone_number = '91' + phone_number
 
-    # Check if user exists
+    # Same error for unknown phone and wrong OTP — prevents phone enumeration.
     user = db.query(ip).filter(ip.phone_number == phone_number).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-
-    # Verify OTP
-    is_valid = OTPService.verify_otp(db, phone_number, otp_data.otp)
+    is_valid = bool(user) and OTPService.verify_otp(db, phone_number, otp_data.otp)
 
     if not is_valid:
         raise HTTPException(
@@ -138,6 +125,7 @@ def verify_otp(request: Request, otp_data: OTPVerification, response: Response, 
     # Generate access token
     access_token = create_access_token(data={"sub": str(user.id)})
     refresh_token = create_refresh_token(data={"sub": str(user.id)})
+    store_refresh_token(db, str(user.id), refresh_token)
     set_bearer_cookie(response, key=settings.IP_AUTH_COOKIE_NAME, token=access_token)
     set_bearer_cookie(
         response,
@@ -164,26 +152,19 @@ def resend_otp(request: Request, login_data: LoginRequest, db: Session = Depends
     if not phone_number.startswith('91') and len(phone_number) == 10:
         phone_number = '91' + phone_number
 
-    # Check if user exists
+    # Uniform response — see login().
     user = db.query(ip).filter(ip.phone_number == phone_number).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-
-    # Generate and send OTP
-    first_name = user.first_name.split()[0] if user.phone_number else "User"
-    otp_result = OTPService.send_otp(db, phone_number, first_name)
-
-    if not otp_result["success"]:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to send OTP. Please try again."
-        )
+    if user:
+        first_name = user.first_name.split()[0] if user.first_name else "User"
+        otp_result = OTPService.send_otp(db, phone_number, first_name)
+        if not otp_result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send OTP. Please try again."
+            )
 
     return {
-        "message": "OTP resent successfully",
+        "message": "If this number is registered, an OTP has been sent.",
         "phone_number": phone_number
     }
 
@@ -205,6 +186,7 @@ def refresh_token(
     request: Request,
     response: Response,
     refresh_data: RefreshTokenRequest | None = None,
+    db: Session = Depends(get_db),
 ):
     refresh_token_cookie = request.cookies.get(settings.IP_REFRESH_COOKIE_NAME)
     provided_refresh_token = refresh_data.refresh_token if refresh_data else None
@@ -219,9 +201,15 @@ def refresh_token(
     if not payload or "sub" not in payload:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
+    # Single-use rotation: the presented token must exist server-side and is
+    # deleted here, so tokens stolen after logout (or already rotated) are dead.
+    if not consume_refresh_token(db, refresh_token_value):
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
     sub = payload["sub"]
     access_token = create_access_token(data={"sub": sub})
     new_refresh_token = create_refresh_token(data={"sub": sub})
+    store_refresh_token(db, sub, new_refresh_token)
     set_bearer_cookie(response, key=settings.IP_AUTH_COOKIE_NAME, token=access_token)
     set_bearer_cookie(
         response,
@@ -247,6 +235,7 @@ def read_users_me(current_user: Union[ip, User] = Depends(get_current_user)):
 def logout(
     response: Response,
     current_user: Union[ip, User] = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
 
     # Clear cookie first
@@ -254,6 +243,10 @@ def logout(
     # Legacy cleanup for older cookie name.
     clear_cookie(response, key="access_token")
     clear_cookie(response, key=settings.IP_REFRESH_COOKIE_NAME)
+
+    # Revoke all refresh tokens for this account so stolen tokens die with the session.
+    subject = str(current_user.id) if isinstance(current_user, ip) else current_user.email
+    revoke_refresh_tokens(db, subject)
 
     if isinstance(current_user, ip):
         # Do NOT reset is_phone_verified — that flag records a permanent one-time

@@ -1,6 +1,6 @@
 from datetime import datetime, date
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status, Path, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Annotated, List, Optional
@@ -10,14 +10,23 @@ from app.core.security import get_current_user
 from app.model.user import User
 from app.model.ip import ip, IPAdminAssignment
 from app.model.attendance import DailyAttendance
-from app.model.job import Job
+from app.model.job import Customer, Job
 from app.model.admin_attendance import AdminAttendance
+from app.model.sunday_work_request import SundayWorkRequest
+from app.services.attendance_export import build_attendance_workbook
 from app.services.s3_service import upload_file_to_s3
 from app.services.upload_service import read_validated_upload
+from app.api.v1.attendance import _report_status
 from app.utils.attendance_policy import (
+    CHECK_OUT_CUTOFF,
+    attendance_business_date,
     build_attendance_completion,
     ensure_attendance_window_open,
+    is_sunday,
+    now_ist,
 )
+from app.utils.geo import nearest_job_status
+from app.utils.ip_assignment import is_admin_allowed_for_ip
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -32,6 +41,8 @@ class VerifyIPRequest(BaseModel):
 class AdminUserResponse(BaseModel):
     id: int
     email: str
+    # Nullable on the model; dropdowns fall back to the email when it's unset.
+    name: Optional[str] = None
     isActive: bool
     isApproved: bool
     is_superadmin: bool
@@ -118,6 +129,7 @@ def _serialize_ip_user(ip_user: ip) -> dict:
         "is_pan_verified": ip_user.is_pan_verified,
         "is_bank_details_verified": ip_user.is_bank_details_verified,
         "is_id_verified": ip_user.is_id_verified,
+        "is_internal": ip_user.is_internal,
         "pan_number": ip_user.pan_number,
         "pan_name": ip_user.pan_name,
         "account_number": ip_user.account_number,
@@ -142,6 +154,21 @@ def verify_ip(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="IP user not found"
+        )
+
+    if (
+        not getattr(current_user, "is_superadmin", False)
+        and not is_admin_allowed_for_ip(db, db_ip.id, current_user.id)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to verify this IP user",
+        )
+
+    if request.admin_ids and not getattr(current_user, "is_superadmin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only a superadmin can change IP admin assignments",
         )
 
     verified_ip = verify_ip_user(db, phone_number)
@@ -268,10 +295,13 @@ class AttendanceRecord(BaseModel):
     job_id: Optional[int]
     job_name: Optional[str]
     phone: str
+    attendance_type: str
     latitude: float
     longitude: float
     manual_location: Optional[str]
     photo_url: Optional[str]
+    report_document_url: Optional[str]
+    report_status: Optional[str]
     recorded_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -284,7 +314,7 @@ def get_all_attendance(
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(100, ge=1, le=200),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -311,32 +341,121 @@ def get_all_attendance(
 
     total = query.count()
     records = query.order_by(DailyAttendance.recorded_at.desc()).offset(skip).limit(limit).all()
+    attendance_rows = query.with_entities(
+        DailyAttendance.ip_user_id,
+        DailyAttendance.phone,
+        DailyAttendance.job_id,
+        DailyAttendance.attendance_date,
+        DailyAttendance.attendance_type,
+        DailyAttendance.report_document_url,
+    ).all()
 
-    job_ids = {r.job_id for r in records if r.job_id}
+    job_ids = {r.job_id for r in attendance_rows if r.job_id}
     job_names: dict[Optional[int], Optional[str]] = {
-        job.id: job.name for job in db.query(Job.id, Job.name).filter(Job.id.in_(job_ids)).all()
+        row.id: row.name
+        for row in db.query(Job.id, Customer.name)
+        .outerjoin(Customer, Job.customer_id == Customer.id)
+        .filter(Job.id.in_(job_ids))
+        .all()
     } if job_ids else {}
+
+    checkouts = {
+        (record.ip_user_id or record.phone, record.job_id, record.attendance_date): record
+        for record in attendance_rows
+        if record.attendance_type == "check_out" and record.report_document_url
+    }
+    current = now_ist()
+    missing_reports = []
+    for record in attendance_rows:
+        key = (record.ip_user_id or record.phone, record.job_id, record.attendance_date)
+        if record.attendance_type != "check_in" or key in checkouts:
+            continue
+        overdue = record.attendance_date < current.date() or current.time() > CHECK_OUT_CUTOFF
+        missing_reports.append({
+            "ip_user_id": record.ip_user_id,
+            "phone": record.phone,
+            "job_id": record.job_id,
+            "job_name": job_names.get(record.job_id),
+            "attendance_date": record.attendance_date.isoformat(),
+            "status": "overdue" if overdue else "missing",
+        })
 
     return {
         "total": total,
         "skip": skip,
         "limit": limit,
         "completion_summary": _ip_completion_summary(db, visible_ips),
+        "missing_reports": missing_reports,
         "records": [
             {
                 "id": r.id,
                 "job_id": r.job_id,
                 "job_name": job_names.get(r.job_id),
                 "phone": r.phone,
+                "attendance_type": r.attendance_type,
                 "latitude": r.latitude,
                 "longitude": r.longitude,
+                "distance_meters": r.distance_meters,
+                "within_geofence": r.within_geofence,
                 "manual_location": r.manual_location,
                 "photo_url": r.photo_url,
+                "report_document_url": r.report_document_url,
+                "checkout_source": r.checkout_source,
+                "report_status": _report_status(r),
                 "recorded_at": r.recorded_at.isoformat(),
             }
             for r in records
         ],
     }
+
+
+@router.get("/attendance/export")
+def export_attendance_workbook(
+    job_id: Optional[int] = Query(None, gt=0),
+    phone: Optional[str] = Query(None, min_length=3, max_length=15),
+    admin_id: Optional[int] = Query(None, gt=0),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Download attendance as XLSX, including each record's geofence result."""
+    is_superadmin = getattr(current_user, "is_superadmin", False)
+    visible_ips = _visible_ip_users(db, current_user, phone=phone)
+    # Superadmins are unscoped; everyone else is limited to their own IPs, exactly as
+    # GET /admin/attendance already does.
+    visible_phones = (
+        None
+        if is_superadmin
+        else [ip_user.phone_number for ip_user in visible_ips if ip_user.phone_number]
+    )
+    phone_to_name = {
+        ip_user.phone_number: f"{ip_user.first_name or ''} {ip_user.last_name or ''}".strip()
+        for ip_user in visible_ips
+        if ip_user.phone_number
+    }
+
+    xlsx_bytes = build_attendance_workbook(
+        db,
+        visible_phones=visible_phones,
+        phone_to_name=phone_to_name,
+        include_supervisors=is_superadmin,
+        report_status=_report_status,
+        job_id=job_id,
+        phone=phone,
+        admin_id=admin_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    filename = f"attendance_{now_ist().date().isoformat()}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Encoding": "identity",
+        },
+    )
 
 
 class MarkAdminAttendanceRequest(BaseModel):
@@ -349,6 +468,38 @@ class MarkAdminAttendanceRequest(BaseModel):
 def _validate_coordinates(latitude: float, longitude: float) -> None:
     if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
         raise HTTPException(status_code=422, detail="Latitude or longitude is out of range")
+
+
+def _admin_attendance_job_names(db: Session, records) -> dict:
+    """Names for whichever job pins the given fixes were matched against."""
+    job_ids = {r.matched_job_id for r in records if r.matched_job_id}
+    if not job_ids:
+        return {}
+    return {
+        row.id: row.name
+        for row in db.query(Job.id, Customer.name)
+        .outerjoin(Customer, Job.customer_id == Customer.id)
+        .filter(Job.id.in_(job_ids))
+        .all()
+    }
+
+
+def _serialize_admin_attendance(record, admin_email: str, job_names: dict) -> dict:
+    return {
+        "id": record.id,
+        "admin_id": record.admin_id,
+        "admin_email": admin_email,
+        "marked_at": record.marked_at.isoformat(),
+        "latitude": record.latitude,
+        "longitude": record.longitude,
+        "matched_job_id": record.matched_job_id,
+        "matched_job_name": job_names.get(record.matched_job_id),
+        "distance_meters": record.distance_meters,
+        "within_geofence": record.within_geofence,
+        "notes": record.notes,
+        "manual_location": record.manual_location,
+        "photo_url": record.photo_url,
+    }
 
 
 def _limited_form_text(value, field_name: str, max_length: int) -> str | None:
@@ -373,6 +524,29 @@ async def mark_admin_attendance(
             detail="Superadmins do not mark attendance.",
         )
     ensure_attendance_window_open()
+
+    # Same gate the IP check-in path applies (app/api/v1/attendance.py): only an
+    # approved request for that exact Sunday unlocks the day — absent, pending and
+    # rejected all block.
+    business_date = attendance_business_date()
+    if is_sunday(business_date):
+        approved_request = (
+            db.query(SundayWorkRequest.id)
+            .filter(
+                SundayWorkRequest.admin_id == current_user.id,
+                SundayWorkRequest.request_date == business_date,
+                SundayWorkRequest.status == "approved",
+            )
+            .first()
+        )
+        if not approved_request:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Working on Sunday requires superadmin approval. "
+                    "Submit a Sunday work request first."
+                ),
+            )
 
     notes: str | None = None
     manual_location: str | None = None
@@ -421,10 +595,29 @@ async def mark_admin_attendance(
         longitude = body.longitude
         raise HTTPException(status_code=422, detail="Admin attendance requires multipart form data with GPS and photo")
 
+    # No job_id is supplied, so the fix is matched against the nearest active site.
+    # ponytail: python-side scan over active pinned jobs — a small set. Move to
+    # PostGIS/earthdistance if that list ever reaches the thousands.
+    candidate_jobs = (
+        db.query(Job.id, Job.latitude, Job.longitude, Job.geofence_radius)
+        .filter(
+            Job.latitude.isnot(None),
+            Job.longitude.isnot(None),
+            Job.status != "completed",
+        )
+        .all()
+    )
+    matched_job_id, fence_distance, fence_within = nearest_job_status(
+        candidate_jobs, latitude, longitude
+    )
+
     record = AdminAttendance(
         admin_id=current_user.id,
         latitude=latitude,
         longitude=longitude,
+        matched_job_id=matched_job_id,
+        distance_meters=fence_distance,
+        within_geofence=fence_within,
         notes=notes.strip() if notes else None,
         manual_location=manual_location.strip() if manual_location else None,
         photo_url=photo_url,
@@ -434,17 +627,9 @@ async def mark_admin_attendance(
     db.refresh(record)
     return {
         "message": "Attendance marked",
-        "record": {
-            "id": record.id,
-            "admin_id": record.admin_id,
-            "admin_email": current_user.email,
-            "marked_at": record.marked_at.isoformat(),
-            "latitude": record.latitude,
-            "longitude": record.longitude,
-            "notes": record.notes,
-            "manual_location": record.manual_location,
-            "photo_url": record.photo_url,
-        },
+        "record": _serialize_admin_attendance(
+            record, current_user.email, _admin_attendance_job_names(db, [record])
+        ),
     }
 
 
@@ -476,6 +661,7 @@ def get_my_admin_attendance(
         .filter(AdminAttendance.admin_id == current_user.id)
         .all()
     )
+    job_names = _admin_attendance_job_names(db, records)
     return {
         "total": total,
         "completion": build_attendance_completion(
@@ -483,18 +669,7 @@ def get_my_admin_attendance(
             [row.marked_at for row in all_marked_at],
         ),
         "records": [
-            {
-                "id": r.id,
-                "admin_id": r.admin_id,
-                "admin_email": current_user.email,
-                "marked_at": r.marked_at.isoformat(),
-                "latitude": r.latitude,
-                "longitude": r.longitude,
-                "notes": r.notes,
-                "manual_location": r.manual_location,
-                "photo_url": r.photo_url,
-            }
-            for r in records
+            _serialize_admin_attendance(r, current_user.email, job_names) for r in records
         ],
     }
 
@@ -505,7 +680,7 @@ def get_all_admin_attendance(
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(100, ge=1, le=200),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -536,23 +711,16 @@ def get_all_admin_attendance(
         for admin in db.query(User.id, User.email).filter(User.id.in_(record_admin_ids)).all()
     } if record_admin_ids else {}
 
+    job_names = _admin_attendance_job_names(db, records)
     return {
         "total": total,
         "skip": skip,
         "limit": limit,
         "completion_summary": _admin_completion_summary(db, admins),
         "records": [
-            {
-                "id": r.id,
-                "admin_id": r.admin_id,
-                "admin_email": admin_emails.get(r.admin_id, f"admin#{r.admin_id}"),
-                "marked_at": r.marked_at.isoformat(),
-                "latitude": r.latitude,
-                "longitude": r.longitude,
-                "notes": r.notes,
-                "manual_location": r.manual_location,
-                "photo_url": r.photo_url,
-            }
+            _serialize_admin_attendance(
+                r, admin_emails.get(r.admin_id, f"admin#{r.admin_id}"), job_names
+            )
             for r in records
         ],
     }

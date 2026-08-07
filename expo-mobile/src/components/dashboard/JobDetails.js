@@ -78,13 +78,33 @@ const JobDetails = ({ job }) => {
   const rows = useMemo(
     () =>
       [
+        { icon: "business-outline", label: "Customer", value: job.customer_name },
+        { icon: "document-text-outline", label: "Sales Order", value: job.sales_order },
+        job.customer_phone && {
+          icon: "call-outline",
+          label: "Customer Phone",
+          value: formatters.phone(job.customer_phone),
+          pressable: () => Linking.openURL(`tel:${job.customer_phone}`),
+        },
+        job.assigned_admin_name && {
+          icon: "person-outline",
+          label: "Assigned Admin",
+          value: job.assigned_admin_name,
+        },
         { icon: "construct-outline", label: "Job Type", value: job.type },
         { icon: "location-outline", label: "Address", value: address },
         { icon: "expand-outline", label: "Job Size", value: job.size },
+        // Same split as the dashboard stats: earnings are external-only,
+        // incentives internal-only.
         !user?.is_internal && {
           icon: "wallet-outline",
           label: "Earnings",
           value: formatters.currency(job.rate),
+        },
+        user?.is_internal && {
+          icon: "gift-outline",
+          label: "Incentive",
+          value: formatters.currency(job.incentive),
         },
         {
           icon: "calendar-outline",
@@ -97,6 +117,17 @@ const JobDetails = ({ job }) => {
           value: "View on Google Maps",
           pressable: () => Linking.openURL(job.google_map_link),
         },
+        ...[
+          ["Drawing", job.drawing_document_link],
+          ["Handover Document", job.handover_document_link],
+          ["NCR Document", job.ncr_document_link],
+          ["Project Report", job.project_report_document_link],
+        ].filter(([, link]) => link).map(([label, link]) => ({
+          icon: "document-attach-outline",
+          label,
+          value: "Open document",
+          pressable: () => Linking.openURL(link),
+        })),
       ].filter(Boolean),
     [address, job, user?.is_internal],
   );

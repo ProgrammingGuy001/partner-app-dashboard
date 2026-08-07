@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ChevronDown, ShoppingCart, Trash2, Edit2, Send, X, Check } from 'lucide-react';
+import { ChevronDown, ShoppingCart, Trash2, Edit2, X, Check } from 'lucide-react';
 import { useRequisite } from '@/context/RequisiteContext';
 import type { BucketItem } from '@/api/bom';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -35,16 +34,13 @@ const DEPARTMENTS = [
 ];
 
 const SiteRequisiteBucket: React.FC = () => {
-    const navigate = useNavigate();
     const { state, removeItem, updateItem } = useRequisite();
     const { bucket, salesOrder, cabinetPosition } = state;
 
     const [editingItem, setEditingItem] = useState<string | null>(null);
     const [editForm, setEditForm] = useState<Partial<BucketItem>>({
         quantity: 1,
-        issue_description: '',
         responsible_department: '',
-        component_status: '',
     });
     const [itemToRemove, setItemToRemove] = useState<string | null>(null);
 
@@ -52,79 +48,39 @@ const SiteRequisiteBucket: React.FC = () => {
         setEditingItem(item.product_name);
         setEditForm({
             quantity: item.quantity || 1,
-            issue_description: item.issue_description || '',
             responsible_department: item.responsible_department || '',
-            component_status: item.component_status || '',
         });
     };
 
     const handleSaveEdit = (productName: string) => {
         updateItem(productName, {
             quantity: editForm.quantity,
-            issue_description: editForm.issue_description || undefined,
             responsible_department: editForm.responsible_department || undefined,
-            component_status: editForm.component_status?.trim() || undefined,
         });
         setEditingItem(null);
     };
 
     const handleCancelEdit = () => {
         setEditingItem(null);
-        setEditForm({ quantity: 1, issue_description: '', responsible_department: '', component_status: '' });
+        setEditForm({ quantity: 1, responsible_department: '' });
     };
 
     return (
         <>
             <div className="mx-auto w-full max-w-6xl pb-8 sm:pb-10">
-                <div className="mb-6 flex flex-col justify-between gap-4 border-b pb-5 sm:mb-8 sm:flex-row sm:items-center sm:pb-6">
-                    <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => navigate('/dashboard/site-requisite')}
-                            className="h-10 w-10 shrink-0"
-                        >
-                            <ArrowLeft className="w-5 h-5" />
-                        </Button>
-                        <div className="min-w-0">
-                            <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-primary sm:gap-3 sm:text-3xl">
-                                <ShoppingCart className="h-6 w-6 sm:h-8 sm:w-8" />
-                                Bucket List
-                            </h1>
-                            {salesOrder && cabinetPosition && (
-                                <p className="mt-2 inline-block max-w-full truncate rounded-full border bg-secondary/50 px-3 py-1 text-sm font-medium text-muted-foreground">
-                                    SO: <span className="text-foreground">{salesOrder}</span> | Cabinet: <span className="text-foreground">{cabinetPosition}</span>
-                                </p>
-                            )}
-                        </div>
-                    </div>
-                    <Button
-                        onClick={() => navigate('/dashboard/site-requisite/submit')}
-                        disabled={bucket.length === 0}
-                        size="lg"
-                        className="w-full sm:w-auto"
-                    >
-                        <Send className="w-4 h-4 mr-2" />
-                        Submit Requisite
-                    </Button>
+                <div className="mb-6 border-b pb-5 sm:mb-8 sm:pb-6">
+                    <h2 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-primary">
+                        <ShoppingCart className="h-6 w-6" />
+                        Selected Items
+                    </h2>
+                    {salesOrder && cabinetPosition && (
+                        <p className="mt-2 inline-block max-w-full truncate rounded-full border bg-secondary/50 px-3 py-1 text-sm font-medium text-muted-foreground">
+                            SO: <span className="text-foreground">{salesOrder}</span> | Cabinet: <span className="text-foreground">{cabinetPosition}</span>
+                        </p>
+                    )}
                 </div>
 
-                {bucket.length === 0 ? (
-                    <Card className="border-dashed border-2 bg-transparent shadow-none">
-                        <CardContent className="flex flex-col items-center justify-center px-4 py-12 text-center sm:p-16">
-                            <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-secondary sm:h-24 sm:w-24">
-                                <ShoppingCart className="h-10 w-10 text-muted-foreground sm:h-12 sm:w-12" />
-                            </div>
-                            <h3 className="mb-2 text-xl font-semibold sm:text-2xl">Your bucket is empty</h3>
-                            <p className="text-muted-foreground mb-8 max-w-md">
-                                Add items from the BOM hierarchy to create a site requisite.
-                            </p>
-                            <Button onClick={() => navigate('/dashboard/site-requisite')} size="lg">
-                                Browse BOM Items
-                            </Button>
-                        </CardContent>
-                    </Card>
-                ) : (
+                {bucket.length > 0 && (
                     <Card className="overflow-hidden">
                         <div className="divide-y md:hidden">
                             {bucket.map((item, index) => (
@@ -139,6 +95,7 @@ const SiteRequisiteBucket: React.FC = () => {
                                     onSave={() => handleSaveEdit(item.product_name)}
                                     onCancel={handleCancelEdit}
                                     onRemove={() => setItemToRemove(item.product_name)}
+                                    onUpdate={(updates) => updateItem(item.product_name, updates)}
                                 />
                             ))}
                         </div>
@@ -179,19 +136,19 @@ const SiteRequisiteBucket: React.FC = () => {
                                                 )}
                                             </TableCell>
                                             <TableCell>
-                                                {editingItem === item.product_name ? (
-                                                    <Input
-                                                        type="text"
-                                                        value={editForm.component_status || ''}
-                                                        onChange={(e) => setEditForm({ ...editForm, component_status: e.target.value })}
-                                                        placeholder="Available, damaged..."
-                                                        className="h-8"
-                                                    />
-                                                ) : item.component_status ? (
-                                                    <span className="text-sm">{item.component_status}</span>
-                                                ) : (
-                                                    <span className="text-muted-foreground/50 italic text-sm">—</span>
-                                                )}
+                                                <select
+                                                    value={item.component_status || ''}
+                                                    onChange={(e) => updateItem(item.product_name, { component_status: e.target.value || undefined })}
+                                                    className="flex h-9 w-full appearance-none rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                    aria-label={`Component status for ${item.product_name}`}
+                                                >
+                                                    <option value="">Select status</option>
+                                                    {item.component_status && !['damaged', 'missing'].includes(item.component_status) && (
+                                                        <option value={item.component_status}>{item.component_status}</option>
+                                                    )}
+                                                    <option value="damaged">Damaged</option>
+                                                    <option value="missing">Missing</option>
+                                                </select>
                                             </TableCell>
                                             <TableCell>
                                                 {editingItem === item.product_name ? (
@@ -214,21 +171,14 @@ const SiteRequisiteBucket: React.FC = () => {
                                                 )}
                                             </TableCell>
                                             <TableCell>
-                                                {editingItem === item.product_name ? (
-                                                    <textarea
-                                                        value={editForm.issue_description || ''}
-                                                        onChange={(e) => setEditForm({ ...editForm, issue_description: e.target.value })}
-                                                        rows={1}
-                                                        className="flex min-h-[32px] w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                                        placeholder="Describe..."
-                                                    />
-                                                ) : (
-                                                    <span className="text-sm text-muted-foreground">
-                                                        {item.issue_description || (
-                                                            <span className="text-muted-foreground/50 italic">Not specified</span>
-                                                        )}
-                                                    </span>
-                                                )}
+                                                <textarea
+                                                    value={item.issue_description || ''}
+                                                    onChange={(e) => updateItem(item.product_name, { issue_description: e.target.value || undefined })}
+                                                    rows={2}
+                                                    className="flex min-h-[56px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                    placeholder="Describe the issue..."
+                                                    aria-label={`Issue description for ${item.product_name}`}
+                                                />
                                             </TableCell>
                                             <TableCell className="text-right">
                                                 <div className="flex items-center justify-end gap-1">
@@ -284,18 +234,8 @@ const SiteRequisiteBucket: React.FC = () => {
                         </div>
 
                         <div className="border-t bg-secondary/30 px-4 py-4 sm:px-6">
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                <div className="text-sm text-muted-foreground font-medium">
-                                    Total Items: <span className="font-bold text-foreground ml-1">{bucket.length}</span>
-                                </div>
-                                <Button
-                                    onClick={() => navigate('/dashboard/site-requisite/submit')}
-                                    size="lg"
-                                    className="w-full px-8 sm:w-auto"
-                                >
-                                    <Send className="w-4 h-4 mr-2" />
-                                    Proceed to Submit
-                                </Button>
+                            <div className="text-sm text-muted-foreground font-medium">
+                                Total Items: <span className="font-bold text-foreground ml-1">{bucket.length}</span>
                             </div>
                         </div>
                     </Card>
@@ -307,7 +247,7 @@ const SiteRequisiteBucket: React.FC = () => {
                     <DialogHeader>
                         <DialogTitle>Remove Item</DialogTitle>
                         <DialogDescription>
-                            Remove <span className="font-medium">"{itemToRemove}"</span> from the bucket?
+                            Remove <span className="font-medium">"{itemToRemove}"</span> from this requisite?
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter className="gap-2">
@@ -340,6 +280,7 @@ const BucketMobileCard: React.FC<{
     onSave: () => void;
     onCancel: () => void;
     onRemove: () => void;
+    onUpdate: (updates: Partial<BucketItem>) => void;
 }> = ({
     item,
     index,
@@ -350,6 +291,7 @@ const BucketMobileCard: React.FC<{
     onSave,
     onCancel,
     onRemove,
+    onUpdate,
 }) => (
     <article className={`p-4 ${isEditing ? 'bg-primary/5' : ''}`}>
         <div className="flex items-start justify-between gap-3">
@@ -417,18 +359,19 @@ const BucketMobileCard: React.FC<{
 
             <div>
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Component Status</p>
-                {isEditing ? (
-                    <Input
-                        value={editForm.component_status || ''}
-                        onChange={(e) => setEditForm({ ...editForm, component_status: e.target.value })}
-                        placeholder="Available, damaged..."
-                        className="mt-1 h-9"
-                    />
-                ) : item.component_status ? (
-                    <p className="mt-1">{item.component_status}</p>
-                ) : (
-                    <p className="mt-1 italic text-muted-foreground/60">Not specified</p>
-                )}
+                <select
+                    value={item.component_status || ''}
+                    onChange={(e) => onUpdate({ component_status: e.target.value || undefined })}
+                    className="mt-1 flex h-9 w-full appearance-none rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    aria-label={`Component status for ${item.product_name}`}
+                >
+                    <option value="">Select status</option>
+                    {item.component_status && !['damaged', 'missing'].includes(item.component_status) && (
+                        <option value={item.component_status}>{item.component_status}</option>
+                    )}
+                    <option value="damaged">Damaged</option>
+                    <option value="missing">Missing</option>
+                </select>
             </div>
 
             <div>
@@ -455,19 +398,14 @@ const BucketMobileCard: React.FC<{
 
             <div>
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Issue Description</p>
-                {isEditing ? (
-                    <textarea
-                        value={editForm.issue_description || ''}
-                        onChange={(e) => setEditForm({ ...editForm, issue_description: e.target.value })}
-                        rows={3}
-                        className="mt-1 flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                        placeholder="Describe..."
-                    />
-                ) : (
-                    <p className="mt-1 break-words text-muted-foreground">
-                        {item.issue_description || <span className="italic text-muted-foreground/60">Not specified</span>}
-                    </p>
-                )}
+                <textarea
+                    value={item.issue_description || ''}
+                    onChange={(e) => onUpdate({ issue_description: e.target.value || undefined })}
+                    rows={3}
+                    className="mt-1 flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    placeholder="Describe the issue..."
+                    aria-label={`Issue description for ${item.product_name}`}
+                />
             </div>
         </div>
     </article>

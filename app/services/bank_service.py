@@ -87,7 +87,8 @@ class BankService:
 
             response = requests.post(url, json=payload, headers=headers, timeout=30)
             if not response.ok:
-                logger.error("Attestr bank verification failed: status=%s body=%s", response.status_code, response.text)
+                # The body echoes the submitted account number / holder name — status only.
+                logger.error("Attestr bank verification failed: status=%s", response.status_code)
             response.raise_for_status()
 
             data = response.json()

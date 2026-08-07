@@ -1,5 +1,10 @@
 import apiClient from './axiosConfig';
 import { toRNFile, logger } from '../util/helpers';
+import { fetch as expoFetch } from 'expo/fetch';
+import { File, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import { STORAGE_KEYS } from '../util/constants';
+import * as SecureStore from '../util/secureStore';
 
 const computeStats = (items) => {
   const totalItems = items.length;
@@ -24,6 +29,7 @@ const normalizeChecklistPayload = (payload) => {
   const items = rawItems
     .map((item) => {
       const status = item.status || {};
+      const reviewStatus = status.review_status || (status.is_approved ? 'approved' : (status.admin_comment ? 'rejected' : 'pending'));
       return {
         id: item.id,
         checklist_item_id: item.id,
@@ -31,6 +37,7 @@ const normalizeChecklistPayload = (payload) => {
         position: item.position ?? 0,
         checked: status.checked ?? false,
         is_approved: status.is_approved ?? false,
+        review_status: reviewStatus,
         comment: status.comment ?? '',
         admin_comment: status.admin_comment ?? '',
         document_link: status.document_link ?? null,
@@ -48,6 +55,7 @@ const normalizeChecklistPayload = (payload) => {
       name: checklist.name,
       description: checklist.description,
       document_link: checklist.document_link ?? null,
+      template_available: checklist.template_available ?? false,
     },
     items,
     job_id: payload?.job_id,
@@ -163,29 +171,72 @@ export const checklistApi = {
       }
       formData.append('file', rnFile);
 
-      const uploadResponse = await apiClient.post(`/dashboard/jobs/${jobId}/upload`, formData, {
+      const response = await apiClient.post(`/dashboard/jobs/${jobId}/checklists/${checklistId}/document`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
       });
-
-      const fileUrl = uploadResponse?.data?.file_url;
-      if (!fileUrl) {
-        throw new Error('Upload succeeded but file URL was not returned');
-      }
-
-      await apiClient.put(`/dashboard/jobs/${jobId}/checklists/${checklistId}/document`, {
-        document_link: fileUrl,
-      });
-
-      return {
-        file_url: fileUrl,
-        document_link: fileUrl,
-      };
+      return response.data;
     } catch (error) {
       const errorMessage = error?.response?.data?.detail || error?.response?.data?.message || error.message || 'Upload failed';
       logger.error('checklistApi.uploadChecklistDocument', errorMessage, error);
       throw new Error(errorMessage);
+    }
+  },
+
+  downloadChecklistTemplate: async (jobId, checklistId) => {
+    const token = await SecureStore.getItemAsync(STORAGE_KEYS.AUTH_TOKEN);
+    if (!token) throw new Error('You need to log in again before downloading.');
+
+    const url = `${apiClient.defaults.baseURL || ''}/dashboard/jobs/${jobId}/checklists/${checklistId}/template`;
+    const response = await expoFetch(url, {
+      headers: { Authorization: `Bearer ${token}`, 'X-Requested-With': 'XMLHttpRequest' },
+    });
+    if (!response.ok) {
+      let detail = '';
+      try { detail = (await response.text()).trim(); } catch { detail = ''; }
+      throw new Error(detail || `Download failed with status ${response.status}`);
+    }
+
+    const file = new File(Paths.cache, 'All Check-list.xlsx');
+    file.create({ overwrite: true, intermediates: true });
+    file.write(await response.bytes());
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(file.uri, {
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        dialogTitle: 'All Check-list workbook',
+        UTI: 'com.microsoft.excel.xlsx',
+      });
+    }
+  },
+
+  // The filled-in checklist as a PDF: items, statuses, notes and evidence photos.
+  // Available for every checklist, unlike the ISM-only blank workbook above.
+  exportChecklist: async (jobId, checklistId) => {
+    const token = await SecureStore.getItemAsync(STORAGE_KEYS.AUTH_TOKEN);
+    if (!token) throw new Error('You need to log in again before exporting.');
+
+    const url = `${apiClient.defaults.baseURL || ''}/dashboard/jobs/${jobId}/checklists/${checklistId}/export`;
+    const response = await expoFetch(url, {
+      headers: { Authorization: `Bearer ${token}`, 'X-Requested-With': 'XMLHttpRequest' },
+    });
+    if (!response.ok) {
+      let detail = '';
+      try { detail = (await response.text()).trim(); } catch { detail = ''; }
+      throw new Error(detail || `Export failed with status ${response.status}`);
+    }
+
+    const disposition = response.headers.get('content-disposition') || '';
+    const filename = disposition.match(/filename="?([^";]+)/i)?.[1] || 'checklist.pdf';
+    const file = new File(Paths.cache, filename);
+    file.create({ overwrite: true, intermediates: true });
+    file.write(await response.bytes());
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(file.uri, {
+        mimeType: 'application/pdf',
+        dialogTitle: filename,
+        UTI: 'com.adobe.pdf',
+      });
     }
   },
 

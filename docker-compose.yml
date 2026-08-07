@@ -1,0 +1,93 @@
+# Local stack: Postgres plus the API image built from app/Dockerfile.
+#
+#   docker compose up --build
+#
+# The image deliberately ships no .env file (see .dockerignore), so settings come
+# from the environment below. app/.env.test supplies the non-database values and
+# is gitignored — a fresh clone has to create it before this will start.
+# DATABASE_URL is overridden afterwards because "localhost" in that file means the
+# host machine, not this network, where Postgres answers to "db".
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: modulapartner
+    ports:
+      # Host-side 5433 so this never fights a Postgres already running on 5432.
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d modulapartner"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      # Repo root: the Dockerfile installs the top-level requirements.txt.
+      context: .
+      dockerfile: app/Dockerfile
+    env_file:
+      - app/.env.test
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/modulapartner
+      ENVIRONMENT: test
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      # The image installs Chromium for the installation report, so a cold start
+      # is slow — give it room before the first probe counts against it.
+      start_period: 60s
+
+  dashboard:
+    build:
+      context: ./admin_dashboard
+    environment:
+      # The browser runs on the host, not inside this network, so the API has to
+      # be named by its published port. "http://api:8000" only resolves between
+      # containers and would fail in the tab.
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./admin_dashboard:/app
+      # Keeps the image's Linux node_modules; without this the bind mount above
+      # would shadow it with the host's macOS build.
+      - /app/node_modules
+    depends_on:
+      - api
+
+  partner:
+    build:
+      context: ./partnerfrontend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+      # vite.config.js sets `open: true`, which has no browser to launch in a
+      # container. Vite skips the attempt when BROWSER is none.
+      BROWSER: none
+    ports:
+      # 3000 because vite.config.js pins the dev server there. Note that
+      # DOCUMENT_AUTOMATION_URL defaults to 127.0.0.1:3000 — if you run that
+      # service on the host too, remap this side.
+      - "3000:3000"
+    volumes:
+      - ./partnerfrontend:/app
+      # Keeps the image's Linux node_modules; without this the bind mount above
+      # would shadow it with the host's macOS build.
+      - /app/node_modules
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:

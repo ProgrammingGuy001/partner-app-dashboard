@@ -10,7 +10,7 @@ class UserRegistration(BaseModel):
     last_name: str = Field(..., min_length=2, max_length=100)
     city: str = Field(..., min_length=2, max_length=100)
     pincode: str = Field(..., pattern=r'^\d{6}$')
-    is_internal: bool = Field(default=False, description="Whether the IP is an internal Modula employee")
+    is_internal: bool = False
 
     @validator('phone_number')
     def validate_phone_number(cls, v):

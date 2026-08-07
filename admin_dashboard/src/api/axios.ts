@@ -1,9 +1,8 @@
 import axios from "axios";
 import axiosRetry from "axios-retry";
 import Cookies from "js-cookie";
-import { clearAdminTokens, getAdminAccessToken, getAdminRefreshToken, persistAdminTokens } from "./authStorage";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://adminapi.modula.in";
 
 
 const CSRF_COOKIE_NAMES = ["csrf_token", "csrftoken", "XSRF-TOKEN"];
@@ -34,25 +33,21 @@ axiosRetry(axiosInstance, {
   retries: 3,
   retryDelay: axiosRetry.exponentialDelay,
   retryCondition: (error) => {
-    // Retry on network errors or 5xx status codes
-    return (
-      axiosRetry.isNetworkOrIdempotentRequestError(error) ||
-      (error.response?.status ? error.response.status >= 500 : false)
-    );
+    const method = error.config?.method?.toLowerCase();
+    return ["get", "head", "options"].includes(method ?? "") &&
+      axiosRetry.isNetworkOrIdempotentRequestError(error);
   },
 });
 
-// Request interceptor - Attach CSRF token to state-changing requests
+// Request interceptor - Attach CSRF token to state-changing requests.
+// Auth itself rides on the HttpOnly cookies sent by withCredentials: deliberately
+// no Authorization header, because the backend skips its cross-site origin check
+// whenever one is present.
 axiosInstance.interceptors.request.use(
   (config) => {
-    const accessToken = getAdminAccessToken();
     if (typeof FormData !== "undefined" && config.data instanceof FormData) {
       delete config.headers["Content-Type"];
       delete config.headers["content-type"];
-    }
-
-    if (accessToken) {
-      config.headers.Authorization = `Bearer ${accessToken}`;
     }
 
     if (MUTATING_METHODS.has(config.method?.toLowerCase() ?? "")) {
@@ -80,17 +75,11 @@ axiosInstance.interceptors.response.use(
     ) {
       originalRequest._retry = true;
       try {
-        const refreshToken = getAdminRefreshToken();
-        const refreshResponse = await axios.post(
-          `${API_BASE_URL}/auth/refresh-token`,
-          refreshToken ? { refresh_token: refreshToken } : {},
-          { withCredentials: true },
-        );
-        persistAdminTokens(refreshResponse.data);
+        // The refresh token is an HttpOnly cookie; the response rotates it in place.
+        await axios.post(`${API_BASE_URL}/auth/refresh-token`, {}, { withCredentials: true });
         // Retry the original request with the new cookie
         return axiosInstance(originalRequest);
       } catch {
-        clearAdminTokens();
         // Refresh failed — reject so React Query / ProtectedRoute handles the redirect
         return Promise.reject(error);
       }

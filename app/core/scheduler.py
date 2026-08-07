@@ -1,30 +1,19 @@
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
-from app.services.polling_service import execute_polling_job
+from apscheduler.triggers.cron import CronTrigger
+from app.services.attendance_autoclose import run_auto_close
+from app.utils.attendance_policy import ATTENDANCE_TIMEZONE
 
 logger = logging.getLogger(__name__)
 
 scheduler = BackgroundScheduler()
 
-
-def start_scheduler():
-    """Start the background scheduler for periodic polling"""
-    # Run polling job every 2 minutes
-    scheduler.add_job(
-        execute_polling_job,
-        'interval',
-        minutes=2,
-        id='polling_job',
-        name='Execute polling job every 2 minutes',
-        replace_existing=True
-    )
-
-    scheduler.start()
-    logger.info("Scheduler started - polling job will run every 2 minutes")
-
-
-def shutdown_scheduler():
-    """Shutdown the scheduler gracefully"""
-    if scheduler.running:
-        scheduler.shutdown()
-        logger.info("Scheduler stopped")
+# Just past midnight IST, close any check-in the IP never closed. Timezone is
+# explicit because BackgroundScheduler otherwise uses the host's local time.
+scheduler.add_job(
+    run_auto_close,
+    CronTrigger(hour=0, minute=5, timezone=ATTENDANCE_TIMEZONE),
+    id='attendance_auto_close',
+    name='Auto clock-out open check-ins at midnight IST',
+    replace_existing=True
+)

@@ -18,6 +18,8 @@ from app.schemas.site_grn import (
 )
 from app.services.odoo_service import OdooService
 
+from app.utils.error_text import sync_error_summary
+
 logger = logging.getLogger(__name__)
 
 admin_router = APIRouter(prefix="/admin/grn", tags=["Site GRN - Admin"])
@@ -40,13 +42,73 @@ def _require_ip(current_user=Depends(get_current_user)):
 def _load_grn(db: Session, grn_id: int) -> SiteGRN:
     grn = (
         db.query(SiteGRN)
-        .options(selectinload(SiteGRN.packages), selectinload(SiteGRN.ip_user))
+        .options(
+            selectinload(SiteGRN.packages),
+            selectinload(SiteGRN.ip_user),
+            selectinload(SiteGRN.created_by),
+            selectinload(SiteGRN.job),
+        )
         .filter(SiteGRN.id == grn_id)
         .first()
     )
     if not grn:
         raise HTTPException(status_code=404, detail="GRN not found")
     return grn
+
+
+def _sync_grn_to_odoo(grn: SiteGRN) -> None:
+    """Attempt every GRN writeback and persist a complete reconciliation error."""
+    errors = []
+    missing_packages = [package.package_name for package in grn.packages if not package.is_received]
+    if grn.odoo_picking_id:
+        for label, operation in (
+            ("result note", lambda: OdooService.post_grn_result_to_odoo(grn.odoo_picking_id, missing_packages)),
+            ("GRN status", lambda: OdooService.update_x_site_grn_status(
+                grn.odoo_picking_id, grn.has_missing, grn.submitted_at
+            )),
+        ):
+            try:
+                operation()
+            except Exception as exc:
+                logger.exception("GRN Odoo sync step failed: %s (grn=%s)", label, grn.id)
+                errors.append(f"{label}: {sync_error_summary(exc)}")
+
+    line_updates = [
+        {
+            "line_id": package.odoo_line_id,
+            "is_received": package.is_received,
+            "scan_barcode": package.barcode,
+            "scan_time": grn.submitted_at,
+        }
+        for package in grn.packages
+        if package.odoo_line_id
+    ]
+    if line_updates:
+        try:
+            OdooService.writeback_grn_lines(line_updates)
+        except Exception as exc:
+            logger.exception("GRN line writeback failed (grn=%s)", grn.id)
+            errors.append(f"GRN lines: {sync_error_summary(exc)}")
+
+    grn.odoo_sync_error = "; ".join(error[:500] for error in errors) if errors else None
+
+
+def _complete_grn(db: Session, grn: SiteGRN, data: GRNSubmit) -> None:
+    if grn.status != "pending":
+        raise HTTPException(status_code=400, detail="GRN already submitted")
+
+    packages = {package.id: package for package in grn.packages}
+    for submitted in data.packages:
+        if submitted.package_id in packages:
+            packages[submitted.package_id].is_received = submitted.is_received
+
+    grn.has_missing = any(not package.is_received for package in grn.packages)
+    grn.status = "submitted"
+    grn.submitted_at = datetime.now(timezone.utc)
+    db.commit()
+
+    _sync_grn_to_odoo(grn)
+    db.commit()
 
 
 # ─── Admin: lookup source document in Odoo ────────────────────────────────────
@@ -81,11 +143,15 @@ def create_grn(
     db: Session = Depends(get_db),
     current_user: User = Depends(_require_admin),
 ):
-    # Validate IP user exists
-    from app.model.ip import ip as IPUser
-    ip_user = db.query(IPUser).filter(IPUser.id == data.ip_user_id).first()
-    if not ip_user:
-        raise HTTPException(status_code=404, detail="IP user not found")
+    if not data.assign_to_self:
+        from app.model.ip import ip as IPUser
+        if not db.query(IPUser.id).filter(IPUser.id == data.ip_user_id).first():
+            raise HTTPException(status_code=404, detail="IP user not found")
+
+    if data.job_id is not None:
+        from app.model.job import Job
+        if not db.query(Job.id).filter(Job.id == data.job_id).first():
+            raise HTTPException(status_code=404, detail="Job not found")
 
     # Lookup pickings in Odoo — one source document can map to multiple
     pickings = OdooService.get_pickings_by_source_doc(data.source_document)
@@ -111,6 +177,17 @@ def create_grn(
     # One GRN per selected picking; skip pickings whose GRN lines carry no packages
     created_ids = []
     for picking in pickings:
+        existing_grn = (
+            db.query(SiteGRN)
+            .filter(SiteGRN.odoo_picking_id == picking["picking_id"])
+            .first()
+        )
+        if existing_grn:
+            raise HTTPException(
+                status_code=409,
+                detail=f"A GRN already exists for delivery order '{picking['picking_name']}'",
+            )
+
         raw_packages = OdooService.get_packages_for_picking(picking["picking_id"])
         if not raw_packages:
             continue
@@ -120,6 +197,7 @@ def create_grn(
             odoo_picking_id=picking["picking_id"],
             odoo_picking_name=picking["picking_name"],
             ip_user_id=data.ip_user_id,
+            job_id=data.job_id,
             created_by_admin_id=current_user.id,
             status="pending",
             has_missing=False,
@@ -155,18 +233,22 @@ def create_grn(
 def list_grns(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    job_id: int | None = Query(None, gt=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(_require_admin),
 ):
-    grns = (
+    query = (
         db.query(SiteGRN)
-        .options(selectinload(SiteGRN.packages), selectinload(SiteGRN.ip_user))
-        .order_by(SiteGRN.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
+        .options(
+            selectinload(SiteGRN.packages),
+            selectinload(SiteGRN.ip_user),
+            selectinload(SiteGRN.created_by),
+            selectinload(SiteGRN.job),
+        )
     )
-    return grns
+    if job_id is not None:
+        query = query.filter(SiteGRN.job_id == job_id)
+    return query.order_by(SiteGRN.created_at.desc()).offset(offset).limit(limit).all()
 
 
 # ─── Admin: get single GRN ────────────────────────────────────────────────────
@@ -177,6 +259,33 @@ def get_grn(
     db: Session = Depends(get_db),
     current_user: User = Depends(_require_admin),
 ):
+    grn = _load_grn(db, grn_id)
+    return grn
+
+
+@admin_router.post("/{grn_id}/retry-sync", response_model=GRNResponse)
+def retry_grn_sync(
+    grn_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_admin),
+):
+    grn = _load_grn(db, grn_id)
+    if grn.status == "pending":
+        raise HTTPException(status_code=409, detail="Submit the GRN before retrying Odoo sync")
+    _sync_grn_to_odoo(grn)
+    db.commit()
+    return _load_grn(db, grn_id)
+
+
+@admin_router.post("/{grn_id}/submit", response_model=GRNResponse)
+def submit_grn_as_supervisor(
+    grn_id: int,
+    data: GRNSubmit,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_admin),
+):
+    grn = _load_grn(db, grn_id)
+    _complete_grn(db, grn, data)
     return _load_grn(db, grn_id)
 
 
@@ -194,16 +303,22 @@ def probe_grn_line_fields(
 def get_assigned_grns(
     db: Session = Depends(get_db),
     current_user=Depends(_require_ip),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
 ):
     grns = (
         db.query(SiteGRN)
-        .options(selectinload(SiteGRN.packages), selectinload(SiteGRN.ip_user))
+        .options(
+            selectinload(SiteGRN.packages),
+            selectinload(SiteGRN.ip_user),
+            selectinload(SiteGRN.created_by),
+        )
         .filter(SiteGRN.ip_user_id == current_user.id, SiteGRN.status == "pending")
         .order_by(SiteGRN.created_at.desc())
+        .offset(offset)
+        .limit(limit)
         .all()
     )
-    if not grns:
-        raise HTTPException(status_code=404, detail="No pending GRN assigned to you")
     return grns
 
 
@@ -221,48 +336,5 @@ def submit_grn(
     if grn.ip_user_id != current_user.id:
         raise HTTPException(status_code=403, detail="This GRN is not assigned to you")
 
-    if grn.status != "pending":
-        raise HTTPException(status_code=400, detail="GRN already submitted")
-
-    # Build lookup map
-    pkg_map = {p.id: p for p in grn.packages}
-    submit_map = {s.package_id: s.is_received for s in data.packages}
-
-    for pkg_id, is_received in submit_map.items():
-        if pkg_id in pkg_map:
-            pkg_map[pkg_id].is_received = is_received
-
-    missing_packages = [p.package_name for p in grn.packages if not p.is_received]
-    has_missing = bool(missing_packages)
-
-    grn.status = "submitted"
-    grn.has_missing = has_missing
-    grn.submitted_at = datetime.now(timezone.utc)
-
-    db.commit()
-
-    # Writeback to Odoo (non-fatal)
-    if grn.odoo_picking_id:
-        try:
-            OdooService.post_grn_result_to_odoo(grn.odoo_picking_id, missing_packages)
-            OdooService.update_x_site_grn_status(grn.odoo_picking_id, has_missing, grn.submitted_at)
-        except Exception as e:
-            logger.warning("Odoo GRN writeback failed for GRN %s: %s", grn_id, e)
-
-    line_updates = [
-        {
-            'line_id': p.odoo_line_id,
-            'is_received': p.is_received,
-            'scan_barcode': p.barcode,
-            'scan_time': grn.submitted_at,
-        }
-        for p in grn.packages
-        if p.odoo_line_id
-    ]
-    if line_updates:
-        try:
-            OdooService.writeback_grn_lines(line_updates)
-        except Exception as e:
-            logger.warning("GRN line writeback failed for GRN %s: %s", grn_id, e)
-
+    _complete_grn(db, grn, data)
     return _load_grn(db, grn_id)

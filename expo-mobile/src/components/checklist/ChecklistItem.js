@@ -69,9 +69,9 @@ const ChecklistItem = ({ item }) => {
   };
 
   const getStatusKey = () => {
-    if (item.is_approved) return "is_approved";
+    if (item.review_status === "approved") return "is_approved";
+    if (item.review_status === "rejected") return "rejected";
     if (item.checked) return "checked";
-    if (item.admin_comment) return "rejected";
     return "pending";
   };
 
@@ -437,7 +437,7 @@ const ChecklistItem = ({ item }) => {
             >
               {item.admin_comment}
             </Text>
-            {!item.checked && !item.is_approved ? (
+            {item.review_status === "rejected" ? (
               <Text
                 style={{
                   marginTop: 8,

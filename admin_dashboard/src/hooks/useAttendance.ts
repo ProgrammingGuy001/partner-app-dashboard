@@ -1,14 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminAttendanceAPI, attendanceAPI } from '@/api/services';
 import { toast } from 'sonner';
-
-type ApiErrorLike = {
-  response?: {
-    data?: {
-      detail?: string;
-    };
-  };
-};
+import { getApiErrorMessage } from '@/lib/apiError';
 
 export const useAttendance = (filters?: {
   job_id?: number;
@@ -56,7 +49,7 @@ export const useMarkAdminAttendance = () => {
       toast.success('Attendance marked successfully');
     },
     onError: (error: unknown) => {
-      toast.error((error as ApiErrorLike).response?.data?.detail || 'Failed to mark attendance');
+      toast.error(getApiErrorMessage(error, 'Failed to mark attendance'));
     },
   });
 };

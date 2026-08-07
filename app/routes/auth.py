@@ -3,34 +3,30 @@ from sqlalchemy.orm import Session
 from datetime import timedelta
 from pydantic import BaseModel
 from app.database import get_db
-from app.schemas.user import UserCreate,UserResponse
+from app.schemas.user import UserResponse, UserNameUpdate
 from app.core.security import (
     clear_cookie,
+    consume_refresh_token,
     create_access_token,
     create_refresh_token,
     decode_refresh_token,
     get_current_user,
     hash_password,
+    revoke_refresh_tokens,
     set_bearer_cookie,
+    store_refresh_token,
     strip_bearer_prefix,
     verify_hashed_password,
-    verify_refresh_token_cookie,
     verify_token as security_verify_token,
 )
-from app.crud.user import get_user_by_email, create_user
+from app.crud.user import get_user_by_email
 from app.model.user import User
+from app.routes.dev import log_dev_action
 from app.config import settings
 
 from app.utils.rate_limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
-
-@router.post("/signup", status_code=status.HTTP_201_CREATED)
-def signup(user: UserCreate, db: Session = Depends(get_db)):
-    if get_user_by_email(db, user.email):
-        raise HTTPException(status_code=400, detail="Email already registered")
-    new_user = create_user(db, user)
-    return {"message": "User created successfully", "user": new_user.email}
 
 class LoginRequest(BaseModel):
     email: str
@@ -58,6 +54,7 @@ def login(request: Request, response: Response, login_data: LoginRequest, db: Se
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(data={"sub": user.email}, expires_delta=access_token_expires)
     refresh_token = create_refresh_token(data={"sub": user.email})
+    store_refresh_token(db, user.email, refresh_token)
     set_bearer_cookie(
         response,
         key=settings.ADMIN_AUTH_COOKIE_NAME,
@@ -85,12 +82,18 @@ def verify_access_token(email: str = Depends(security_verify_token)):
 
 
 @router.post("/refresh-token")
-def refresh_token(request: Request, response: Response, refresh_data: RefreshTokenRequest | None = None):
+def refresh_token(
+    request: Request,
+    response: Response,
+    refresh_data: RefreshTokenRequest | None = None,
+    db: Session = Depends(get_db),
+):
     refresh_token_value = request.cookies.get(settings.ADMIN_REFRESH_COOKIE_NAME)
     if not refresh_token_value:
         refresh_token_value = refresh_data.refresh_token if refresh_data else None
 
-    payload = decode_refresh_token(strip_bearer_prefix(refresh_token_value))
+    normalized_refresh_token = strip_bearer_prefix(refresh_token_value)
+    payload = decode_refresh_token(normalized_refresh_token)
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -104,9 +107,17 @@ def refresh_token(request: Request, response: Response, refresh_data: RefreshTok
             detail="Invalid authentication credentials",
         )
 
+    # Single-use rotation backed by the server-side token store.
+    if not consume_refresh_token(db, normalized_refresh_token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(data={"sub": email}, expires_delta=access_token_expires)
     new_refresh_token = create_refresh_token(data={"sub": email})
+    store_refresh_token(db, email, new_refresh_token)
     set_bearer_cookie(
         response,
         key=settings.ADMIN_AUTH_COOKIE_NAME,
@@ -133,6 +144,19 @@ def read_users_me(current_user: UserResponse = Depends(get_current_user)):
     return current_user
 
 
+@router.put("/me", response_model=UserResponse)
+def update_my_profile(
+    data: UserNameUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Let an admin set their own display name (used wherever they're shown as job supervisor)."""
+    current_user.name = data.name.strip()
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
 class ResetPasswordRequest(BaseModel):
     email: str
     new_password: str
@@ -146,11 +170,11 @@ def reset_password(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Superadmin-only: reset another admin's password.
+    """Superadmin or dev: reset another admin's password.
 
     Only updates the target admin's password column — no other data touched.
     """
-    if not current_user.is_superadmin:
+    if not (current_user.is_superadmin or current_user.is_dev):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only superadmins can reset passwords",
@@ -170,7 +194,12 @@ def reset_password(
         )
 
     target.password = hash_password(reset_data.new_password)
+    if current_user.is_dev:
+        log_dev_action(db, current_user, "reset_password", target.email)
     db.commit()
+
+    # Kill any live sessions issued before the reset.
+    revoke_refresh_tokens(db, target.email)
 
     return {
         "message": "Password reset successfully",
@@ -179,9 +208,17 @@ def reset_password(
 
 
 @router.post("/logout")
-def logout(response: Response):
-    """Clear the access_token and refresh_token cookies to log user out"""
+def logout(request: Request, response: Response, db: Session = Depends(get_db)):
+    """Clear auth cookies and revoke the session's refresh tokens."""
     clear_cookie(response, key=settings.ADMIN_AUTH_COOKIE_NAME)
     clear_cookie(response, key="access_token")
     clear_cookie(response, key=settings.ADMIN_REFRESH_COOKIE_NAME)
+
+    # Best-effort revocation: decode the refresh cookie to find the subject.
+    payload = decode_refresh_token(
+        strip_bearer_prefix(request.cookies.get(settings.ADMIN_REFRESH_COOKIE_NAME))
+    )
+    if payload and payload.get("sub"):
+        revoke_refresh_tokens(db, payload["sub"])
+
     return {"message": "Logged out successfully"}

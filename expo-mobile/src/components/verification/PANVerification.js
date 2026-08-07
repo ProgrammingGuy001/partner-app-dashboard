@@ -148,7 +148,7 @@ const PANVerification = ({ onSuccess, isPanVerified }) => {
             color={colors.textMuted}
           />
           <Text className="text-xs text-muted-foreground font-medium">
-            Secure 256-bit encrypted verification
+            Secure verification
           </Text>
         </View>
       </View>

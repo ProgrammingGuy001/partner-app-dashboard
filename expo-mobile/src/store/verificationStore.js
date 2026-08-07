@@ -21,12 +21,18 @@ export const useVerificationStore = create(
       setCurrentStep: (step) => set({ currentStep: step }),
 
       setVerificationStatus: (status) =>
-        set({
+        set((state) => ({
           isVerified: status.is_verified || false,
           isPanVerified: status.is_pan_verified || false,
           isBankVerified: status.is_bank_details_verified || false,
-          isDocumentUploaded: status.is_id_verified || false,
-        }),
+          // The backend exposes admin approval, but not the pending-upload state.
+          // Preserve the locally persisted upload flag until KYC data is deleted.
+          isDocumentUploaded: status.is_id_verified === true || (
+            status.is_pan_verified === true
+            && status.is_bank_details_verified === true
+            && state.isDocumentUploaded
+          ),
+        })),
 
       setDocumentUploaded: (uploaded) => set({ isDocumentUploaded: uploaded }),
 

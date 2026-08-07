@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
+import { getApiErrorMessage } from '@/lib/apiError';
 import { adminAPI, authAPI, type IPUser, type AdminUser } from '@/api/services';
 import { useIPUsers, IP_USERS_QUERY_KEY } from '@/hooks/useIPUsers';
 import {
@@ -92,7 +93,7 @@ const Workers: React.FC = () => {
       toast.success("Admin assignments updated");
     },
     onError: (error: AxiosError<{ detail?: string; message?: string }>) => {
-      toast.error(error.response?.data?.detail || error.response?.data?.message || "Failed to update assignments");
+      toast.error(getApiErrorMessage(error, "Failed to update assignments"));
     },
   });
 
@@ -115,6 +116,7 @@ const Workers: React.FC = () => {
   };
 
   const workers = data || [];
+  const pendingVerifyWorker = workers.find(worker => worker.phone_number === pendingVerifyPhone);
 
   const filteredWorkers = workers.filter(worker => {
     const matchesSearch =
@@ -182,7 +184,7 @@ const Workers: React.FC = () => {
             <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">Failed to load workers</h3>
             <p className="text-muted-foreground mb-4">
-              {(error as AxiosError).message || 'An error occurred'}
+              {getApiErrorMessage(error, 'Could not load workers. Try refreshing.')}
             </p>
             <Button onClick={() => refetch()}>Retry</Button>
           </CardContent>
@@ -192,7 +194,7 @@ const Workers: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 sm:gap-6 lg:gap-8">
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 sm:gap-6 lg:gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-primary sm:text-3xl">Personnel</h1>
@@ -341,7 +343,10 @@ const Workers: React.FC = () => {
           <DialogHeader>
             <DialogTitle>Verify Personnel</DialogTitle>
             <DialogDescription>
-              Are you sure you want to verify this worker? This will grant them full access.
+              Verify {pendingVerifyWorker ? `${pendingVerifyWorker.first_name} ${pendingVerifyWorker.last_name}` : 'this worker'} as an{' '}
+              <span className="font-semibold text-foreground">
+                {pendingVerifyWorker?.is_internal ? 'internal employee' : 'external partner'}
+              </span>.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
@@ -397,6 +402,9 @@ const WorkerMobileCard: React.FC<{
             <h3 className="truncate text-sm font-semibold">
               {worker.first_name} {worker.last_name}
             </h3>
+            <Badge variant={worker.is_internal ? "default" : "secondary"} className="mt-1">
+              {worker.is_internal ? 'Internal' : 'External'}
+            </Badge>
             <p className="mt-1 text-xs text-muted-foreground">ID: {worker.id}</p>
           </div>
         </div>
@@ -470,7 +478,12 @@ const WorkerRow: React.FC<{
             </AvatarFallback>
           </Avatar>
           <div>
-            <p className="font-medium leading-none">{worker.first_name} {worker.last_name}</p>
+            <div className="flex items-center gap-2">
+              <p className="font-medium leading-none">{worker.first_name} {worker.last_name}</p>
+              <Badge variant={worker.is_internal ? "default" : "secondary"}>
+                {worker.is_internal ? 'Internal' : 'External'}
+              </Badge>
+            </div>
             <p className="text-xs text-muted-foreground mt-1">ID: {worker.id}</p>
           </div>
         </div>
@@ -587,6 +600,14 @@ const DetailsModal: React.FC<{
               <InfoField label="Phone" value={worker.phone_number} icon={<Phone />} />
               <InfoField label="Location" value={`${worker.city}, ${worker.pincode}`} icon={<MapPin />} />
               <InfoField label="Registered" value={new Date(worker.registered_at).toLocaleDateString()} icon={<Calendar />} />
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Briefcase className="h-3 w-3" /> Registration Type
+                </p>
+                <Badge variant={worker.is_internal ? "default" : "secondary"}>
+                  {worker.is_internal ? 'Internal Employee' : 'External Partner'}
+                </Badge>
+              </div>
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground flex items-center gap-1">
                   <Briefcase className="h-3 w-3" /> Status

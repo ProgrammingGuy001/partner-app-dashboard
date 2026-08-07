@@ -1,23 +1,13 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { jobAPI, type Job, type JobUpdate, type DailyJobUpdate } from '@/api/services';
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { jobAPI, jobRateAPI, type CompletionDocumentLinks, type Job, type JobRateCreate, type JobUpdate } from '@/api/services';
 import { toast } from 'sonner';
-
-type ApiErrorLike = {
-  response?: {
-    data?: {
-      message?: string;
-    };
-  };
-};
-
-const getJobErrorMessage = (error: unknown, fallback: string) => {
-  return (error as ApiErrorLike).response?.data?.message || fallback;
-};
+import { getApiErrorMessage as getJobErrorMessage } from '@/lib/apiError';
 
 export const useJobs = (filters?: {
   status?: string;
   type?: string;
   search?: string;
+  page?: number;
   limit?: number;
 }) => {
   return useQuery({
@@ -36,6 +26,9 @@ export const useJobs = (filters?: {
       // Handle object response (paginated wrapper)
       return response.jobs || response.data || [];
     },
+    // The list endpoint returns a bare array with no total, so paging keeps the
+    // previous page on screen instead of flashing an empty table between fetches.
+    placeholderData: keepPreviousData,
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
 };
@@ -55,6 +48,29 @@ export const useJob = (id?: number) => {
     queryFn: () => jobAPI.getById(id!),
     enabled: !!id,
     staleTime: 2 * 60 * 1000, // 2 minutes for single job
+  });
+};
+
+export const useJobRates = () => {
+  return useQuery({
+    queryKey: ['job-rates'],
+    queryFn: () => jobRateAPI.getAll(),
+    staleTime: 1000 * 60 * 5,
+  });
+};
+
+export const useCreateJobRate = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: JobRateCreate) => jobRateAPI.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['job-rates'] });
+      toast.success("Rate card added");
+    },
+    onError: (error: unknown) => {
+      toast.error(getJobErrorMessage(error, "Failed to add rate card"));
+    },
   });
 };
 
@@ -145,6 +161,82 @@ export const useRejectJobCreation = () => {
   });
 };
 
+// ── Superadmin approval — the fallback when the customer OTP can't be used ──
+
+export const useJobApprovalRequests = (id?: number) => {
+  return useQuery({
+    queryKey: ['jobs', id, 'approval-requests'],
+    queryFn: () => jobAPI.getApprovalRequests(id!),
+    enabled: !!id,
+    staleTime: 1000 * 30,
+  });
+};
+
+export const usePendingJobApprovalRequests = (enabled = true) => {
+  return useQuery({
+    queryKey: ['jobs', 'approval-requests', 'pending'],
+    queryFn: () => jobAPI.getPendingApprovalRequests(),
+    enabled,
+    staleTime: 1000 * 60,
+  });
+};
+
+const invalidateApprovalQueries = (queryClient: ReturnType<typeof useQueryClient>) => {
+  queryClient.invalidateQueries({ queryKey: ['jobs'] });
+};
+
+export const useCreateJobApprovalRequest = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, action, reason, documents }: {
+      id: number;
+      action: 'start' | 'finish';
+      reason: string;
+      documents?: CompletionDocumentLinks;
+    }) => jobAPI.createApprovalRequest(id, { action, reason, ...documents }),
+    onSuccess: (request) => {
+      invalidateApprovalQueries(queryClient);
+      toast.success(
+        request.status === 'approved'
+          ? `Job ${request.action === 'start' ? 'started' : 'completed'} without customer OTP`
+          : 'Sent to superadmin for approval',
+      );
+    },
+    onError: (error: unknown) => {
+      toast.error(getJobErrorMessage(error, "Failed to request approval"));
+    },
+  });
+};
+
+export const useApproveJobApprovalRequest = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (requestId: number) => jobAPI.approveApprovalRequest(requestId),
+    onSuccess: (request) => {
+      invalidateApprovalQueries(queryClient);
+      toast.success(`Job ${request.action === 'start' ? 'started' : 'completed'}`);
+    },
+    onError: (error: unknown) => {
+      toast.error(getJobErrorMessage(error, "Failed to approve request"));
+    },
+  });
+};
+
+export const useRejectJobApprovalRequest = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ requestId, reason }: { requestId: number; reason?: string }) =>
+      jobAPI.rejectApprovalRequest(requestId, reason),
+    onSuccess: () => {
+      invalidateApprovalQueries(queryClient);
+      toast.success("Request rejected");
+    },
+    onError: (error: unknown) => {
+      toast.error(getJobErrorMessage(error, "Failed to reject request"));
+    },
+  });
+};
+
 export const useJobHistory = (id?: number) => {
   return useQuery({
     queryKey: ['jobs', id, 'history'],
@@ -158,11 +250,13 @@ export const useJobAction = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ id, action, notes }: { id: number; action: 'start' | 'pause' | 'finish'; notes?: string }) => {
+    mutationFn: async ({ id, action, notes, documents }: { id: number; action: 'start' | 'pause' | 'finish'; notes?: string; documents?: CompletionDocumentLinks }) => {
       switch (action) {
         case 'start': return jobAPI.start(id, notes);
         case 'pause': return jobAPI.pause(id, notes);
-        case 'finish': return jobAPI.finish(id, notes);
+        case 'finish':
+          if (!documents) throw new Error('Completion documents are required');
+          return jobAPI.finish(id, notes, documents);
       }
     },
     onSuccess: (_, variables) => {
@@ -177,17 +271,5 @@ export const useJobAction = () => {
     onError: (error: unknown) => {
       toast.error(getJobErrorMessage(error, "Action failed"));
     },
-  });
-};
-
-export const useJobDailyUpdates = (jobId: number | undefined, params?: { update_date?: string }) => {
-  return useQuery<DailyJobUpdate[]>({
-    queryKey: ['jobs', jobId, 'daily-updates', params],
-    queryFn: async () => {
-      const res = await jobAPI.getDailyUpdates(jobId!, params);
-      return res.updates || [];
-    },
-    enabled: !!jobId,
-    staleTime: 60 * 1000,
   });
 };

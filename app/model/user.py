@@ -12,10 +12,14 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
     email: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=True)
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
     password: Mapped[str] = mapped_column(String, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_approved: Mapped[bool] = mapped_column(Boolean, default=False)
     is_superadmin: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Owns the account lifecycle (create/disable/promote admins). Kept as a flag
+    # alongside is_superadmin rather than a role enum so existing checks stay valid.
+    is_dev: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     # Compatibility aliases for existing code paths.

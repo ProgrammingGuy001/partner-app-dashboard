@@ -60,7 +60,7 @@ class CustomerOTPService:
         )
         db.commit()
 
-        if settings.OTP_DEBUG_LOG_ENABLED:
+        if settings.log_plaintext_otp:
             logger.warning(
                 "OTP_DEBUG purpose=%s job_id=%s phone=%s otp=%s expires_at=%s",
                 purpose,
@@ -100,8 +100,15 @@ class CustomerOTPService:
             db.commit()
             return False
 
+        if (session.attempt_count or 0) >= settings.OTP_MAX_ATTEMPTS:
+            session.is_used = True
+            db.commit()
+            return False
+
         if not pwd_context.verify(str(otp).strip(), session.otp_hash):
             session.attempt_count = (session.attempt_count or 0) + 1
+            if session.attempt_count >= settings.OTP_MAX_ATTEMPTS:
+                session.is_used = True
             db.commit()
             return False
 

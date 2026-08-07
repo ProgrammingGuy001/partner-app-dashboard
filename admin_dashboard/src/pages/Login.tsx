@@ -5,6 +5,7 @@ import { authAPI } from '@/api/services';
 import { LoginForm } from '@/components/login-form';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { toast } from 'sonner';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 const Login: React.FC = () => {
   const [error, setError] = useState('');
@@ -23,13 +24,14 @@ const Login: React.FC = () => {
       toast.success('Logged in successfully');
       navigate('/dashboard');
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message);
-        toast.error(err.message);
-      } else {
-        setError('Login failed');
-        toast.error('Login failed');
-      }
+      // Every credential failure reads the same, whatever the backend says — a
+      // distinct "no such user" reply is free account enumeration.
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      const message = status === 401
+        ? 'Invalid email or password'
+        : getApiErrorMessage(err, 'Could not sign you in. Try again.');
+      setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }

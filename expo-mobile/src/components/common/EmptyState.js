@@ -48,13 +48,15 @@ export const SkeletonBlock = ({ width = '100%', height = 16, borderRadius = 8, s
 
   const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
+  // Layout animation on wrapper, opacity pulse on inner — same view triggers a Reanimated warning.
   return (
     <Animated.View
       entering={FadeIn.duration(180)}
       exiting={FadeOut.duration(140)}
-      className="bg-border"
-      style={[{ width, height, borderRadius }, animatedStyle, style]}
-    />
+      style={[{ width, height, borderRadius }, style]}
+    >
+      <Animated.View className="bg-border" style={[{ flex: 1, borderRadius }, animatedStyle]} />
+    </Animated.View>
   );
 };
 

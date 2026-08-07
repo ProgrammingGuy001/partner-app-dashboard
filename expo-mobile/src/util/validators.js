@@ -64,13 +64,15 @@ export const validators = {
     };
   },
 
-  file: (file) => {
+  file: (file, { allowedTypes = ALLOWED_FILE_TYPES, allowedExtensions = [] } = {}) => {
     if (!file) return { valid: false, message: 'File is required' };
 
-    if (file.mimeType && !ALLOWED_FILE_TYPES.includes(file.mimeType)) {
+    const lowerName = String(file.name || '').toLowerCase();
+    const extensionAllowed = allowedExtensions.some((extension) => lowerName.endsWith(extension));
+    if (file.mimeType && !allowedTypes.includes(file.mimeType) && !extensionAllowed) {
       return {
         valid: false,
-        message: 'Only JPEG, PNG, and PDF files are allowed',
+        message: allowedExtensions.length ? `Only ${allowedExtensions.join(', ')} files are allowed` : 'Only JPEG, PNG, and PDF files are allowed',
       };
     }
 

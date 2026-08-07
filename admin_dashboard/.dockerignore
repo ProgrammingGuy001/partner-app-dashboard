@@ -1,0 +1,11 @@
+# node_modules is reinstalled inside the image: the host copy is built for macOS
+# and its native binaries (rollup, @tailwindcss/oxide) will not run on Linux.
+node_modules
+dist
+.env
+.env.*
+!.env.example
+.git
+.DS_Store
+.vscode
+.idea

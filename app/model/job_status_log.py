@@ -12,6 +12,9 @@ class JobStatusLog(Base):
     status: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     notes: Mapped[str] = mapped_column(Text, nullable=True)
+    # Who caused the transition: "admin" (admin.id) or "ip" (ip_user.id).
+    actor_type: Mapped[str] = mapped_column(String(16), nullable=True)
+    actor_id: Mapped[int] = mapped_column(Integer, nullable=True)
 
     # Backward-compat alias for existing response schema.
     timestamp = synonym("created_at")

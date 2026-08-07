@@ -7,18 +7,18 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "modula-partner",
-    "userInterfaceStyle": "automatic",
-    "backgroundColor": "#fcfbf9",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#1c1515",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#1c1515"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.modula.partnerapplication",
       "buildNumber": "1",
-      "backgroundColor": "#fcfbf9",
+      "backgroundColor": "#1c1515",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": false
@@ -45,9 +45,9 @@
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#E6F4FE"
+        "backgroundColor": "#1c1515"
       },
-      "backgroundColor": "#fcfbf9"
+      "backgroundColor": "#1c1515"
     },
     "web": {
       "favicon": "./assets/favicon.png"

@@ -43,4 +43,9 @@ export const verificationApi = {
     const response = await apiClient.get('/verification/panel-access');
     return response.data;
   },
+
+  deleteVerificationData: async () => {
+    const response = await apiClient.delete('/verification/data');
+    return response.data;
+  },
 };

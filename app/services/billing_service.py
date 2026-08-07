@@ -150,6 +150,7 @@ class BillingService:
         ip_user_id: int | None = None,
         admin_id: int | None = None,
         is_superadmin: bool = False,
+        invoice_request_id: int | None = None,
     ) -> bytes:
         query = db.query(models.Job).filter(models.Job.id == job_id)
         if ip_user_id is not None:
@@ -164,9 +165,19 @@ class BillingService:
         if not job.assigned_ip or job.assigned_ip.is_internal:
             raise HTTPException(status_code=403, detail="Billing is only available for external IP jobs")
 
-        invoice_request = cls._latest_invoice_request(db, job_id)
+        invoice_request = (
+            db.query(InvoiceRequest)
+            .filter(
+                InvoiceRequest.id == invoice_request_id,
+                InvoiceRequest.job_id == job_id,
+                InvoiceRequest.status == "approved",
+            )
+            .first()
+            if invoice_request_id is not None
+            else cls._latest_invoice_request(db, job_id)
+        )
         if not invoice_request:
-            raise HTTPException(status_code=400, detail="Invoice must be approved before bill generation")
+            raise HTTPException(status_code=404, detail="Approved invoice request not found")
 
         ip_user = job.assigned_ip
         financial = ip_user.financial

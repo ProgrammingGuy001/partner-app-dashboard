@@ -109,6 +109,7 @@ export const ROUTES = {
   SUBMIT: "Submit",
   NOT_FOUND: "NotFound",
   SITE_GRN: "SiteGRN",
+  DAILY_REPORT: "DailyReport",
 };
 
 // Placeholder text for form inputs

@@ -19,6 +19,7 @@ import { useResponsive } from '../../hooks/useResponsive';
 import { useTheme } from '../../hooks/useTheme';
 import { VERIFICATION_STEPS } from '../../util/constants';
 import { logger } from '../../util/helpers';
+import DeleteVerificationDataButton from '../../components/verification/DeleteVerificationDataButton';
 
 const VerificationScreen = () => {
   const [loading, setLoading] = useState(true);
@@ -178,6 +179,10 @@ const VerificationScreen = () => {
                 onDone={handleVerificationDone}
               />
             )}
+          </View>
+
+          <View className="mt-6">
+            <DeleteVerificationDataButton />
           </View>
 
         </View>

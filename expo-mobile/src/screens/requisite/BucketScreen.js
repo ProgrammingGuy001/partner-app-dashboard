@@ -30,6 +30,7 @@ const BucketScreen = ({ navigation }) => {
     quantity: '1',
     issue_description: '',
     responsible_department: null,
+    component_status: null,
   });
 
   const startEdit = (item) => {
@@ -38,14 +39,21 @@ const BucketScreen = ({ navigation }) => {
       quantity: String(item.quantity || 1),
       issue_description: item.issue_description || '',
       responsible_department: item.responsible_department || null,
+      component_status: item.component_status || null,
     });
   };
 
   const saveEdit = (productName) => {
+    const quantity = Number(editForm.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      Alert.alert('Invalid quantity', 'Quantity must be greater than zero.');
+      return;
+    }
     updateBucketItem(productName, {
-      quantity: parseFloat(editForm.quantity) || 0,
+      quantity,
       issue_description: editForm.issue_description,
       responsible_department: editForm.responsible_department,
+      component_status: editForm.component_status,
     });
     setEditingItem(null);
   };
@@ -135,6 +143,18 @@ const BucketScreen = ({ navigation }) => {
                      </View>
 
                      <View className="gap-1.5">
+                       <Text className="text-[11px] font-bold text-muted-foreground uppercase">Component Status</Text>
+                       <Input
+                         value={editForm.component_status || ''}
+                         onChangeText={(text) => setEditForm((prev) => ({ ...prev, component_status: text }))}
+                         placeholder="e.g. damaged or missing"
+                         maxLength={100}
+                         accessibilityLabel={`Component status for ${item.product_name}`}
+                         className="h-11 rounded-xl bg-background px-3"
+                       />
+                     </View>
+
+                     <View className="gap-1.5">
                        <Text className="text-[11px] font-bold text-muted-foreground uppercase">Department</Text>
                        <View className="flex-row flex-wrap gap-2">
                          {DEPARTMENTS.map((dept) => {
@@ -217,6 +237,12 @@ const BucketScreen = ({ navigation }) => {
                                 {item.responsible_department}
                               </Text>
                             </View>
+                          </View>
+                        )}
+                        {item.component_status && (
+                          <View>
+                            <Text className="text-[10px] font-bold text-muted-foreground uppercase">STATUS</Text>
+                            <Text className="text-sm font-bold text-foreground capitalize">{item.component_status}</Text>
                           </View>
                         )}
                      </View>

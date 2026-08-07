@@ -28,7 +28,7 @@ const JobHistoryTimeline = ({ history = [] }) => {
         const meta = STATUS_META[entry.status] ?? STATUS_META.created;
         const isLast = index === history.length - 1;
         return (
-          <View key={index} className="flex-row gap-3">
+          <View key={entry.id || index} className="flex-row gap-3">
             {/* Timeline line + dot */}
             <View className="items-center w-6">
               <View
@@ -46,8 +46,7 @@ const JobHistoryTimeline = ({ history = [] }) => {
                 {entry.status?.replaceAll('_', ' ')}
               </Text>
               <Text className="text-[11px] text-muted-foreground mt-0.5">
-                {formatTimestamp(entry.changed_at)}
-                {entry.changed_by ? ` · ${entry.changed_by}` : ''}
+                {formatTimestamp(entry.timestamp)}
               </Text>
               {entry.notes ? (
                 <Text className="text-xs text-muted-foreground mt-1 italic">

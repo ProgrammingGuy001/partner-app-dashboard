@@ -31,7 +31,6 @@ class UploadServiceTests(unittest.IsolatedAsyncioTestCase):
             upload,
             allowed_extensions={".pdf"},
             max_size_mb=1,
-            chunk_size=4,
         )
 
         self.assertEqual(result.filename, "document.pdf")
@@ -55,7 +54,6 @@ class UploadServiceTests(unittest.IsolatedAsyncioTestCase):
                 upload,
                 allowed_extensions={".pdf"},
                 max_size_mb=0,
-                chunk_size=2,
             )
 
         self.assertEqual(context.exception.status_code, 400)

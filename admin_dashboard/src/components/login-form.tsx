@@ -26,7 +26,6 @@ import {
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Link } from "react-router-dom"
 import * as z from "zod"
 
 const loginSchema = z.object({
@@ -140,14 +139,8 @@ export function LoginForm({
             </Button>
 
             <div className="rounded-2xl bg-muted/55 px-4 py-4 text-sm leading-6 text-muted-foreground">
-              Don&apos;t have an account yet?{" "}
-              <Link to="/register" className="font-semibold text-primary transition-colors hover:text-primary/80">
-                Create an admin account
-              </Link>
-              .
+              Need an account? Ask a dev to create one for you.
             </div>
-
-            
           </FieldGroup>
         </CardContent>
       </Card>

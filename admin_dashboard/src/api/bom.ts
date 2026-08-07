@@ -75,17 +75,33 @@ export interface SODetail {
     do_number?: string;
     odoo_repair_order_id?: number;
     odoo_repair_order_name?: string;
+    odoo_repair_order_state?: string;
+    odoo_sync_status: 'pending' | 'synced' | 'failed';
+    odoo_sync_error?: string;
+    odoo_sync_key: string;
     site_requisites: SiteRequisiteItem[];
 }
 
+const getHistoryPages = async (path: string, limit: number, offset: number) => {
+    const history: SODetail[] = [];
+    while (history.length < limit) {
+        const pageLimit = Math.min(50, limit - history.length);
+        const response = await axios.get<SODetail[]>(path, {
+            params: { limit: pageLimit, offset: offset + history.length }
+        });
+        history.push(...response.data);
+        if (response.data.length < pageLimit) break;
+    }
+    return history;
+};
+
 export const bomAPI = {
     // Get all history
-    getHistory: async (limit = 50, offset = 0) => {
-        const response = await axios.get<SODetail[]>('/bom/history', {
-            params: { limit, offset }
-        });
-        return response.data;
-    },
+    getHistory: (limit = 50, offset = 0) =>
+        getHistoryPages('/bom/history', limit, offset),
+
+    refreshHistory: (limit = 50, offset = 0) =>
+        getHistoryPages('/bom/history/refresh', limit, offset),
 
     // Get all requisites for a specific sales order (may return multiple)
     getHistoryBySalesOrder: async (salesOrder: string): Promise<SODetail[]> => {
@@ -98,6 +114,11 @@ export const bomAPI = {
         const response = await axios.patch(`/bom/history/${soId}/status`, null, {
             params: { status }
         });
+        return response.data;
+    },
+
+    retrySync: async (soId: number): Promise<SODetail> => {
+        const response = await axios.post<SODetail>(`/bom/history/${soId}/retry-sync`);
         return response.data;
     },
 
@@ -117,8 +138,9 @@ export const bomAPI = {
     },
 
     // Get BOM Tree
-    getBOMItems: async (salesOrder: string, cabinetPosition: string): Promise<BOMTreeNode[]> => {
+    getBOMItems: async (salesOrder: string, cabinetPosition: string, search?: string): Promise<BOMTreeNode[]> => {
         const response = await axios.get(`/bom/${encodePathSegment(salesOrder)}/${encodePathSegment(cabinetPosition)}`, {
+            params: { search },
             timeout: 120000,
         });
         return response.data;

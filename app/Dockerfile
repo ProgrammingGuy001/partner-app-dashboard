@@ -15,12 +15,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Install python dependencies
-COPY requirements.txt /code/
+# Install Python dependencies from the backend requirements file.
+COPY app/requirements.txt /code/
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Chromium + its system libs for the Playwright-rendered installation report
+RUN playwright install --with-deps chromium
+
 # Copy project resources into 'app' directory to maintain package structure
-COPY . /code/app/
+COPY app/ /code/app/
 
 # Expose port
 EXPOSE 8000

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -19,5 +19,13 @@ class AdminAttendance(Base):
     latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     manual_location: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Supervisors check in without naming a site, so the fix is matched against the
+    # nearest job pin. matched_job_id records which site that was, even when the fix
+    # fell outside its fence. All three are NULL when no job has a pin.
+    matched_job_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("jobs.id"), nullable=True, index=True
+    )
+    distance_meters: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    within_geofence: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     photo_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(String, nullable=True)

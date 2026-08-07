@@ -15,6 +15,8 @@ import { useAuthStore } from "../../store/authStore";
 import { useResponsive } from "../../hooks/useResponsive";
 import { useTheme } from "../../hooks/useTheme";
 import UpdateChecker from "../../components/common/UpdateChecker";
+import DeleteVerificationDataButton from "../../components/verification/DeleteVerificationDataButton";
+import { useToast } from "../../hooks/useToast";
 
 const DETAIL_ROWS = [
   { label: "First Name", key: "first_name", icon: "person-outline" },
@@ -68,6 +70,7 @@ const AccountScreen = () => {
   const { logout, loggingOut } = useLogout();
   const { px, isTablet, maxCardWidth } = useResponsive();
   const { colors } = useTheme();
+  const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
 
   const handleRefresh = useCallback(async () => {
@@ -75,12 +78,12 @@ const AccountScreen = () => {
     setRefreshing(true);
     try {
       await refreshProfile();
-    } catch (e) {
-      // silently fail
+    } catch (error) {
+      toast.error(error.message || "Failed to refresh account");
     } finally {
       setRefreshing(false);
     }
-  }, [refreshProfile]);
+  }, [refreshProfile, toast]);
 
   const fullName =
     [user?.first_name, user?.last_name].filter(Boolean).join(" ") ||
@@ -259,6 +262,11 @@ const AccountScreen = () => {
             <UpdateChecker />,
           )}
 
+          {section(
+            "Privacy",
+            <DeleteVerificationDataButton />,
+          )}
+
           {/* Logout Button */}
           <TouchableOpacity
             onPress={onPressLogout}
@@ -281,7 +289,7 @@ const AccountScreen = () => {
           </TouchableOpacity>
 
           <Text className="text-center text-muted-foreground text-xs font-medium">
-            Version 1.0.4
+            Version {require("../../../app.json").expo.version}
           </Text>
         </View>
       </ScrollView>

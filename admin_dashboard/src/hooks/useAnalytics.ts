@@ -8,28 +8,30 @@ interface PayoutReportParams {
   quarter?: number;
 }
 
-export const usePayoutReport = (params: PayoutReportParams) => {
+export const usePayoutReport = (params: PayoutReportParams, enabled = true) => {
   return useQuery({
     queryKey: ['analytics', 'payout', params],
     queryFn: () => analyticsAPI.getPayoutReport(params),
     staleTime: 10 * 60 * 1000, // 10 minutes
     // Only fetch if params are valid (e.g. month requires year)
-    enabled: !!params.period,
+    enabled: enabled && !!params.period,
   });
 };
 
-export const useJobStages = () => {
+export const useJobStages = (enabled = true) => {
   return useQuery({
     queryKey: ['analytics', 'job-stages'],
     queryFn: () => analyticsAPI.getJobStages(),
     staleTime: 5 * 60 * 1000, // 5 minutes
+    enabled,
   });
 };
 
-export const useIPPerformance = () => {
+export const useIPPerformance = (enabled = true) => {
   return useQuery({
     queryKey: ['analytics', 'ip-performance'],
     queryFn: () => analyticsAPI.getIPPerformance(),
     staleTime: 10 * 60 * 1000, // 10 minutes
+    enabled,
   });
 };

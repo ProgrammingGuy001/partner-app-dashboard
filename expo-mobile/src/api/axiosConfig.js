@@ -18,23 +18,43 @@ const formatValidationErrors = (detail) => {
   return lines.length ? lines.join(', ') : null;
 };
 
-const getErrorMessage = (data) => {
-  if (!data) return 'An error occurred';
-  if (typeof data === 'string') return data;
+const getErrorMessage = (data, status) => {
+  let msg = 'An unexpected error occurred. Please try again.';
 
-  if (data.detail !== undefined) {
-    if (typeof data.detail === 'string') return data.detail;
-    const validation = formatValidationErrors(data.detail);
-    if (validation) return validation;
-    if (data.detail && typeof data.detail === 'object' && typeof data.detail.msg === 'string') {
-      return data.detail.msg;
+  if (data) {
+    if (typeof data === 'string') msg = data;
+    else if (data.detail !== undefined) {
+      if (typeof data.detail === 'string') msg = data.detail;
+      else {
+        const validation = formatValidationErrors(data.detail);
+        if (validation) msg = validation;
+        else if (data.detail && typeof data.detail === 'object' && typeof data.detail.msg === 'string') {
+          msg = data.detail.msg;
+        }
+      }
+    } else if (typeof data.message === 'string') {
+      msg = data.message;
+    } else if (typeof data.error === 'string') {
+      msg = data.error;
     }
   }
 
-  if (typeof data.message === 'string') return data.message;
-  if (typeof data.error === 'string') return data.error;
+  // Map common technical errors to user-friendly messages
+  const friendlyMap = {
+    'Network error': 'Looks like you are offline. Please check your connection.',
+    'Internal Server Error': 'Our servers are taking a break. Please try again in a moment.',
+    'Not authorized': 'You do not have permission for this action.',
+    'Not Found': 'We could not find the information you requested.',
+  };
 
-  return 'An error occurred';
+  for (const [techMsg, friendlyMsg] of Object.entries(friendlyMap)) {
+    if (msg.includes(techMsg) || msg === techMsg) return friendlyMsg;
+  }
+
+  if (status >= 500) return 'Our servers are taking a break. Please try again in a moment.';
+  if (status === 404) return 'The requested information could not be found.';
+
+  return msg;
 };
 
 const apiClient = axios.create({
@@ -101,7 +121,7 @@ apiClient.interceptors.response.use(
 
     if (error.response) {
       const { status, data } = error.response;
-      const message = getErrorMessage(data);
+      const message = getErrorMessage(data, status);
 
       if (status === 401 && !originalRequest._retried) {
         const refreshToken = await getRefreshToken();
@@ -169,10 +189,10 @@ apiClient.interceptors.response.use(
               logger.warn('axiosConfig', 'Refresh token invalid, logging out');
               await require('../store/authStore').useAuthStore.getState().clearAuth();
             }
-            const error = new Error('Session expired. Please log in again.');
-            error.status = 401;
-            error.isAuthError = isAuthError;
-           throw error (error);
+            const sessionError = new Error('Session expired. Please log in again.');
+            sessionError.status = 401;
+            sessionError.isAuthError = isAuthError;
+            throw sessionError;
           } finally {
             isRefreshing = false;
           }
@@ -185,7 +205,7 @@ apiClient.interceptors.response.use(
       const apiError = new Error(message);
       apiError.status = status;
       apiError.data = data;
-      throw error (apiError);
+      throw apiError;
     }
     
 

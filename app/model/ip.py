@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
@@ -11,6 +11,9 @@ from app.utils.encryption import EncryptedString
 
 class IPAdminAssignment(Base):
     __tablename__ = "ip_user_admin_assignments"
+    __table_args__ = (
+        UniqueConstraint("ip_id", "admin_id", name="uq_ip_admin_assignment"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ip_id: Mapped[int] = mapped_column(Integer, ForeignKey("ip_user.id"), nullable=False, index=True)
@@ -42,6 +45,7 @@ class IPFinancial(Base):
     )
     is_education_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    kyc_consent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     ip_user: Mapped["ip"] = relationship("ip", back_populates="financial")
 

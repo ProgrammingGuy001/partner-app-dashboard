@@ -25,7 +25,7 @@ class SiteRequisiteSubmit(BaseModel):
     repair_reference: Optional[str] = None
     expected_delivery: Optional[date] = None
     do_number: Optional[str] = None
-    items: List[BucketItemCreate]
+    items: List[BucketItemCreate] = Field(..., min_length=1)
 
 class SiteRequisiteResponse(BaseModel):
     id: int
@@ -57,6 +57,10 @@ class SODetailResponse(BaseModel):
     do_number: Optional[str] = None
     odoo_repair_order_id: Optional[int] = None
     odoo_repair_order_name: Optional[str] = None
+    odoo_repair_order_state: Optional[str] = None
+    odoo_sync_status: Literal["pending", "synced", "failed"]
+    odoo_sync_error: Optional[str] = None
+    odoo_sync_key: str
     site_requisites: List[SiteRequisiteResponse] = []
 
     class Config:

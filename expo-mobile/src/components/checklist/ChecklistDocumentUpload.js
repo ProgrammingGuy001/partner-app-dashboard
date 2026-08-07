@@ -2,24 +2,44 @@ import React, { useState } from "react";
 import { Alert, View, TouchableOpacity, Linking, ActivityIndicator } from "react-native";
 import * as Haptics from "expo-haptics";
 import Ionicons from "@react-native-vector-icons/ionicons";
-import { Button, Text } from "@/components/ui";
+import { Text } from "@/components/ui";
 import useChecklistStore from "../../store/checklistStore";
 import { useFileUpload } from "../../hooks/useFileUpload";
 import { useTheme } from "../../hooks/useTheme";
+import { checklistApi } from "../../api/checklistApi";
+
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const PDF_MIME = "application/pdf";
 
 const ChecklistDocumentUpload = ({ checklistId, jobId }) => {
   const { colors, isDark } = useTheme();
   const onPrimary = isDark ? colors.background : "#fff";
   const [isUploading, setIsUploading] = useState(false);
-  
-  const checklistDocumentLink = useChecklistStore(
-    (state) => state.checklist?.document_link
-  );
+  const [isDownloading, setIsDownloading] = useState(false);
+  const checklist = useChecklistStore((state) => state.checklist);
+  const checklistDocumentLink = checklist?.document_link;
+  const isIsmChecklist = checklist?.template_available === true;
   const uploadChecklistDocument = useChecklistStore(
     (state) => state.uploadChecklistDocument
   );
   
-  const { handleFileSelect, file, clearFile } = useFileUpload();
+  const { handleFileSelect, file, clearFile } = useFileUpload(
+    isIsmChecklist
+      ? { pickerTypes: [XLSX_MIME, PDF_MIME], allowedTypes: [XLSX_MIME, PDF_MIME], allowedExtensions: [".xlsx", ".pdf"] }
+      : undefined
+  );
+
+  const handleDownload = async () => {
+    if (isDownloading) return;
+    setIsDownloading(true);
+    try {
+      await checklistApi.downloadChecklistTemplate(jobId, checklistId);
+    } catch (error) {
+      Alert.alert("Download failed", error?.message || "Could not download the checklist workbook.");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   const handleUploadConfirm = async () => {
     if (!file || isUploading) return;
@@ -46,11 +66,48 @@ const ChecklistDocumentUpload = ({ checklistId, jobId }) => {
       <View className="px-5 bg-card border-b border-border flex-row items-center gap-2 py-3.5">
         <Ionicons name="document-text-outline" size={18} color={colors.primary} />
         <Text className="text-base font-extrabold text-foreground">
-          Checklist Document
+          {isIsmChecklist ? "ISM Excel Checklist" : "Checklist Document"}
         </Text>
       </View>
 
       <View className="p-5 gap-4">
+        {isIsmChecklist ? (
+          <View
+            style={{
+              gap: 12,
+              backgroundColor: colors.warning + "10",
+              borderColor: colors.warning + "35",
+              borderWidth: 1,
+              borderRadius: 12,
+              padding: 14,
+            }}
+          >
+            <Text style={{ fontSize: 12, lineHeight: 18, color: colors.text, fontWeight: "600" }}>
+              01 Download workbook  →  02 Fill the ISM Checklist tab  →  03 Upload it back
+            </Text>
+            <TouchableOpacity
+              onPress={handleDownload}
+              disabled={isDownloading}
+              accessibilityRole="button"
+              accessibilityLabel="Download ISM checklist workbook"
+              accessibilityState={{ disabled: isDownloading, busy: isDownloading }}
+              style={{
+                minHeight: 44,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: colors.primary,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: isDownloading ? 0.6 : 1,
+              }}
+            >
+              <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "700" }}>
+                {isDownloading ? "Downloading…" : "Download workbook"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         {/* File selected — show confirmation before upload */}
         {file ? (
           <View
@@ -216,7 +273,7 @@ const ChecklistDocumentUpload = ({ checklistId, jobId }) => {
               color: colors.primary,
             }}
           >
-            {checklistDocumentLink ? "Replace Document" : "Upload Checklist"}
+            {checklistDocumentLink ? "Replace Document" : isIsmChecklist ? "Choose completed file" : "Upload Checklist"}
           </Text>
         </TouchableOpacity>
 
@@ -228,7 +285,7 @@ const ChecklistDocumentUpload = ({ checklistId, jobId }) => {
             textAlign: "center",
           }}
         >
-          PDF, JPG, PNG, or DOCX • Max file size recommended: 50MB
+          {isIsmChecklist ? ".xlsx or .pdf" : "PDF, JPG, PNG, or DOCX"} • Max 10MB
         </Text>
       </View>
     </View>

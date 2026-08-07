@@ -51,7 +51,7 @@ const AddToBucketModal: React.FC<Props> = ({ item, onSave, onClose }) => {
         <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Add to Bucket</DialogTitle>
+                    <DialogTitle>Add to Requisite</DialogTitle>
                 </DialogHeader>
 
                 <form onSubmit={handleSubmit} className="space-y-4 py-2">
@@ -90,15 +90,23 @@ const AddToBucketModal: React.FC<Props> = ({ item, onSave, onClose }) => {
                         </div>
                     </div>
 
-                    <div className="space-y-2">
-                        <Label>Component Status</Label>
-                        <Input
-                            type="text"
-                            value={formData.component_status}
-                            onChange={(e) => setFormData({ ...formData, component_status: e.target.value })}
-                            placeholder="Available, damaged, missing..."
-                        />
-                    </div>
+                        <Label htmlFor="component-status">Component Status</Label>
+                        <div className="relative">
+                            <select
+                                id="component-status"
+                                value={formData.component_status}
+                                onChange={(e) => setFormData({ ...formData, component_status: e.target.value })}
+                                className="flex h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-8 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                required
+                            >
+                                <option value="">Select status</option>
+                                <option value="damaged">Damaged</option>
+                                <option value="missing">Missing</option>
+                            </select>
+                            <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2">
+                                <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                            </div>
+                        </div>
 
                     <div className="space-y-2">
                         <Label>Issue Description</Label>
@@ -117,7 +125,7 @@ const AddToBucketModal: React.FC<Props> = ({ item, onSave, onClose }) => {
                         </Button>
                         <Button type="submit" className="w-full sm:w-auto">
                             <Plus className="w-4 h-4 mr-2" />
-                            Add to Bucket
+                            Add to Requisite
                         </Button>
                     </DialogFooter>
                 </form>

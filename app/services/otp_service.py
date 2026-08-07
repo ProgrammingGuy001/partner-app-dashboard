@@ -57,7 +57,7 @@ class OTPService:
         )
         db.commit()
 
-        if settings.OTP_DEBUG_LOG_ENABLED:
+        if settings.log_plaintext_otp:
             logger.warning(
                 "OTP_DEBUG purpose=%s phone=%s otp=%s expires_at=%s",
                 OTPService.LOGIN_PURPOSE,
@@ -94,8 +94,15 @@ class OTPService:
             db.commit()
             return False
 
+        if (session.attempt_count or 0) >= settings.OTP_MAX_ATTEMPTS:
+            session.is_used = True
+            db.commit()
+            return False
+
         if not pwd_context.verify(str(otp).strip(), session.otp_hash):
             session.attempt_count = (session.attempt_count or 0) + 1
+            if session.attempt_count >= settings.OTP_MAX_ATTEMPTS:
+                session.is_used = True
             db.commit()
             return False
 
@@ -117,7 +124,7 @@ class OTPService:
                 settings.normalized_environment,
                 OTPService.LOGIN_PURPOSE,
                 OTPService._mask_phone(formatted_number),
-                otp_code,
+                otp_code if settings.log_plaintext_otp else "<redacted>",
             )
             return True
 

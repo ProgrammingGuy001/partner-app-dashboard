@@ -13,7 +13,9 @@ import StatsCards from "../../components/dashboard/StatsCards";
 import DailyAttendance from "../../components/dashboard/DailyAttendance";
 import ScreenHeader from "../../components/common/ScreenHeader";
 import { SkeletonList } from "../../components/common/EmptyState";
+import Ionicons from "@react-native-vector-icons/ionicons";
 import { Text } from "@/components/ui/text";
+import { Button } from "@/components/ui/button";
 import { dashboardApi } from "../../api/dashboardApi";
 import { useDashboardStore } from "../../store/dashboardStore";
 import { useAuthStore } from "../../store/authStore";
@@ -44,6 +46,7 @@ const DashboardScreen = ({ navigation }) => {
     setJobs,
     setLoading: setStoreLoading,
     setError,
+    error: jobsError,
     isJobsStale,
   } = useDashboardStore();
   const [loading, setLoading] = useState(jobs.length === 0);
@@ -63,7 +66,10 @@ const DashboardScreen = ({ navigation }) => {
       const response = await dashboardApi.getJobs();
       const fetched = response.jobs || response.data || [];
       hasJobsRef.current = fetched.length > 0;
-      if (isMountedRef.current) setJobs(fetched);
+      if (isMountedRef.current) {
+        setJobs(fetched);
+        setError(null);
+      }
     } catch (error) {
       const message = error.message || "Failed to fetch jobs";
       if (isMountedRef.current) {
@@ -126,6 +132,19 @@ const DashboardScreen = ({ navigation }) => {
         <DailyAttendance />
       </Animated.View>
 
+      {/* Report generation without marking attendance. */}
+      <Animated.View entering={FadeInUp.delay(500).duration(600)} className="mt-3">
+        <TouchableOpacity
+          onPress={() => navigation.navigate(ROUTES.DAILY_REPORT)}
+          accessibilityRole="button"
+          accessibilityLabel="Generate a Daily Installation Report"
+          className="min-h-12 flex-row items-center justify-center gap-2 rounded-xl border border-border bg-background px-4"
+        >
+          <Ionicons name="document-text-outline" size={18} color={colors.primary} />
+          <Text className="text-sm font-semibold text-primary">Generate Daily Report</Text>
+        </TouchableOpacity>
+      </Animated.View>
+
       {/* Job Queue section */}
       <Animated.View entering={FadeInUp.delay(700).duration(600)} className="mt-6">
         <View className="flex-row items-end justify-between mb-3">
@@ -148,12 +167,25 @@ const DashboardScreen = ({ navigation }) => {
 
   useEffect(() => {
     fetchJobs();
-  }, []);
+  }, [fetchJobs]);
 
   if (loading) {
     return (
       <SafeAreaView className="flex-1 bg-background">
         <SkeletonList rows={5} px={px} />
+      </SafeAreaView>
+    );
+  }
+
+  if (jobsError && jobs.length === 0) {
+    return (
+      <SafeAreaView className="flex-1 bg-background p-6">
+        <View className="flex-1 items-center justify-center gap-3">
+          <Ionicons name="cloud-offline-outline" size={42} color={colors.textMuted} />
+          <Text className="text-base font-bold text-foreground">Could not load your jobs</Text>
+          <Text className="text-center text-sm text-muted-foreground">{jobsError}</Text>
+          <Button variant="outline" onPress={() => fetchJobs(true)}><Text>Try again</Text></Button>
+        </View>
       </SafeAreaView>
     );
   }

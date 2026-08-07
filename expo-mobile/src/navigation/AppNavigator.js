@@ -15,6 +15,7 @@ import JobDetailScreen from '../screens/dashboard/JobDetailScreen';
 import VerificationScreen from '../screens/verification/VerificationScreen';
 import PendingApprovalScreen from '../screens/verification/PendingApprovalScreen';
 import ChecklistScreen from '../screens/checklist/ChecklistScreen';
+import DailyReportScreen from '../screens/report/DailyReportScreen';
 import SiteRequisiteScreen from '../screens/requisite/SiteRequisiteScreen';
 import BucketScreen from '../screens/requisite/BucketScreen';
 import SubmitScreen from '../screens/requisite/SubmitScreen';
@@ -24,6 +25,7 @@ import SiteGRNScreen from '../screens/grn/SiteGRNScreen';
 import SplashScreen from '../screens/SplashScreen';
 import NotFoundScreen from '../screens/NotFoundScreen';
 import { useAuthStore } from '../store/authStore';
+import { useVerificationStore } from '../store/verificationStore';
 import { useTheme } from '../hooks/useTheme';
 import { ROUTES, STORAGE_KEYS } from '../util/constants';
 import { logger } from '../util/helpers';
@@ -161,6 +163,7 @@ const isUserSelfVerified = (user) => {
 
 const AppNavigator = () => {
   const { user, isAuthenticated, isAuthResolved, setUser, clearAuth, setAuthResolved } = useAuthStore();
+  const isDocumentUploaded = useVerificationStore((state) => state.isDocumentUploaded);
   const { colors } = useTheme();
 
   useEffect(() => {
@@ -309,12 +312,13 @@ const AppNavigator = () => {
           <Stack.Screen name={ROUTES.MAIN_TABS} component={MainTabs} options={{ headerShown: false }} />
           <Stack.Screen name={ROUTES.JOB_DETAIL} component={JobDetailScreen} options={{ title: 'Job Detail' }} />
           <Stack.Screen name={ROUTES.CHECKLIST} component={ChecklistScreen} options={{ title: 'Checklist' }} />
+          <Stack.Screen name={ROUTES.DAILY_REPORT} component={DailyReportScreen} options={{ title: 'Daily Report' }} />
           <Stack.Screen name={ROUTES.BUCKET} component={BucketScreen} options={{ headerShown: false }} />
           <Stack.Screen name={ROUTES.SUBMIT} component={SubmitScreen} options={{ headerShown: false }} />
           <Stack.Screen name={ROUTES.HISTORY} component={HistoryScreen} options={{ headerShown: false }} />
           <Stack.Screen name={ROUTES.NOT_FOUND} component={NotFoundScreen} options={{ headerShown: false }} />
         </>
-      ) : selfVerified ? (
+      ) : selfVerified && isDocumentUploaded ? (
         <Stack.Screen name="PendingApproval" component={PendingApprovalScreen} options={{ headerShown: false }} />
       ) : (
         <Stack.Screen name={ROUTES.VERIFICATION} component={VerificationScreen} options={{ headerShown: false }} />

@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 import logging
 from time import perf_counter
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -10,22 +11,37 @@ from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from app.api.v1 import attendance, auth, bom, daily_update as daily_update_v1, jobs, verification
+from app.api.v1 import attendance, auth, bom, jobs, verification
 from app.config import settings
-from app.core.scheduler import shutdown_scheduler, start_scheduler
+from app.core.scheduler import scheduler
 from app.database import Base, engine, SessionLocal
 from app.routes.analytics import router as analytics_router
 from app.routes.approval import router as approval_router
 from app.routes.auth import router as auth_router
 from app.routes.bom import router as bom_router
 from app.routes.checklist import router as checklist_router
-from app.routes.daily_update import router as daily_update_admin_router
+from app.routes.dev import router as dev_router
 from app.routes.grn import admin_router as grn_admin_router, ip_router as grn_ip_router
 from app.routes.job import router as job_router
+from app.routes.job_rate import router as job_rate_router
+from app.routes.purchase_order import router as purchase_order_router
+from app.routes.sunday_work_request import (
+    admin_router as sunday_work_request_admin_router,
+    ip_router as sunday_work_request_ip_router,
+)
 from app.utils.db_migrations import run_migrations
+from app.utils.error_text import sanitize_validation_errors
 from app.utils.rate_limiter import limiter, rate_limit_exceeded_handler
 
 logger = logging.getLogger(__name__)
+
+# Override built-in print so that it only prints in non-prod modes.
+import builtins
+_original_print = builtins.print
+def _env_aware_print(*args, **kwargs):
+    if settings.normalized_environment not in {"prod", "production"}:
+        _original_print(*args, **kwargs)
+builtins.print = _env_aware_print
 
 
 @asynccontextmanager
@@ -41,19 +57,25 @@ async def lifespan(app: FastAPI):
         with SessionLocal() as db:
             run_migrations(db)
     except Exception as exc:
-        logger.error("Startup migrations failed: %s", exc)
+        logger.exception("Startup migrations failed: %s", exc)
+        raise
 
-    start_scheduler()
+    scheduler.start()
     yield
     # Shutdown
-    shutdown_scheduler()
+    scheduler.shutdown()
 
+
+_docs_enabled = settings.expose_api_docs
 
 app = FastAPI(
     title="Partner App API",
     description="User Registration and Verification System",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
 )
 
 # Configure rate limiter
@@ -79,14 +101,36 @@ app.add_middleware(
 )
 
 
-def _sanitize_validation_errors(errors: list[dict]) -> list[dict]:
-    sanitized: list[dict] = []
-    for error in errors:
-        cleaned = {key: value for key, value in error.items() if key != "input"}
-        if "ctx" in cleaned:
-            cleaned["ctx"] = {key: str(value) for key, value in cleaned["ctx"].items()}
-        sanitized.append(cleaned)
-    return sanitized
+def _request_origin(request: Request) -> str | None:
+    origin = request.headers.get("origin")
+    if origin:
+        return origin.rstrip("/")
+    referer = request.headers.get("referer")
+    if referer:
+        parsed = urlsplit(referer)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+    return None
+
+
+@app.middleware("http")
+async def protect_cookie_authenticated_mutations(request: Request, call_next):
+    """Reject cross-site state changes when authentication comes from cookies."""
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        has_authorization_header = bool(request.headers.get("authorization"))
+        auth_cookie_names = {
+            settings.ADMIN_AUTH_COOKIE_NAME,
+            settings.IP_AUTH_COOKIE_NAME,
+            settings.ADMIN_REFRESH_COOKIE_NAME,
+            settings.IP_REFRESH_COOKIE_NAME,
+            "access_token",
+        }
+        uses_auth_cookie = any(name in request.cookies for name in auth_cookie_names)
+        if uses_auth_cookie and not has_authorization_header:
+            allowed_origins = {origin.rstrip("/") for origin in settings.cors_origins_list}
+            if _request_origin(request) not in allowed_origins:
+                return JSONResponse(status_code=403, content={"detail": "Cross-site request blocked"})
+    return await call_next(request)
 
 
 @app.exception_handler(RequestValidationError)
@@ -103,7 +147,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         status_code=422,
         content={
             "message": "Invalid request parameters",
-            "detail": _sanitize_validation_errors(errors),
+            "detail": sanitize_validation_errors(errors),
         },
     )
 
@@ -142,7 +186,6 @@ app.include_router(verification.router, prefix="/api/v1")
 app.include_router(jobs.router, prefix="/api/v1")
 app.include_router(attendance.router, prefix="/api/v1")
 app.include_router(bom.router, prefix="/api/v1")
-app.include_router(daily_update_v1.router, prefix="/api/v1")
 
 # Backward-compatible alias for older clients that still call /api/v1/auth/verification/*
 app.include_router(verification.router, prefix="/api/v1/auth")
@@ -152,11 +195,15 @@ app.include_router(auth_router)
 app.include_router(approval_router)
 app.include_router(bom_router)
 app.include_router(job_router)
+app.include_router(job_rate_router)
 app.include_router(analytics_router)
 app.include_router(checklist_router)
-app.include_router(daily_update_admin_router)
+app.include_router(dev_router)
 app.include_router(grn_admin_router)
 app.include_router(grn_ip_router)
+app.include_router(purchase_order_router)
+app.include_router(sunday_work_request_admin_router)
+app.include_router(sunday_work_request_ip_router)
 
 
 @app.get("/health")

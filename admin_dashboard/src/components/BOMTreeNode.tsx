@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
-import { ChevronRight, ChevronDown, Plus } from 'lucide-react';
+import { ChevronRight, ChevronDown } from 'lucide-react';
 import type { BOMTreeNode as BOMTreeNodeType } from '@/api/bom';
 
 interface Props {
     node: BOMTreeNodeType;
     depth?: number;
-    onAddToBucket: (node: BOMTreeNodeType) => void;
+    selectedProducts: ReadonlySet<string>;
+    onToggle: (node: BOMTreeNodeType, selected: boolean) => void;
 }
 
-const BOMTreeNode: React.FC<Props> = ({ node, depth = 0, onAddToBucket }) => {
+const BOMTreeNode: React.FC<Props> = ({ node, depth = 0, selectedProducts, onToggle }) => {
     const [isExpanded, setIsExpanded] = useState(depth < 2);
     const hasChildren = node.children && node.children.length > 0;
 
@@ -38,13 +39,13 @@ const BOMTreeNode: React.FC<Props> = ({ node, depth = 0, onAddToBucket }) => {
                     )}
                 </span>
 
-                <button
-                    onClick={() => onAddToBucket(node)}
-                    className="flex-shrink-0 p-1.5 text-primary hover:bg-primary/10 rounded transition-colors"
-                    title="Add to bucket"
-                >
-                    <Plus className="w-4 h-4" />
-                </button>
+                <input
+                    type="checkbox"
+                    checked={selectedProducts.has(node.product_name)}
+                    onChange={(event) => onToggle(node, event.target.checked)}
+                    className="h-4 w-4 shrink-0 cursor-pointer accent-primary"
+                    aria-label={`Select ${node.product_name}`}
+                />
             </div>
 
             {hasChildren && isExpanded && (
@@ -54,7 +55,8 @@ const BOMTreeNode: React.FC<Props> = ({ node, depth = 0, onAddToBucket }) => {
                             key={`${child.product_name}-${index}`}
                             node={child}
                             depth={depth + 1}
-                            onAddToBucket={onAddToBucket}
+                            selectedProducts={selectedProducts}
+                            onToggle={onToggle}
                         />
                     ))}
                 </div>

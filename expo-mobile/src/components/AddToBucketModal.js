@@ -22,7 +22,9 @@ const AddToBucketModal = ({ visible, item, onSave, onClose }) => {
     quantity: '1',
     issue_description: '',
     responsible_department: null,
+    component_status: null,
   });
+  const [quantityError, setQuantityError] = useState('');
 
   useEffect(() => {
     if (!visible || !item) return;
@@ -30,15 +32,23 @@ const AddToBucketModal = ({ visible, item, onSave, onClose }) => {
       quantity: '1',
       issue_description: '',
       responsible_department: null,
+      component_status: null,
     });
+    setQuantityError('');
   }, [visible, item]);
 
   const handleSubmit = () => {
+    const quantity = Number(formData.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      setQuantityError('Quantity must be greater than zero');
+      return;
+    }
     onSave({
       product_name: item.product_name,
-      quantity: parseFloat(formData.quantity) || 0,
+      quantity,
       issue_description: formData.issue_description,
       responsible_department: formData.responsible_department,
+      component_status: formData.component_status,
     });
   };
 
@@ -65,11 +75,19 @@ const AddToBucketModal = ({ visible, item, onSave, onClose }) => {
             <Text className="text-[11px] font-bold text-muted-foreground uppercase mb-2 mt-4">Quantity</Text>
             <Input
               value={formData.quantity}
-              onChangeText={(text) => setFormData((prev) => ({ ...prev, quantity: text }))}
+              onChangeText={(text) => {
+                setFormData((prev) => ({ ...prev, quantity: text }));
+                setQuantityError('');
+              }}
               keyboardType="decimal-pad"
               accessibilityLabel="Quantity"
               className="h-[52px] rounded-xl bg-background border px-4"
             />
+            {quantityError ? (
+              <Text accessibilityRole="alert" className="mt-1 text-xs font-semibold text-destructive">
+                {quantityError}
+              </Text>
+            ) : null}
 
             <Text className="text-[11px] font-bold text-muted-foreground uppercase mb-2 mt-4">Department</Text>
             <View className="flex-row flex-wrap gap-2 mb-1">
@@ -103,6 +121,16 @@ const AddToBucketModal = ({ visible, item, onSave, onClose }) => {
                 );
               })}
             </View>
+
+            <Text className="text-[11px] font-bold text-muted-foreground uppercase mb-2 mt-4">Component Status</Text>
+            <Input
+              value={formData.component_status || ''}
+              onChangeText={(text) => setFormData((prev) => ({ ...prev, component_status: text }))}
+              placeholder="e.g. damaged or missing"
+              maxLength={100}
+              accessibilityLabel="Component status"
+              className="h-[52px] rounded-xl bg-background border px-4"
+            />
 
             <Text className="text-[11px] font-bold text-muted-foreground uppercase mb-2 mt-4">Issue Description</Text>
             <Input

@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { type Job, type BillingData, type InvoiceRequest, jobAPI, checklistAPI } from '@/api/services';
-import { useJobAction } from '@/hooks/useJobs';
+import React, { useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { type Job, type BillingData, type CompletionDocumentLinks, type InvoiceRequest, jobAPI, checklistAPI, grnAPI } from '@/api/services';
+import { useJobAction, useJobApprovalRequests, useCreateJobApprovalRequest } from '@/hooks/useJobs';
 import { useJobChecklists } from '@/hooks/useChecklists';
-import { Play, Pause, CheckCircle, AlertCircle, ListChecks, FileText, CheckSquare, Square, Phone, Key, Loader2, XCircle, Receipt, Upload, Trash2 } from 'lucide-react';
+import { Play, Pause, CheckCircle, AlertCircle, ListChecks, FileText, CheckSquare, Square, Phone, Key, Loader2, XCircle, Receipt, Upload, Download, Trash2, Package, ShieldCheck } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -16,12 +18,14 @@ import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
+import { getApiErrorMessage } from "@/lib/apiError"
 
 interface JobActionsModalProps {
   job: Job;
   onClose: () => void;
   onSuccess: () => void;
   initialTab?: 'actions' | 'checklists';
+  isSuperadmin?: boolean;
 }
 
 interface ChecklistItemStatus {
@@ -30,6 +34,7 @@ interface ChecklistItemStatus {
   comment?: string;
   document_link?: string;
   is_approved?: boolean;
+  review_status?: 'pending' | 'approved' | 'rejected';
   admin_comment?: string;
 }
 
@@ -44,29 +49,19 @@ interface ChecklistWithStatus {
   id: number;
   name: string;
   description?: string;
+  document_link?: string | null;
+  template_available?: boolean;
   items: ChecklistItem[];
 }
 
 type OTPFlow = 'none' | 'start' | 'finish';
 
-type ApiErrorLike = {
-  response?: {
-    data?: {
-      detail?: string;
-    };
-  };
-  message?: string;
-};
-
-const getApiErrorMessage = (error: unknown, fallback: string) => {
-  const apiError = error as ApiErrorLike;
-  return apiError.response?.data?.detail || apiError.message || fallback;
-};
-
-const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSuccess, initialTab = 'actions' }) => {
+const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSuccess, initialTab = 'actions', isSuperadmin = false }) => {
   const [activeTab, setActiveTab] = useState<string>(initialTab);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
+  const [approvalReason, setApprovalReason] = useState('');
+  const [approvalFormOpen, setApprovalFormOpen] = useState(false);
 
   // OTP flow state
   const [otpFlow, setOtpFlow] = useState<OTPFlow>('none');
@@ -77,6 +72,12 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
   const [itemActionLoading, setItemActionLoading] = useState<Record<number, 'approve' | 'reject'>>({});
   const [itemUploadLoading, setItemUploadLoading] = useState<Record<number, boolean>>({});
   const [itemDocuments, setItemDocuments] = useState<Record<number, string>>({});;
+  const [checklistBusy, setChecklistBusy] = useState<Record<number, 'download' | 'upload' | 'export'>>({});
+  const [handoverDocument, setHandoverDocument] = useState<File | null>(null);
+  const [ncrDocument, setNcrDocument] = useState<File | null>(null);
+  const [projectReportDocument, setProjectReportDocument] = useState<File | null>(null);
+  const [completionUploadLoading, setCompletionUploadLoading] = useState(false);
+  const uploadedDocumentsRef = useRef<CompletionDocumentLinks | null>(null);
 
   const isExternalIP = job.assigned_ip?.is_internal === false;
 
@@ -92,6 +93,21 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
   const checklists = (checklistsData as unknown as ChecklistWithStatus[]) || [];
 
   const { mutateAsync: performAction, isPending: isActionLoading } = useJobAction();
+  const { data: approvalRequests = [] } = useJobApprovalRequests(job.customer_phone ? job.id : undefined);
+  const { mutateAsync: requestApproval, isPending: approvalSubmitting } = useCreateJobApprovalRequest();
+
+  const isInstallation = job.type === 'installation';
+  const { data: jobGrns = [], isLoading: grnLoading, isError: grnError, refetch: refetchGrns } = useQuery({
+    queryKey: ['site-grn', 'job', job.id],
+    queryFn: () => grnAPI.list(50, 0, job.id),
+    // Also needed before the job starts: a linked GRN is the first prerequisite.
+    enabled: isInstallation && !!job.id && ['created', 'paused', 'in_progress'].includes(job.status),
+  });
+  const hasSubmittedGrn = jobGrns.some((grn) => grn.status === 'submitted');
+  const hasLinkedGrn = jobGrns.length > 0;
+  const incompleteGrnCount = jobGrns.filter((grn) => grn.status !== 'submitted').length;
+  const allLinkedGrnsSubmitted = hasLinkedGrn && incompleteGrnCount === 0;
+  const grnBlocksStart = isInstallation && (grnLoading || grnError || !allLinkedGrnsSubmitted);
 
   useEffect(() => {
     const data = (checklistsData as unknown as ChecklistWithStatus[]) || [];
@@ -115,26 +131,61 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
   }, [activeTab, job.id, isExternalIP]);
 
   // Handle legacy start/pause/finish without OTP (for jobs without customer phone)
+  const completionDocumentsSelected = !!(handoverDocument || job.handover_document_link)
+    && !!(ncrDocument || job.ncr_document_link)
+    && !!(projectReportDocument || job.project_report_document_link);
+  const canCompleteJob = completionDocumentsSelected
+    && (!isInstallation || (!grnLoading && !grnError && hasSubmittedGrn));
+
+  const uploadCompletionDocuments = async () => {
+    if ((!handoverDocument && !job.handover_document_link) || (!ncrDocument && !job.ncr_document_link) || (!projectReportDocument && !job.project_report_document_link)) {
+      throw new Error('Handover, NCR, and Project Report documents are required');
+    }
+    if (uploadedDocumentsRef.current) return uploadedDocumentsRef.current;
+    setCompletionUploadLoading(true);
+    try {
+      const [handover, ncr, projectReport] = await Promise.all([
+        handoverDocument
+          ? jobAPI.uploadFile(handoverDocument, { jobId: job.id!, documentType: 'handover' })
+          : Promise.resolve({ url: job.handover_document_link! }),
+        ncrDocument
+          ? jobAPI.uploadFile(ncrDocument, { jobId: job.id!, documentType: 'ncr' })
+          : Promise.resolve({ url: job.ncr_document_link! }),
+        projectReportDocument
+          ? jobAPI.uploadFile(projectReportDocument, { jobId: job.id!, documentType: 'project_report' })
+          : Promise.resolve({ url: job.project_report_document_link! }),
+      ]);
+      const documents = {
+        handover_document_link: handover.url,
+        ncr_document_link: ncr.url,
+        project_report_document_link: projectReport.url,
+      };
+      uploadedDocumentsRef.current = documents;
+      return documents;
+    } finally {
+      setCompletionUploadLoading(false);
+    }
+  };
+
   const handleAction = async (action: 'start' | 'pause' | 'finish') => {
     setError('');
     try {
-      await performAction({ id: job.id!, action, notes });
+      const documents = action === 'finish' ? await uploadCompletionDocuments() : undefined;
+      await performAction({ id: job.id!, action, notes, documents });
       onSuccess();
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        // Check if error is asking for OTP flow
-        if (err.message.includes('OTP verification')) {
-          if (action === 'start') {
-            handleRequestStartOTP();
-          } else if (action === 'finish') {
-            handleRequestEndOTP();
-          }
-        } else {
-          setError(err.message);
+      // The backend signals the OTP flow in response.data.detail — an AxiosError's
+      // .message is only "Request failed with status code 400", so read the detail.
+      const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+      if (typeof detail === 'string' && detail.includes('OTP verification')) {
+        if (action === 'start') {
+          handleRequestStartOTP();
+        } else if (action === 'finish') {
+          handleRequestEndOTP();
         }
-      } else {
-        setError('Action failed');
+        return;
       }
+      setError(getApiErrorMessage(err, 'Action failed'));
     }
   };
 
@@ -162,6 +213,22 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
   // Request end OTP
   const handleRequestEndOTP = async () => {
     if (!job.id) return;
+    if (!completionDocumentsSelected) {
+      setError('Upload Handover, then upload or generate the Level 2 NCR and Project Report before completing the job.');
+      return;
+    }
+    if (isInstallation && grnLoading) {
+      setError('Wait for the Site GRN check to finish before completing the job.');
+      return;
+    }
+    if (isInstallation && grnError) {
+      setError('Could not verify the Site GRN. Retry the GRN check before completing the job.');
+      return;
+    }
+    if (isInstallation && !hasSubmittedGrn) {
+      setError('Submit the linked Site GRN before completing this installation job.');
+      return;
+    }
     setOtpLoading(true);
     setError('');
     try {
@@ -190,7 +257,8 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
         await jobAPI.verifyStartOTP(job.id, otp.trim(), notes);
         toast.success('Job started successfully');
       } else if (otpFlow === 'finish') {
-        await jobAPI.verifyEndOTP(job.id, otp.trim(), notes);
+        const documents = await uploadCompletionDocuments();
+        await jobAPI.verifyEndOTP(job.id, otp.trim(), notes, documents);
         toast.success('Job completed successfully');
       }
       onSuccess();
@@ -199,6 +267,74 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
     } finally {
       setOtpLoading(false);
     }
+  };
+
+  // Superadmin approval — the fallback when the customer can't supply an OTP.
+  const handleRequestApproval = async (action: 'start' | 'finish') => {
+    if (!job.id || !approvalReason.trim()) return;
+    setError('');
+    try {
+      const documents = action === 'finish' ? await uploadCompletionDocuments() : undefined;
+      await requestApproval({ id: job.id, action, reason: approvalReason.trim(), documents });
+      setApprovalReason('');
+      setApprovalFormOpen(false);
+      onSuccess();
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, 'Failed to request approval'));
+    }
+  };
+
+  const renderApprovalFallback = (action: 'start' | 'finish', blocked: boolean) => {
+    if (!requiresOTP) return null;
+
+    const pending = approvalRequests.find((request) => request.action === action && request.status === 'pending');
+    if (pending) {
+      return (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          <p className="flex items-center gap-1.5 font-medium">
+            <ShieldCheck size={14} /> Awaiting superadmin approval
+          </p>
+          <p className="mt-1 text-xs">{pending.reason}</p>
+        </div>
+      );
+    }
+
+    if (!approvalFormOpen) {
+      return (
+        <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={() => setApprovalFormOpen(true)}>
+          <ShieldCheck size={14} className="mr-2" />
+          {isSuperadmin
+            ? `${action === 'start' ? 'Start' : 'Complete'} without customer OTP`
+            : 'Customer unreachable? Request superadmin approval'}
+        </Button>
+      );
+    }
+
+    return (
+      <div className="space-y-2 rounded-md border p-3">
+        <label htmlFor="approval-reason" className="text-sm font-medium">
+          Why can't the customer verify by OTP? <span className="text-destructive">*</span>
+        </label>
+        <Textarea
+          id="approval-reason"
+          value={approvalReason}
+          onChange={(e) => setApprovalReason(e.target.value)}
+          placeholder="e.g. customer phone unreachable, site handed to facilities team"
+        />
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            onClick={() => handleRequestApproval(action)}
+            disabled={!approvalReason.trim() || blocked || approvalSubmitting || completionUploadLoading}
+          >
+            {approvalSubmitting || completionUploadLoading ? <Loader2 className="animate-spin" size={14} /> : (isSuperadmin ? 'Confirm' : 'Send for approval')}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => { setApprovalFormOpen(false); setApprovalReason(''); }}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
   };
 
   const resetOTPFlow = () => {
@@ -222,12 +358,12 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
       await checklistAPI.updateJobChecklistItemStatus(job.id, item.id, {
         checked: action === 'approve',
         is_approved: action === 'approve',
+        review_status: action === 'approve' ? 'approved' : 'rejected',
         admin_comment: adminComment || null,
       });
       await refetchChecklists();
       toast.success(action === 'approve' ? 'Checklist item approved' : 'Checklist item rejected');
     } catch (err: unknown) {
-      console.error('Error updating approval status:', err);
       toast.error(getApiErrorMessage(err, 'Failed to update checklist item'));
     } finally {
       setItemActionLoading((prev) => {
@@ -238,17 +374,65 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
     }
   };
 
+  const setChecklistTask = (checklistId: number, task: 'download' | 'upload' | 'export' | null) =>
+    setChecklistBusy((prev) => {
+      if (task) return { ...prev, [checklistId]: task };
+      const next = { ...prev };
+      delete next[checklistId];
+      return next;
+    });
+
+  const handleChecklistTemplateDownload = async (checklist: ChecklistWithStatus) => {
+    if (!job.id) return;
+
+    setChecklistTask(checklist.id, 'download');
+    try {
+      await checklistAPI.downloadJobChecklistTemplate(job.id, checklist.id);
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, 'Failed to download the checklist workbook'));
+    } finally {
+      setChecklistTask(checklist.id, null);
+    }
+  };
+
+  const handleChecklistExport = async (checklist: ChecklistWithStatus) => {
+    if (!job.id) return;
+
+    setChecklistTask(checklist.id, 'export');
+    try {
+      await checklistAPI.exportJobChecklist(job.id, checklist.id, checklist.name);
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, 'Failed to export the checklist'));
+    } finally {
+      setChecklistTask(checklist.id, null);
+    }
+  };
+
+  const handleChecklistDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>, checklist: ChecklistWithStatus) => {
+    if (!job.id || !e.target.files?.[0]) return;
+
+    const file = e.target.files[0];
+    setChecklistTask(checklist.id, 'upload');
+    try {
+      await checklistAPI.uploadJobChecklistDocument(job.id, checklist.id, file);
+      await refetchChecklists();
+      toast.success('Completed checklist uploaded');
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, 'Failed to upload the completed checklist'));
+    } finally {
+      setChecklistTask(checklist.id, null);
+      if (e.target) e.target.value = '';
+    }
+  };
+
   const handleDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>, item: ChecklistItem) => {
     if (!job.id || !e.target.files?.[0]) return;
 
     const file = e.target.files[0];
-    const formData = new FormData();
-    formData.append('file', file);
-
     setItemUploadLoading((prev) => ({ ...prev, [item.id]: true }));
     try {
-      const response = await jobAPI.uploadFile(formData);
-      const documentUrl = response?.url || response;
+      const response = await jobAPI.uploadFile(file);
+      const documentUrl = response.url;
 
       // Update checklist item status with document link
       await checklistAPI.updateJobChecklistItemStatus(job.id, item.id, {
@@ -260,7 +444,6 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
       await refetchChecklists();
       toast.success('Document uploaded successfully');
     } catch (err: unknown) {
-      console.error('Error uploading document:', err);
       toast.error(getApiErrorMessage(err, 'Failed to upload document'));
     } finally {
       setItemUploadLoading((prev) => {
@@ -289,7 +472,6 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
       await refetchChecklists();
       toast.success('Document removed');
     } catch (err: unknown) {
-      console.error('Error removing document:', err);
       toast.error(getApiErrorMessage(err, 'Failed to remove document'));
     } finally {
       setItemUploadLoading((prev) => {
@@ -301,12 +483,21 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
   };
 
   const getItemStatusMeta = (item: ChecklistItem) => {
-    if (item.status?.is_approved) {
+    if (item.status?.review_status === 'approved') {
       return {
         label: 'Approved',
         variant: 'secondary' as const,
         className: 'bg-green-100 text-green-800 hover:bg-green-100 gap-1',
         icon: <CheckCircle size={10} />,
+      };
+    }
+
+    if (item.status?.review_status === 'rejected') {
+      return {
+        label: 'Rejected',
+        variant: 'destructive' as const,
+        className: 'gap-1',
+        icon: <XCircle size={10} />,
       };
     }
 
@@ -316,15 +507,6 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
         variant: 'outline' as const,
         className: 'border-amber-200 text-amber-700 bg-amber-50 gap-1',
         icon: null,
-      };
-    }
-
-    if (item.status?.admin_comment) {
-      return {
-        label: 'Rejected',
-        variant: 'destructive' as const,
-        className: 'gap-1',
-        icon: <XCircle size={10} />,
       };
     }
 
@@ -411,7 +593,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                     />
                     <Button
                       onClick={handleVerifyOTP}
-                      disabled={otpLoading || otp.length < 4}
+                      disabled={otpLoading || completionUploadLoading || otp.length < 4 || (otpFlow === 'finish' && !canCompleteJob)}
                       className="bg-blue-600 hover:bg-blue-700"
                     >
                       {otpLoading ? <Loader2 className="animate-spin" size={16} /> : 'Verify'}
@@ -445,10 +627,113 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
               {/* Action Buttons */}
               {!otpSent && (
                 <div className="space-y-3 pt-2">
+                  {job.status === 'in_progress' && (
+                    <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
+                      <div>
+                        <h4 className="text-sm font-semibold">Required completion documents</h4>
+                        <p className="text-xs text-muted-foreground">Uploads: PDF, JPG, PNG, DOC, DOCX or Project Report XLSX · maximum 10 MB each</p>
+                      </div>
+                      <label className="block space-y-1 text-sm font-medium">
+                        <span>Handover Document <span className="text-destructive">*</span></span>
+                        <Input
+                          type="file"
+                          accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"
+                          onChange={(event) => {
+                            uploadedDocumentsRef.current = null;
+                            setHandoverDocument(event.target.files?.[0] || null);
+                          }}
+                          required={!job.handover_document_link}
+                        />
+                        {handoverDocument?.name ? <span className="block text-xs text-muted-foreground">{handoverDocument.name}</span> : null}
+                        {job.handover_document_link && <a href={job.handover_document_link} download target="_blank" rel="noreferrer" className="block text-xs font-medium text-primary underline">Download attached Handover Document</a>}
+                      </label>
+                      <div className="rounded-md border p-3 text-sm">
+                        <p className="font-medium">Project Report <span className="text-destructive">*</span></p>
+                        <p className="mb-2 text-xs text-muted-foreground">Upload a completed report or generate it from the supplied Monthly executed projects workbook.</p>
+                        <Input
+                          type="file"
+                          accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.xlsx"
+                          onChange={(event) => {
+                            uploadedDocumentsRef.current = null;
+                            setProjectReportDocument(event.target.files?.[0] || null);
+                          }}
+                        />
+                        {projectReportDocument?.name ? <span className="mt-1 block text-xs text-muted-foreground">{projectReportDocument.name}</span> : null}
+                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                          {job.project_report_document_link && (
+                            <a href={job.project_report_document_link} download target="_blank" rel="noreferrer" className="text-primary underline">Download attached Project Report</a>
+                          )}
+                          <Link to={`/dashboard/document-automation?job=${job.id}&tab=monthly&attach=project-report`} className="font-medium text-primary underline">Generate from template</Link>
+                        </div>
+                      </div>
+                      <div className="rounded-md border p-3 text-sm">
+                        <p className="font-medium">Level 2 NCR <span className="text-destructive">*</span></p>
+                        <p className="mb-2 text-xs text-muted-foreground">Upload a completed NCR or generate it from the supplied template.</p>
+                        <Input
+                          type="file"
+                          accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"
+                          onChange={(event) => {
+                            uploadedDocumentsRef.current = null;
+                            setNcrDocument(event.target.files?.[0] || null);
+                          }}
+                        />
+                        {ncrDocument?.name ? <span className="mt-1 block text-xs text-muted-foreground">{ncrDocument.name}</span> : null}
+                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                          {job.ncr_document_link && (
+                            <a href={job.ncr_document_link} download target="_blank" rel="noreferrer" className="text-primary underline">Download attached NCR</a>
+                          )}
+                          <Link to={`/dashboard/document-automation?job=${job.id}`} className="font-medium text-primary underline">Generate from template</Link>
+                        </div>
+                      </div>
+                      {isInstallation && (
+                        <div className="rounded-md border p-3 text-sm">
+                          <p className="flex items-center gap-1.5 font-medium">
+                            <Package size={14} /> Site GRN <span className="text-destructive">*</span>
+                          </p>
+                        {grnLoading ? (
+                          <p className="mt-1 text-xs text-muted-foreground">Checking the linked GRN…</p>
+                        ) : grnError ? (
+                          <Button variant="outline" size="sm" className="mt-2" onClick={() => refetchGrns()}>Retry GRN check</Button>
+                        ) : hasSubmittedGrn ? (
+                            <p className="mt-1 text-xs text-green-700">Submitted GRN linked to this job — requirement met.</p>
+                          ) : (
+                            <p className="mt-1 text-xs text-destructive">
+                              No submitted GRN linked to this job yet. Create and submit one from Site GRN before completing an installation job.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {(job.status === 'created' || job.status === 'paused') && (
+                    <>
+                    {isInstallation && (
+                      <div className="rounded-md border p-3 text-sm">
+                        <p className="flex items-center gap-1.5 font-medium">
+                          <Package size={14} /> Site GRN <span className="text-destructive">*</span>
+                        </p>
+                        {grnLoading ? (
+                          <p className="mt-1 text-xs text-muted-foreground">Checking for a linked GRN…</p>
+                        ) : grnError ? (
+                          <Button variant="outline" size="sm" className="mt-2" onClick={() => refetchGrns()}>Retry GRN check</Button>
+                        ) : allLinkedGrnsSubmitted ? (
+                          <p className="mt-1 text-xs text-green-700">
+                            All {jobGrns.length} linked GRN{jobGrns.length === 1 ? '' : 's'} completed — the job can be started.
+                          </p>
+                        ) : hasLinkedGrn ? (
+                          <p className="mt-1 text-xs text-destructive">
+                            Complete all linked Site GRNs before starting this job ({incompleteGrnCount} incomplete).
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-xs text-destructive">
+                            No GRN linked to this job. Link one from Site GRN, then complete every linked GRN before starting.
+                          </p>
+                        )}
+                      </div>
+                    )}
                     <Button
                       onClick={() => requiresOTP ? handleRequestStartOTP() : handleAction('start')}
-                      disabled={isActionLoading || otpLoading}
+                      disabled={isActionLoading || otpLoading || grnBlocksStart}
                       className="w-full bg-blue-600 hover:bg-blue-700"
                       size="lg"
                     >
@@ -460,6 +745,8 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                       {job.status === 'paused' ? 'Resume Job' : 'Start Job'}
                       {requiresOTP && <span className="ml-2 text-xs opacity-75">(OTP)</span>}
                     </Button>
+                    {renderApprovalFallback('start', grnBlocksStart)}
+                    </>
                   )}
 
                   {job.status === 'in_progress' && (
@@ -476,7 +763,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                       </Button>
                       <Button
                         onClick={() => requiresOTP ? handleRequestEndOTP() : handleAction('finish')}
-                        disabled={isActionLoading || otpLoading}
+                        disabled={isActionLoading || otpLoading || completionUploadLoading || !canCompleteJob}
                         className="w-full bg-green-600 hover:bg-green-700"
                         size="lg"
                       >
@@ -488,6 +775,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                         Complete Job
                         {requiresOTP && <span className="ml-2 text-xs opacity-75">(OTP)</span>}
                       </Button>
+                      {renderApprovalFallback('finish', !canCompleteJob)}
                     </>
                   )}
                 </div>
@@ -512,6 +800,73 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                           {checklist.description && (
                             <p className="text-xs text-muted-foreground mt-1 pl-6">{checklist.description}</p>
                           )}
+                          {checklist.document_link && (
+                            <a
+                              href={checklist.document_link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-2 flex w-fit items-center gap-1 pl-6 text-xs font-semibold text-blue-600 hover:underline"
+                            >
+                              <FileText size={12} /> View completed checklist
+                            </a>
+                          )}
+                          <div className="mt-2 flex flex-wrap items-center gap-2 pl-6">
+                            {/* Export is for every checklist; the workbook controls are ISM-only. */}
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={!!checklistBusy[checklist.id]}
+                              onClick={() => handleChecklistExport(checklist)}
+                            >
+                              {checklistBusy[checklist.id] === 'export' ? (
+                                <Loader2 size={14} className="mr-1 animate-spin" />
+                              ) : (
+                                <Download size={14} className="mr-1" />
+                              )}
+                              Export PDF
+                            </Button>
+                            {checklist.template_available && (
+                              <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={!!checklistBusy[checklist.id]}
+                                onClick={() => handleChecklistTemplateDownload(checklist)}
+                              >
+                                {checklistBusy[checklist.id] === 'download' ? (
+                                  <Loader2 size={14} className="mr-1 animate-spin" />
+                                ) : (
+                                  <FileText size={14} className="mr-1" />
+                                )}
+                                Download blank workbook
+                              </Button>
+                              <label htmlFor={`checklist-upload-${checklist.id}`} className="inline-flex">
+                                <input
+                                  id={`checklist-upload-${checklist.id}`}
+                                  type="file"
+                                  accept=".xlsx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                  className="sr-only"
+                                  disabled={!!checklistBusy[checklist.id]}
+                                  onChange={(e) => handleChecklistDocumentUpload(e, checklist)}
+                                />
+                                <span
+                                  className={`inline-flex h-8 cursor-pointer items-center rounded-md border px-3 text-sm font-medium hover:bg-accent ${
+                                    checklistBusy[checklist.id] ? 'pointer-events-none opacity-50' : ''
+                                  }`}
+                                >
+                                  {checklistBusy[checklist.id] === 'upload' ? (
+                                    <Loader2 size={14} className="mr-1 animate-spin" />
+                                  ) : (
+                                    <Upload size={14} className="mr-1" />
+                                  )}
+                                  Upload completed file
+                                </span>
+                              </label>
+                              </>
+                            )}
+                          </div>
                         </div>
                         <div className="divide-y">
                           {checklist.items.map((item) => {
@@ -703,9 +1058,13 @@ const BillingSection: React.FC<{
   billingError: string;
   onBillingUpdate: (data: BillingData) => void;
 }> = ({ job, billingData, billingLoading, billingError, onBillingUpdate }) => {
-  const [actionLoading, setActionLoading] = useState<'request' | 'approve' | 'reject' | null>(null);
+  const [actionLoading, setActionLoading] = useState<'request' | 'additional' | 'approve' | 'reject' | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
+  const [showAdditionalInvoice, setShowAdditionalInvoice] = useState(false);
+  const [completionPercentage, setCompletionPercentage] = useState('');
+  const [invoiceNotes, setInvoiceNotes] = useState('');
+  const [downloadingRequestId, setDownloadingRequestId] = useState<number | null>(null);
 
   const refreshBilling = async () => {
     if (!job.id) return;
@@ -743,6 +1102,31 @@ const BillingSection: React.FC<{
     }
   };
 
+  const handleAdditionalRequest = async () => {
+    if (!job.id) return;
+    const percentage = completionPercentage === '' ? undefined : Number(completionPercentage);
+    if (percentage !== undefined && (!Number.isInteger(percentage) || percentage < 0 || percentage > 100)) {
+      toast.error('Completion percentage must be a whole number from 0 to 100');
+      return;
+    }
+    setActionLoading('additional');
+    try {
+      await jobAPI.requestAdditionalInvoice(job.id, {
+        completion_percentage: percentage,
+        notes: invoiceNotes.trim() || undefined,
+      });
+      await refreshBilling();
+      setCompletionPercentage('');
+      setInvoiceNotes('');
+      setShowAdditionalInvoice(false);
+      toast.success('Additional invoice request submitted');
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, 'Failed to submit invoice request'));
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleReject = async () => {
     if (!job.id) return;
     setActionLoading('reject');
@@ -759,16 +1143,16 @@ const BillingSection: React.FC<{
     }
   };
 
-  const handleDownloadInvoice = async () => {
+  const handleDownloadInvoice = async (invoiceRequestId: number) => {
     if (!job.id) return;
-    setActionLoading('approve');
+    setDownloadingRequestId(invoiceRequestId);
     try {
-      await jobAPI.downloadInvoice(job.id, job.name);
+      await jobAPI.downloadInvoice(job.id, job.name, invoiceRequestId);
       toast.success('Bill downloaded');
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Failed to download bill'));
     } finally {
-      setActionLoading(null);
+      setDownloadingRequestId(null);
     }
   };
 
@@ -884,15 +1268,6 @@ const BillingSection: React.FC<{
               </div>
             </div>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleRequest}
-            disabled={actionLoading === 'request'}
-          >
-            {actionLoading === 'request' ? <Loader2 className="animate-spin mr-1 h-3 w-3" /> : <Receipt className="mr-1 h-3 w-3" />}
-            Re-request Invoice
-          </Button>
         </div>
       ) : (
         /* Approved — show full invoice */
@@ -907,10 +1282,75 @@ const BillingSection: React.FC<{
           </div>
           <BillingInvoice
             billingData={billingData}
-            jobName={job.name}
-            onDownload={handleDownloadInvoice}
-            downloading={actionLoading === 'approve'}
+            jobName={job.name || `Job #${job.id}`}
+            onDownload={() => handleDownloadInvoice(req.id)}
+            downloading={downloadingRequestId === req.id}
           />
+        </div>
+      )}
+
+      {req && (req.completion_percentage != null || req.notes) && (
+        <div className="mt-3 rounded-lg border bg-muted/30 p-3 text-sm">
+          {req.completion_percentage != null && <p><span className="text-muted-foreground">Completion:</span> {req.completion_percentage}%</p>}
+          {req.notes && <p className="mt-1 whitespace-pre-wrap"><span className="text-muted-foreground">Notes:</span> {req.notes}</p>}
+        </div>
+      )}
+
+      {req && req.status !== 'pending' && (
+        <div className="mt-4 border-t pt-4">
+          {!showAdditionalInvoice ? (
+            <Button size="sm" variant="outline" onClick={() => setShowAdditionalInvoice(true)}>
+              {req.status === 'rejected' ? 'Request again' : 'Request another invoice'}
+            </Button>
+          ) : (
+            <div className="space-y-3">
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={completionPercentage}
+                onChange={(event) => setCompletionPercentage(event.target.value)}
+                placeholder="Completion percentage (optional)"
+              />
+              <Textarea
+                value={invoiceNotes}
+                onChange={(event) => setInvoiceNotes(event.target.value)}
+                maxLength={1000}
+                placeholder="Notes (optional)"
+              />
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleAdditionalRequest} disabled={actionLoading === 'additional'}>
+                  {actionLoading === 'additional' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Submit request
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setShowAdditionalInvoice(false)} disabled={actionLoading === 'additional'}>Cancel</Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {(billingData?.invoice_requests || []).some(invoice => invoice.status === 'approved' && invoice.id !== req?.id) && (
+        <div className="mt-4 rounded-lg border p-4">
+          <p className="mb-3 text-sm font-semibold">Previous approved invoices</p>
+          <div className="flex flex-wrap gap-2">
+            {(billingData?.invoice_requests || [])
+              .filter(invoice => invoice.status === 'approved' && invoice.id !== req?.id)
+              .map(invoice => (
+                <Button
+                  key={invoice.id}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={downloadingRequestId === invoice.id}
+                  onClick={() => handleDownloadInvoice(invoice.id)}
+                >
+                  {downloadingRequestId === invoice.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Receipt className="mr-2 h-4 w-4" />}
+                  {invoice.invoice_number || `Invoice ${invoice.id}`}
+                </Button>
+              ))}
+          </div>
         </div>
       )}
     </div>

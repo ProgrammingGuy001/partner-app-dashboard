@@ -41,6 +41,7 @@ export interface ChecklistItem {
   description?: string;
   checked: boolean;
   is_approved: boolean;
+  review_status: 'pending' | 'approved' | 'rejected';
   comment?: string;
   admin_comment?: string;
   document_link?: string;

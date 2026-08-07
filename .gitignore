@@ -1,7 +1,33 @@
-flutter_partner_app/*
-flutter_partner_app.zip
-.idea/*
-Billing format.xlsx
-billing_invoice_ayush mishra.xlsx
-Repair Order (repair.order) (1).xlsx
+# Secrets — app/.gitignore also covers app/.env and app/.env.test.
+# env.mode is tracked on purpose: it selects the file, it holds no credentials.
+.env
+.env.*
+!.env.example
 
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node — every client in this repo
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Editors and OS
+.claude
+.idea
+.vscode
+.DS_Store
+
+# Local artefacts
+test.db
+*.log
+
+tests/

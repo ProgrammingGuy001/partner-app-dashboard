@@ -329,7 +329,7 @@ const useChecklistStore = create(
       dirtyItems: {},
       pendingChanges: {},
       itemsBackup: [],
-      // checklistCache intentionally NOT cleared — persists across sessions
+      checklistCache: {},
     });
   },
 

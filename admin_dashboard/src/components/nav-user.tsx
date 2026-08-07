@@ -3,6 +3,7 @@ import {
   IconDotsVertical,
   IconKey,
   IconLogout,
+  IconUserCircle,
 } from "@tabler/icons-react"
 import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
@@ -36,10 +37,10 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { useNavigate } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { useQueryClient } from "@tanstack/react-query"
 import { authAPI } from "@/api/services"
-import { isAxiosError } from "axios"
+import { getApiErrorMessage } from "@/lib/apiError"
 
 export function NavUser({
   user,
@@ -48,6 +49,7 @@ export function NavUser({
     name: string
     email: string
     is_superadmin?: boolean
+    is_dev?: boolean
   }
 }>) {
   const { isMobile } = useSidebar()
@@ -60,13 +62,17 @@ export function NavUser({
   const [submitting, setSubmitting] = useState(false)
 
   const handleLogout = async () => {
+    let revoked = true
     try {
       await authAPI.logout()
     } catch {
-      // no error are required to be handled here
+      // Auth cookies are HttpOnly, so only the server can clear them. Still send the
+      // user to /login, but say so — on a shared machine the session is live.
+      revoked = false
     }
     queryClient.clear()
     navigate('/login')
+    if (!revoked) toast.error('Signed out here, but the server session may still be active.')
   }
 
   const handleResetPassword = async () => {
@@ -82,10 +88,7 @@ export function NavUser({
       setTargetEmail("")
       setNewPassword("")
     } catch (error) {
-      const detail = isAxiosError(error)
-        ? (error.response?.data?.detail as string | undefined)
-        : undefined
-      toast.error(detail || "Failed to reset password")
+      toast.error(getApiErrorMessage(error, "Failed to reset password"))
     } finally {
       setSubmitting(false)
     }
@@ -138,7 +141,14 @@ export function NavUser({
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {user.is_superadmin && (
+            <DropdownMenuItem asChild>
+              <Link to="/dashboard/profile">
+                <IconUserCircle />
+                Profile
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {(user.is_superadmin || user.is_dev) && (
               <>
                 <DropdownMenuItem onClick={() => setResetOpen(true)}>
                   <IconKey />

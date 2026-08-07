@@ -1,22 +1,14 @@
 
 
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
 
 def get_real_ip(request: Request) -> str:
-    """Extract real client IP, considering proxy headers"""
-    # Check X-Forwarded-For header first (for requests through proxy/load balancer)
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        # Get the first IP from the comma-separated list
-        return forwarded.split(",")[0].strip()
-
-    # Fall back to direct client IP
-    return get_remote_address(request)
+    """Use the client address normalized by ProxyHeadersMiddleware."""
+    return request.client.host if request.client else "unknown"
 
 
 # Create limiter instance using client IP for rate limiting

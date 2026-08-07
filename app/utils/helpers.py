@@ -3,8 +3,6 @@ import string
 
 from app.config import settings
 from app.core.security import (
-    create_access_token,
-    create_refresh_token,
     decode_access_token,
     decode_refresh_token,
     generate_service_token,
@@ -43,6 +41,6 @@ def get_internal_headers(request):
     service_token = generate_service_token()
 
     return {
-        "Authorization": f"Bearer {user_token}",      
-        "X-Service-Auth": f"Bearer {service_token}",   
+        "Authorization": f"Bearer {user_token}",
+        "X-Service-Auth": f"Bearer {service_token}",
     }

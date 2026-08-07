@@ -1,3 +1,4 @@
+import logging
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -8,6 +9,8 @@ from sqlalchemy.orm import Session
 from app.model.ip import ip
 from app.model.job import Job, JobRate
 from app.schemas.analytics import JobStageCount, PayoutByIP, PayoutSummary
+
+logger = logging.getLogger(__name__)
 
 
 def get_date_range(period: str, year: int = None, month: int = None, quarter: int = None, week: int = None):
@@ -159,7 +162,8 @@ def get_payout_analytics(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching analytics: {str(e)}") from e
+        logger.exception("Error fetching analytics")
+        raise HTTPException(status_code=500, detail="Could not load analytics.") from e
 
 
 def get_job_stage_summary(db: Session):
@@ -188,7 +192,8 @@ def get_job_stage_summary(db: Session):
             for stage in job_stages
         ]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching job stage summary: {str(e)}") from e
+        logger.exception("Error fetching job stage summary")
+        raise HTTPException(status_code=500, detail="Could not load the job stage summary.") from e
 
 
 def get_ip_performance(db: Session):
@@ -220,4 +225,5 @@ def get_ip_performance(db: Session):
             for item in ip_stats
         ]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching IP performance: {str(e)}") from e
+        logger.exception("Error fetching IP performance")
+        raise HTTPException(status_code=500, detail="Could not load IP performance.") from e

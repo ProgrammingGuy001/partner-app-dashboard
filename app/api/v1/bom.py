@@ -30,13 +30,14 @@ def submit_site_requisite(
     try:
         logger.info(f"[BOM Submit] User: {current_user.phone_number}, SO: {data.sales_order}, Items: {len(data.items)}")
 
-        # Default POC from the logged in partner only when user did not provide one.
-        if not data.sr_poc:
-            data.sr_poc = f"{current_user.first_name} {current_user.last_name or ''}".strip()
+        # Force POC to be the logged in partner's name so it cannot be mutated.
+        data.sr_poc = f"{current_user.first_name} {current_user.last_name or ''}".strip()
 
         result = RequisiteService.submit_site_requisite(db, data, user_id=current_user.id)
         logger.info(f"[BOM Submit] Success - SO ID: {result.id}")
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[BOM Submit] Error: {str(e)}", exc_info=True)
         db.rollback()
@@ -44,7 +45,7 @@ def submit_site_requisite(
 
 @router.get("/history", response_model=List[SODetailResponse])
 def get_requisite_history(
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=50),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_user: ip = Depends(get_fully_verified_user)
@@ -60,6 +61,15 @@ def get_requisite_history(
     except Exception as e:
         logger.error(f"[BOM History] Error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch history") from e
+
+
+@router.post("/history/{so_id}/retry-sync", response_model=SODetailResponse)
+def retry_requisite_sync(
+    so_id: Annotated[int, Path(gt=0)],
+    db: Session = Depends(get_db),
+    current_user: ip = Depends(get_fully_verified_user),
+):
+    return RequisiteService.retry_odoo_sync(db, so_id, user_id=current_user.id)
 
 @router.get("/history/by-sales-order/{sales_order}", response_model=List[SODetailResponse])
 def get_requisites_by_sales_order(
@@ -88,14 +98,15 @@ def update_requisite_status(
     Update site requisite status
     """
     try:
-        result = RequisiteService.update_status(db, so_id, status)
+        result = RequisiteService.update_status(db, so_id, status, user_id=current_user.id)
         if not result:
             raise HTTPException(status_code=404, detail="SO not found")
         return {"message": "Status updated successfully", "data": result}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}") from e
+        logger.exception("Error")
+        raise HTTPException(status_code=500, detail="Something went wrong. Try again.") from e
 
 @router.get("/history/{so_id}/download")
 def download_repair_order(
@@ -117,7 +128,10 @@ def download_repair_order(
         return Response(
             content=xlsx_bytes,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Encoding": "identity",
+            },
         )
     except HTTPException:
         raise
@@ -126,9 +140,12 @@ def download_repair_order(
         raise HTTPException(status_code=500, detail="Failed to generate repair order") from e
 
 
+
+
 @router.get("/so-lookup/{sales_order}")
 def lookup_sales_order(
     sales_order: Annotated[str, Path(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")],
+    db: Session = Depends(get_db),
     current_user: ip = Depends(get_fully_verified_user)
 ):
     """
@@ -140,13 +157,14 @@ def lookup_sales_order(
         return details
     except Exception as e:
         logger.warning(f"[BOM SO Lookup] Failed for {sales_order}: {str(e)}")
-        raise HTTPException(status_code=404, detail="Sales order not found or Odoo unavailable")
+        raise HTTPException(status_code=404, detail="Sales order not found or Odoo unavailable") from e
 
 
 @router.get("/{sales_order}/{cabinet_position}", response_model=List[BOMItemResponse])
 def get_bom_items(
     sales_order: Annotated[str, Path(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")],
     cabinet_position: Annotated[str, Path(min_length=1, max_length=128)],
+    search: str | None = Query(None, description="Search items by product name"),
     db: Session = Depends(get_db),
     current_user: ip = Depends(get_fully_verified_user)
 ):
@@ -157,6 +175,21 @@ def get_bom_items(
         logger.info(f"[BOM API - IP] Fetching BOM for SO: {sales_order}, Cabinet: {cabinet_position}, User: {current_user.phone_number}")
         bom_data = OdooService.fetch_full_bom_data(sales_order, cabinet_position)
         logger.info(f"[BOM API] Successfully fetched {len(bom_data)} BOM items")
+        if search:
+            search_lower = search.lower()
+            def filter_bom_items(items, search_term):
+                filtered = []
+                for item in items:
+                    if search_term in item.get('product_name', '').lower():
+                        filtered.append(item)
+                    else:
+                        filtered_children = filter_bom_items(item.get('children', []), search_term)
+                        if filtered_children:
+                            item_copy = dict(item)
+                            item_copy['children'] = filtered_children
+                            filtered.append(item_copy)
+                return filtered
+            bom_data = filter_bom_items(bom_data, search_lower)
         return bom_data
     except HTTPException as he:
         logger.error(f"[BOM API] HTTPException: {he.status_code} - {he.detail}")

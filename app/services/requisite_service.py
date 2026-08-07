@@ -4,6 +4,7 @@ from copy import copy
 from datetime import datetime
 from pathlib import Path
 from typing import List
+from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, selectinload
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.model.site_requisite import SiteRequisite
 from app.model.so_detail import SODetail
 from app.schemas.requisite_schema import SiteRequisiteSubmit
+from app.utils.error_text import sync_error_summary
 
 logger = logging.getLogger(__name__)
 
@@ -57,18 +59,50 @@ class RequisiteService:
         raise FileNotFoundError("Repair order template not found in project root")
 
     @staticmethod
+    def _sync_to_odoo(db: Session, so_detail: SODetail) -> SODetail:
+        from app.services.odoo_service import OdooService
+
+        try:
+            repair_order = OdooService.create_repair_order_for_requisite(
+                sales_order=so_detail.sales_order,
+                cabinet_position=so_detail.cabinet_position,
+                sr_poc=so_detail.sr_poc,
+                repair_reference=so_detail.repair_reference,
+                expected_delivery=so_detail.expected_delivery,
+                do_number=so_detail.do_number,
+                items=so_detail.site_requisites,
+                sync_key=so_detail.odoo_sync_key,
+            )
+            so_detail.odoo_repair_order_id = repair_order.get("id")
+            so_detail.odoo_repair_order_name = repair_order.get("name")
+            if not so_detail.repair_reference:
+                so_detail.repair_reference = so_detail.odoo_repair_order_name
+            so_detail.odoo_sync_status = "synced"
+            so_detail.odoo_sync_error = None
+            db.commit()
+            db.refresh(so_detail)
+            return so_detail
+        except Exception as exc:
+            db.rollback()
+            so_detail.odoo_sync_status = "failed"
+            so_detail.odoo_sync_error = sync_error_summary(exc)
+            db.commit()
+            logger.exception("Failed to sync requisite %s to Odoo", so_detail.id)
+            raise HTTPException(
+                status_code=502,
+                detail=f"Requisite {so_detail.id} was saved, but the Odoo sync failed.",
+            ) from exc
+
+    @staticmethod
     def submit_site_requisite(
         db: Session,
         data: SiteRequisiteSubmit,
         user_id: int | None = None,
     ):
         """Submit site requisite with all bucket items."""
-        odoo: dict = {}
-        try:
-            from app.services.odoo_service import OdooService
-            odoo = OdooService.get_sales_order_details(data.sales_order)
-        except Exception as exc:
-            logger.warning("Could not fetch Odoo details for %s: %s", data.sales_order, exc)
+        from app.services.odoo_service import OdooService
+
+        odoo = OdooService.get_sales_order_details(data.sales_order)
 
         addr_parts = [
             odoo.get("address_line_1", ""),
@@ -95,6 +129,7 @@ class RequisiteService:
             repair_reference=data.repair_reference,
             expected_delivery=data.expected_delivery,
             do_number=data.do_number,
+            odoo_sync_key=f"site-requisite-{uuid4().hex}",
         )
         db.add(so_detail)
         db.flush()
@@ -110,30 +145,30 @@ class RequisiteService:
                     component_status=item.component_status,
                 )
             )
-
-        from app.services.odoo_service import OdooService
-        repair_order = OdooService.create_repair_order_for_requisite(
-            sales_order=data.sales_order,
-            cabinet_position=data.cabinet_position,
-            sr_poc=data.sr_poc,
-            repair_reference=data.repair_reference,
-            expected_delivery=data.expected_delivery,
-            do_number=data.do_number,
-            items=data.items,
-        )
-        so_detail.odoo_repair_order_id = repair_order.get("id")
-        so_detail.odoo_repair_order_name = repair_order.get("name")
-        if not so_detail.repair_reference:
-            so_detail.repair_reference = so_detail.odoo_repair_order_name
-
         db.commit()
-
-        return (
+        so_detail = (
             db.query(SODetail)
             .options(selectinload(SODetail.site_requisites))
             .filter(SODetail.id == so_detail.id)
             .first()
         )
+        return RequisiteService._sync_to_odoo(db, so_detail)
+
+    @staticmethod
+    def retry_odoo_sync(db: Session, so_id: int, user_id: int | None = None) -> SODetail:
+        query = (
+            db.query(SODetail)
+            .options(selectinload(SODetail.site_requisites))
+            .filter(SODetail.id == so_id)
+        )
+        if user_id is not None:
+            query = query.filter(SODetail.ip_user_id == user_id)
+        so_detail = query.first()
+        if not so_detail:
+            raise HTTPException(status_code=404, detail="Requisite not found")
+        if so_detail.odoo_sync_status == "synced" and so_detail.odoo_repair_order_id:
+            return so_detail
+        return RequisiteService._sync_to_odoo(db, so_detail)
 
     @staticmethod
     def get_history(
@@ -147,6 +182,25 @@ class RequisiteService:
         if user_id is not None:
             query = query.filter(SODetail.ip_user_id == user_id)
         return query.order_by(SODetail.created_date.desc()).offset(offset).limit(limit).all()
+
+    @staticmethod
+    def get_history_with_odoo_states(
+        db: Session,
+        limit: int = 50,
+        offset: int = 0,
+        user_id: int | None = None,
+    ) -> List[SODetail]:
+        from app.services.odoo_service import OdooService
+
+        history = RequisiteService.get_history(db, limit, offset, user_id)
+        states = OdooService.get_repair_order_states([
+            item.odoo_repair_order_id
+            for item in history
+            if item.odoo_repair_order_id is not None
+        ])
+        for item in history:
+            item.odoo_repair_order_state = states.get(item.odoo_repair_order_id)
+        return history
 
     @staticmethod
     def get_history_by_sales_order(
@@ -165,9 +219,12 @@ class RequisiteService:
         return query.order_by(SODetail.created_date.desc()).all()
 
     @staticmethod
-    def update_status(db: Session, so_id: int, status: str):
+    def update_status(db: Session, so_id: int, status: str, user_id: int | None = None):
         """Update SO status."""
-        so_detail = db.query(SODetail).filter(SODetail.id == so_id).first()
+        query = db.query(SODetail).filter(SODetail.id == so_id)
+        if user_id is not None:
+            query = query.filter(SODetail.ip_user_id == user_id)
+        so_detail = query.first()
         if so_detail:
             so_detail.status = status
             if status == "completed":

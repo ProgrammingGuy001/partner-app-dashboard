@@ -7,7 +7,6 @@ const MAX_JOB_DETAIL_CACHE = 20;
 
 export const useDashboardStore = create((set, get) => ({
   jobs: [],
-  selectedJob: null,
   activeFilter: 'all',
   stats: {
     completedJobs: 0,
@@ -18,7 +17,7 @@ export const useDashboardStore = create((set, get) => ({
   loading: false,
   error: null,
   lastFetched: null,
-  jobDetailCache: {}, // { [jobId]: { job, progress, fetchedAt } }
+  jobDetailCache: {}, // { [jobId]: { job, fetchedAt } }
 
   isJobsStale: () => {
     const { lastFetched } = get();
@@ -30,11 +29,11 @@ export const useDashboardStore = create((set, get) => ({
     get().calculateStats();
   },
 
-  cacheJobDetail: (jobId, job, progress) => {
+  cacheJobDetail: (jobId, job) => {
     set((state) => {
       const updated = {
         ...state.jobDetailCache,
-        [jobId]: { job, progress, fetchedAt: Date.now() },
+        [jobId]: { job, fetchedAt: Date.now() },
       };
       // LRU eviction — keep at most MAX_JOB_DETAIL_CACHE entries
       const entries = Object.entries(updated);
@@ -54,7 +53,6 @@ export const useDashboardStore = create((set, get) => ({
     return cached;
   },
 
-  setSelectedJob: (job) => set({ selectedJob: job }),
   setActiveFilter: (filter) => set({ activeFilter: filter }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
@@ -76,5 +74,12 @@ export const useDashboardStore = create((set, get) => ({
     set({ stats });
   },
 
-  clearSelectedJob: () => set({ selectedJob: null }),
+  resetDashboard: () => set({
+    jobs: [],
+    jobDetailCache: {},
+    activeFilter: JOB_STATUS.IN_PROGRESS,
+    loading: false,
+    error: null,
+    stats: { completedJobs: 0, inProgressJobs: 0, totalEarnings: 0, totalIncentives: 0 },
+  }),
 }));

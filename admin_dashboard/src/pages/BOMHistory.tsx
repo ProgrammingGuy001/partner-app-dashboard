@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { bomAPI, type SODetail } from '@/api/bom';
+import { StatusBadge, type Status } from '@/components/StatusBadge';
 import {
     Table,
     TableBody,
@@ -36,6 +37,7 @@ import {
 } from "@/components/ui/select";
 import { Download, Loader2, RefreshCw, Box, Eye } from 'lucide-react';
 import { toast } from "sonner";
+import { getApiErrorMessage, sanitizeErrorText } from "@/lib/apiError";
 
 const BOMHistory: React.FC = () => {
     const queryClient = useQueryClient();
@@ -54,9 +56,21 @@ const BOMHistory: React.FC = () => {
         }
     };
 
-    const { data: history, isLoading, refetch } = useQuery({
+    const { data: history, isLoading } = useQuery({
         queryKey: ['bom-history'],
         queryFn: () => bomAPI.getHistory(100, 0),
+    });
+
+    const refreshStatesMutation = useMutation({
+        mutationFn: () => bomAPI.refreshHistory(100, 0),
+        onSuccess: (updated) => {
+            queryClient.setQueryData(['bom-history'], updated);
+            setSelectedSO((selected) => updated.find((item) => item.id === selected?.id) ?? selected);
+            toast.success('Odoo states refreshed');
+        },
+        onError: (error: unknown) => {
+            toast.error(getApiErrorMessage(error, 'Failed to refresh Odoo states'));
+        },
     });
 
     const updateStatusMutation = useMutation({
@@ -68,8 +82,20 @@ const BOMHistory: React.FC = () => {
             setIsDetailsOpen(false);
         },
         onError: (error: unknown) => {
-            toast.error(error instanceof Error ? error.message : "Failed to update status");
+            toast.error(getApiErrorMessage(error, "Failed to update status"));
         }
+    });
+
+    const retrySyncMutation = useMutation({
+        mutationFn: (id: number) => bomAPI.retrySync(id),
+        onSuccess: (updated) => {
+            queryClient.invalidateQueries({ queryKey: ['bom-history'] });
+            setSelectedSO(updated);
+            toast.success('Site requisite synchronized with Odoo');
+        },
+        onError: (error: unknown) => {
+            toast.error(getApiErrorMessage(error, 'Odoo sync retry failed'));
+        },
     });
 
     const handleStatusUpdate = (status: 'pending' | 'completed') => {
@@ -78,13 +104,16 @@ const BOMHistory: React.FC = () => {
         }
     };
 
-    const getStatusVariant = (status: string): 'default' | 'secondary' | 'outline' => {
+    const getStatusVariant = (status: string): Status => {
         switch (status) {
-            case 'pending': return 'secondary';
-            case 'completed': return 'default'; // standard for completed
-            default: return 'outline';
+            case 'pending': return 'warning';
+            case 'completed': return 'success';
+            default: return 'neutral';
         }
     };
+
+    const getSyncVariant = (syncStatus: string): Status =>
+        syncStatus === 'failed' ? 'danger' : 'neutral';
 
     const formatDateOnly = (dateString?: string) => {
         if (!dateString) return 'N/A';
@@ -101,7 +130,7 @@ const BOMHistory: React.FC = () => {
         item.odoo_repair_order_name || item.repair_reference || item.sales_order;
 
     return (
-        <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 sm:gap-6 lg:gap-8">
+        <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 sm:gap-6 lg:gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight text-primary sm:text-3xl">BOM Requisites</h1>
@@ -111,10 +140,11 @@ const BOMHistory: React.FC = () => {
                     variant="outline"
                     size="icon"
                     className="self-start sm:self-auto"
-                    onClick={() => refetch()}
-                    disabled={isLoading}
+                    onClick={() => refreshStatesMutation.mutate()}
+                    disabled={isLoading || refreshStatesMutation.isPending}
+                    aria-label="Refresh Odoo repair order states"
                 >
-                    <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`h-4 w-4 ${refreshStatesMutation.isPending ? 'animate-spin' : ''}`} />
                 </Button>
             </header>
 
@@ -161,7 +191,7 @@ const BOMHistory: React.FC = () => {
                                     <TableHead>Date</TableHead>
                                     <TableHead>Cabinet Position</TableHead>
                                     <TableHead>Items</TableHead>
-                                    <TableHead>Status</TableHead>
+                                    <TableHead>Odoo State</TableHead>
                                     <TableHead className="text-right">Actions</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -199,9 +229,14 @@ const BOMHistory: React.FC = () => {
                                                 </Badge>
                                             </TableCell>
                                             <TableCell>
-                                                <Badge variant={getStatusVariant(item.status)}>
-                                                    {item.status.toUpperCase()}
-                                                </Badge>
+                                                <div className="flex flex-col items-start gap-1">
+                                                    <StatusBadge status={getStatusVariant(item.odoo_repair_order_state || item.status)}>
+                                                        {item.odoo_repair_order_state || item.status}
+                                                    </StatusBadge>
+                                                    <StatusBadge status={getSyncVariant(item.odoo_sync_status)}>
+                                                        Odoo {item.odoo_sync_status}
+                                                    </StatusBadge>
+                                                </div>
                                             </TableCell>
                                             <TableCell className="text-right">
                                                 <div className="flex items-center justify-end gap-2">
@@ -267,10 +302,16 @@ const BOMHistory: React.FC = () => {
                                     <p>{new Date(selectedSO.created_date).toLocaleString()}</p>
                                 </div>
                                 <div>
-                                    <span className="text-muted-foreground">Current Status:</span>
-                                    <Badge className="ml-2" variant={getStatusVariant(selectedSO.status)}>
-                                        {selectedSO.status.toUpperCase()}
-                                    </Badge>
+                                    <span className="text-muted-foreground">Odoo State:</span>
+                                    <StatusBadge className="ml-2" status={getStatusVariant(selectedSO.odoo_repair_order_state || selectedSO.status)}>
+                                        {selectedSO.odoo_repair_order_state || selectedSO.status}
+                                    </StatusBadge>
+                                </div>
+                                <div>
+                                    <span className="text-muted-foreground">Odoo Sync:</span>
+                                    <StatusBadge className="ml-2" status={getSyncVariant(selectedSO.odoo_sync_status)}>
+                                        {selectedSO.odoo_sync_status.toUpperCase()}
+                                    </StatusBadge>
                                 </div>
                                 <div>
                                     <span className="text-muted-foreground">Customer:</span>
@@ -305,6 +346,24 @@ const BOMHistory: React.FC = () => {
                                     <p className="font-medium">{selectedSO.delivery_address || 'N/A'}</p>
                                 </div>
                             </div>
+
+                            {selectedSO.odoo_sync_error && (
+                                <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+                                    <p className="font-semibold">Odoo sync failed</p>
+                                    <p className="mt-1 break-words">{sanitizeErrorText(selectedSO.odoo_sync_error)}</p>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="mt-3 gap-2"
+                                        disabled={retrySyncMutation.isPending}
+                                        onClick={() => retrySyncMutation.mutate(selectedSO.id)}
+                                    >
+                                        <RefreshCw className={`h-4 w-4 ${retrySyncMutation.isPending ? 'animate-spin' : ''}`} />
+                                        Retry Odoo sync
+                                    </Button>
+                                </div>
+                            )}
 
                             <div className="rounded-md border md:hidden">
                                 <div className="divide-y">
@@ -418,7 +477,7 @@ const BOMHistory: React.FC = () => {
 const BOMMobileCard: React.FC<{
     item: SODetail;
     downloadingId: number | null;
-    getStatusVariant: (status: string) => 'default' | 'secondary' | 'outline';
+    getStatusVariant: (status: string) => Status;
     onDownload: (soId: number, salesOrder: string) => void;
     onDetails: () => void;
 }> = ({ item, downloadingId, getStatusVariant, onDownload, onDetails }) => (
@@ -433,9 +492,9 @@ const BOMMobileCard: React.FC<{
                     {new Date(item.created_date).toLocaleDateString()} · {item.sr_poc || 'No POC'}
                 </p>
             </div>
-            <Badge variant={getStatusVariant(item.status)} className="shrink-0">
-                {item.status.toUpperCase()}
-            </Badge>
+            <StatusBadge status={getStatusVariant(item.odoo_repair_order_state || item.status)} className="shrink-0">
+                {item.odoo_repair_order_state || item.status}
+            </StatusBadge>
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-3 text-xs">

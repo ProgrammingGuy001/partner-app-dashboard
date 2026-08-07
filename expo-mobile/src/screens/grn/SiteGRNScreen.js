@@ -33,7 +33,7 @@ const receivedMapFor = (grn) => {
   return initial;
 };
 
-const SiteGRNScreen = () => {
+const SiteGRNScreen = ({ route }) => {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const onPrimary = colors.primaryForeground;
@@ -52,8 +52,13 @@ const SiteGRNScreen = () => {
     try {
       const data = await grnApi.getAssigned();
       const list = asGRNList(data);
+      const requestedJobId = Number(route.params?.jobId);
+      const requestedGRN = Number.isInteger(requestedJobId)
+        ? list.find((item) => item.job_id === requestedJobId)
+        : null;
       setGrns(list);
       setSelectedId((currentId) => {
+        if (requestedGRN) return requestedGRN.id;
         if (currentId && list.some((item) => item.id === currentId)) {
           return currentId;
         }
@@ -69,7 +74,7 @@ const SiteGRNScreen = () => {
         setError("Failed to load GRN. Pull down to retry.");
       }
     }
-  }, []);
+  }, [route.params?.jobId]);
 
   useEffect(() => {
     fetchGRN().finally(() => setLoading(false));
@@ -349,6 +354,15 @@ const SiteGRNScreen = () => {
             className="mb-4"
           />
         )}
+
+        {grn.odoo_sync_error ? (
+          <Notice
+            tone="danger"
+            title="Odoo sync failed"
+            message={grn.odoo_sync_error}
+            className="mb-4"
+          />
+        ) : null}
 
         {/* Progress */}
         {grn && (

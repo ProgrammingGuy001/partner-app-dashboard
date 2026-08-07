@@ -13,25 +13,25 @@ import {
    TableRow,
 } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { StatusBadge, type Status } from "@/components/StatusBadge"
+
+const HISTORY_STATUS_META: Record<string, { status: Status; label: string }> = {
+   in_progress: { status: 'info', label: 'In Progress' },
+   paused: { status: 'warning', label: 'Paused' },
+   completed: { status: 'success', label: 'Completed' },
+};
+
+const getStatusMeta = (status?: string) =>
+   HISTORY_STATUS_META[status ?? ''] ?? { status: 'neutral' as Status, label: status?.replace('_', ' ') || 'Unknown' };
 
 const JobHistory: React.FC = () => {
    const { jobId } = useParams<{ jobId: string }>();
    const jobIdNum = jobId ? Number.parseInt(jobId) : undefined;
    const { data: history = [], isLoading, refetch } = useJobHistory(jobIdNum);
 
-   const getStatusClass = (status?: string) => {
-      switch (status) {
-         case 'in_progress': return 'bg-blue-100 text-blue-800 hover:bg-blue-100/80';
-         case 'paused': return 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100/80';
-         case 'completed': return 'bg-green-100 text-green-800 hover:bg-green-100/80';
-         default: return 'bg-gray-100 text-gray-800 hover:bg-gray-100/80';
-      }
-   }
-
    return (
-      <div className="flex flex-col gap-5 sm:gap-6">
+      <div className="flex flex-col gap-5 sm:gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
                <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Job History</h1>
@@ -67,7 +67,6 @@ const JobHistory: React.FC = () => {
                            log={log}
                            index={index}
                            history={history}
-                           getStatusClass={getStatusClass}
                         />
                      ))}
                      {history.length === 0 && (
@@ -100,9 +99,9 @@ const JobHistory: React.FC = () => {
                            return (
                               <TableRow key={log.id}>
                                  <TableCell>
-                                    <Badge variant="outline" className={getStatusClass(log.status)}>
-                                       {log.status?.replace('_', ' ').toUpperCase()}
-                                    </Badge>
+                                    <StatusBadge status={getStatusMeta(log.status).status}>
+                                       {getStatusMeta(log.status).label.toUpperCase()}
+                                    </StatusBadge>
                                  </TableCell>
                                  <TableCell>{log.notes}</TableCell>
                                  <TableCell>{currentTs ? formatDateTimeIST(currentTs) : '-'}</TableCell>
@@ -134,8 +133,7 @@ const HistoryMobileCard: React.FC<{
    log: JobStatusLog;
    index: number;
    history: JobStatusLog[];
-   getStatusClass: (status?: string) => string;
-}> = ({ log, index, history, getStatusClass }) => {
+}> = ({ log, index, history }) => {
    const currentTs = log.timestamp || log.created_at;
    const prevTs = history[index - 1]?.timestamp || history[index - 1]?.created_at;
    let duration: number | null = null;
@@ -150,9 +148,9 @@ const HistoryMobileCard: React.FC<{
    return (
       <article className="p-4">
          <div className="flex items-start justify-between gap-3">
-            <Badge variant="outline" className={getStatusClass(log.status)}>
-               {log.status?.replace('_', ' ').toUpperCase()}
-            </Badge>
+            <StatusBadge status={getStatusMeta(log.status).status}>
+               {getStatusMeta(log.status).label.toUpperCase()}
+            </StatusBadge>
             <span className="text-xs text-muted-foreground">#{index + 1}</span>
          </div>
          <div className="mt-3 space-y-2 text-sm">

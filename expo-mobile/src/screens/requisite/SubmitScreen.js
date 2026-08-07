@@ -11,18 +11,21 @@ import { useTheme } from '../../hooks/useTheme';
 import { useResponsive } from '../../hooks/useResponsive';
 import { ROUTES } from '../../util/constants';
 import { Notice } from '../../components/common/Primitives';
+import { isISODate } from '../../util/isoDate';
 
 const SubmitScreen = ({ navigation }) => {
   const { bucket, salesOrder, cabinetPosition, soDetails, setSODetails, clearBucket } = useRequisiteStore();
   const { colors } = useTheme();
   const { px } = useResponsive();
 
-  const [srPoc, setSrPoc] = useState('');
+
   const [loading, setLoading] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [expectedDelivery, setExpectedDelivery] = useState('');
+  const [doNumber, setDoNumber] = useState('');
 
   const formatOrderState = (value) => {
     const normalized = String(value ?? '').trim().toLowerCase();
@@ -79,6 +82,11 @@ const SubmitScreen = ({ navigation }) => {
       return;
     }
 
+    if (expectedDelivery && !isISODate(expectedDelivery)) {
+      setError('Expected delivery must be a valid date in YYYY-MM-DD format.');
+      return;
+    }
+
     setLoading(true);
     setError('');
 
@@ -92,7 +100,8 @@ const SubmitScreen = ({ navigation }) => {
       const payload = {
         sales_order: salesOrder,
         cabinet_position: cabinetPosition,
-        sr_poc: srPoc || null,
+        expected_delivery: expectedDelivery || null,
+        do_number: doNumber.trim() || null,
         items: bucket,
       };
 
@@ -258,22 +267,38 @@ const SubmitScreen = ({ navigation }) => {
               </View>
 
               <View className="gap-2">
+                <Text className="text-[11px] font-bold text-muted-foreground uppercase">Expected Delivery (Optional)</Text>
+                <Input
+                  value={expectedDelivery}
+                  onChangeText={setExpectedDelivery}
+                  placeholder="YYYY-MM-DD"
+                  maxLength={10}
+                  autoCorrect={false}
+                  accessibilityLabel="Expected delivery date"
+                  className="h-[56px] rounded-xl bg-background border border-border px-4 text-base font-semibold text-foreground"
+                />
+              </View>
+
+              <View className="gap-2">
+                <Text className="text-[11px] font-bold text-muted-foreground uppercase">DO Number (Optional)</Text>
+                <Input
+                  value={doNumber}
+                  onChangeText={setDoNumber}
+                  placeholder="Delivery order number"
+                  maxLength={255}
+                  accessibilityLabel="Delivery order number"
+                  className="h-[56px] rounded-xl bg-background border border-border px-4 text-base font-semibold text-foreground"
+                />
+              </View>
+
+              <View className="gap-2">
                 <Text className="text-[11px] font-bold text-muted-foreground uppercase">Cabinet Position</Text>
                 <View className="h-[56px] rounded-xl bg-background justify-center px-4 border border-border flex-row items-center">
                    <Text className="text-base font-bold text-muted-foreground">{cabinetPosition}</Text>
                 </View>
               </View>
 
-              <View className="gap-2">
-                <Text className="text-[11px] font-bold text-muted-foreground uppercase">SR POC (Optional)</Text>
-                <Input
-                  value={srPoc}
-                  onChangeText={setSrPoc}
-                  placeholder="Enter contact name"
-                  accessibilityLabel="Site requisite point of contact"
-                  className="h-[56px] rounded-xl bg-background border border-border px-4"
-                />
-              </View>
+
             </View>
 
             <Button
@@ -315,6 +340,13 @@ const SubmitScreen = ({ navigation }) => {
                  <Ionicons name="business-outline" size={12} color={colors.primary} />
                  <Text className="text-xs font-bold capitalize" style={{ color: colors.primary }}>
                    {item.responsible_department}
+                 </Text>
+               </View>
+             )}
+             {item.component_status && (
+               <View className="px-2 py-0.5 rounded-lg bg-muted">
+                 <Text className="text-xs font-bold text-foreground capitalize">
+                   {item.component_status}
                  </Text>
                </View>
              )}

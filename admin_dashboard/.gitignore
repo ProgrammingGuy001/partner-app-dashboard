@@ -23,3 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 flutter_partner_app/*
+
+# Local env — every VITE_* var is inlined into the client bundle, never commit one
+.env
+.env.*
+!.env.example

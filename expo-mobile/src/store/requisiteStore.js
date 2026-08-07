@@ -31,6 +31,7 @@ const useRequisiteStore = create(
                 quantity: item.quantity || 1,
                 issue_description: item.issue_description || '',
                 responsible_department: item.responsible_department || null,
+                component_status: item.component_status || null,
               },
             ],
           };

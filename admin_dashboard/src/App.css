@@ -28,6 +28,9 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -63,6 +66,9 @@
   --accent: #dcd8d2;
   --accent-foreground: #3a1a1a;
   --destructive: oklch(0.577 0.245 27.325);
+  --success: #3d6b4f;
+  --warning: #8a6a1e;
+  --info: #3a5a78;
   --border: #dcd8d2;
   --input: #dcd8d2;
   --ring: #9b7c73;
@@ -109,6 +115,9 @@
   --accent-foreground: #ede9de;
 
   --destructive: oklch(0.704 0.191 22.216);
+  --success: #82c39e;
+  --warning: #dcb15c;
+  --info: #8fb4d6;
 
   /* Borders clearly visible against all surface layers */
   --border: #4d3030;

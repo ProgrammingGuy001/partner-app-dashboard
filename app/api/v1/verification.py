@@ -1,16 +1,33 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_verified_user
 from app.database import get_db
 from app.model.ip import ip
+from app.model.media_document import MediaDocument
 from app.schemas.ip import BankVerification, PANVerification, UserDetailResponse
 from app.schemas.job import JobResponse
 from app.crud.job import get_jobs_for_ip
 from app.services.bank_service import BankService
 from app.services.pan_service import PANService
+from app.services.s3_service import upload_file_to_s3
 from app.services.upload_service import read_validated_upload
 from app.utils.rate_limiter import limiter
+
+ID_DOCUMENT_STATUS = "id_document_pending_review"
+
+
+def _record_kyc_consent(user: ip) -> None:
+    """Persist when the user accepted the KYC consent modal (implied by submitting).
+
+    ponytail: single timestamp on ip_financials — add version/purpose columns if
+    compliance needs a full consent ledger.
+    """
+    financial = user._ensure_financial()
+    if financial.kyc_consent_at is None:
+        financial.kyc_consent_at = datetime.now(timezone.utc)
 
 router = APIRouter(prefix="/verification", tags=["Verification"])
 
@@ -45,6 +62,7 @@ def verify_pan(
     current_user.is_pan_verified = True
     current_user.pan_number = result["pan_number"]
     current_user.pan_name = result.get("name")
+    _record_kyc_consent(current_user)
 
     db.commit()
     db.refresh(current_user)
@@ -87,6 +105,7 @@ def verify_bank(
     current_user.account_number = result["account_number"]
     current_user.ifsc_code = result["ifsc_code"]
     current_user.account_holder_name = result.get("account_holder_name")
+    _record_kyc_consent(current_user)
 
     db.commit()
     db.refresh(current_user)
@@ -112,20 +131,30 @@ async def upload_id_document(
     db: Session = Depends(get_db)
 ):
     """Upload ID document for verification (requires admin approval)"""
-    await read_validated_upload(
+    upload = await read_validated_upload(
         file,
         allowed_extensions={".jpg", ".jpeg", ".png", ".pdf"},
         allowed_content_types={"image/jpeg", "image/jpg", "image/png", "application/pdf"},
         max_size_mb=5,
     )
 
-    # TODO: Upload file to S3 or local storage
-    # TODO: Save document reference to database
-    # Note: is_id_verified remains False until admin manually verifies
-    
+    doc_url = upload_file_to_s3(
+        file_content=upload.content,
+        filename=upload.filename,
+        content_type=upload.content_type,
+    )
+    db.add(
+        MediaDocument(
+            owner_type="ip_user",
+            owner_id=current_user.id,
+            status=ID_DOCUMENT_STATUS,
+            doc_link=doc_url,
+        )
+    )
+    # is_id_verified remains False until an admin manually verifies.
     db.commit()
     db.refresh(current_user)
-    
+
     return current_user
 
 
@@ -147,7 +176,14 @@ def delete_verification_data(
         current_user.financial.account_holder_name = None
         current_user.financial.is_bank_verified = False
         current_user.financial.verified_at = None
-        db.commit()
+        current_user.financial.kyc_consent_at = None
+    # Also drop uploaded ID documents, not just PAN/bank fields.
+    db.query(MediaDocument).filter(
+        MediaDocument.owner_type == "ip_user",
+        MediaDocument.owner_id == current_user.id,
+    ).delete(synchronize_session=False)
+    current_user.is_id_verified = False
+    db.commit()
     return {"message": "Verification data deleted successfully"}
 
 

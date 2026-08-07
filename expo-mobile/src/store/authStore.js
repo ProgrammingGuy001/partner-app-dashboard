@@ -63,8 +63,8 @@ export const useAuthStore = create((set) => ({
       AsyncStorage.setItem(USER_PROFILE_KEY, JSON.stringify(user)).catch(() => {});
       set({ user, isAuthenticated: true, isAuthResolved: true });
       return user;
-    } catch {
-      return null;
+    } catch (error) {
+      throw error;
     }
   },
 }));

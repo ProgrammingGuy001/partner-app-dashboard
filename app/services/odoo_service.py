@@ -75,7 +75,12 @@ class OdooService:
     DB = settings.ODOO_DB
     USERNAME = settings.ODOO_USERNAME
     PASSWORD = settings.ODOO_PASSWORD
+    COMPANY_ID = settings.ODOO_COMPANY_ID
     REPAIR_ORDER_SALE_FIELD = "x_studio_many2one_field_3d_1j5irl101"
+    PURCHASE_SERVICE_PRODUCTS = {
+        "b2b": "B2B Installation Service",
+        "b2c": "B2C Installation Service",
+    }
 
     # Per-thread connection state. xmlrpc ServerProxy is not thread-safe and FastAPI
     # runs sync endpoints in a threadpool, so each thread gets its own connection.
@@ -89,14 +94,18 @@ class OdooService:
         """Initialize Odoo connection if not already initialized or if forced"""
         # Define invalid or missing values
         invalid_values = (None, "", "None", "none", "null")
-        
+
         # Check if Odoo configuration is available
         if any(val in invalid_values for val in [cls.URL, cls.DB, cls.USERNAME, cls.PASSWORD]):
             missing = []
-            if cls.URL in invalid_values: missing.append("ODOO_URL")
-            if cls.DB in invalid_values: missing.append("ODOO_DB")
-            if cls.USERNAME in invalid_values: missing.append("ODOO_USERNAME")
-            if cls.PASSWORD in invalid_values: missing.append("ODOO_PASSWORD")
+            if cls.URL in invalid_values:
+                missing.append("ODOO_URL")
+            if cls.DB in invalid_values:
+                missing.append("ODOO_DB")
+            if cls.USERNAME in invalid_values:
+                missing.append("ODOO_USERNAME")
+            if cls.PASSWORD in invalid_values:
+                missing.append("ODOO_PASSWORD")
             logger.error("Odoo configuration incomplete. Missing: %s", ", ".join(missing))
             raise HTTPException(
                 status_code=503,
@@ -139,16 +148,25 @@ class OdooService:
                 )
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Failed to connect to Odoo service: {str(e)}",
+                    detail="Odoo service unavailable. Try again shortly.",
                 ) from e
 
     @classmethod
-    def _execute_kw(cls, model: str, method: str, args: List, kwargs: Dict = None) -> Any:
+    def _execute_kw(
+        cls,
+        model: str,
+        method: str,
+        args: List,
+        kwargs: Dict = None,
+        context: Dict = None,
+    ) -> Any:
         """Execute Odoo XML-RPC method with error handling and retry mechanism"""
         cls._initialize_connection()
         local = cls._local
         if kwargs is None:
             kwargs = {}
+        if context:
+            kwargs = {**kwargs, 'context': {**kwargs.get('context', {}), **context}}
 
         try:
             return local.models.execute_kw(
@@ -158,6 +176,11 @@ class OdooService:
         except (xmlrpc.client.ProtocolError, OSError, ConnectionError) as net_err:
             # Network or protocol failures (e.g., dropped connection, session timeout)
             logger.warning("Odoo connection dropped, attempting reconnect... Error: %s", net_err)
+            if method in {"create", "action_create_invoice"}:
+                raise HTTPException(
+                    status_code=502,
+                    detail="Odoo write result is unknown; retry through the approval endpoint",
+                ) from net_err
             try:
                 cls._initialize_connection(force=True)
                 return local.models.execute_kw(
@@ -182,6 +205,42 @@ class OdooService:
                 status_code=500,
                 detail="Error executing Odoo method",
             ) from e
+
+    @classmethod
+    def _company_domain(cls, company_id: Optional[int] = None) -> tuple:
+        """Company filter for Odoo domains. Falls back to the configured default."""
+        return ('company_id', '=', company_id or cls.COMPANY_ID)
+
+    @classmethod
+    def _company_context(cls, company_id: Optional[int] = None) -> Dict[str, Any]:
+        """RPC context so reads and writes happen inside the given company."""
+        resolved = company_id or cls.COMPANY_ID
+        return {'allowed_company_ids': [resolved], 'company_id': resolved}
+
+    @classmethod
+    def find_sales_orders(cls, sales_order: str) -> List[Dict[str, Any]]:
+        """
+        Find every sale.order with this name, across all companies the RPC user
+        can see. SO names are not unique in this database (a name can appear in
+        up to 10 companies), so callers disambiguate on company_id.
+        """
+        orders = cls._execute_kw(
+            'sale.order',
+            'search_read',
+            [[('name', '=', sales_order)]],
+            {'fields': ['id', 'name', 'company_id', 'partner_id', 'state'], 'order': 'company_id'},
+        )
+        return [
+            {
+                'sale_order_id': order['id'],
+                'name': order.get('name') or '',
+                'company_id': cls.safe_extract_id(order.get('company_id')) or None,
+                'company_name': (order.get('company_id') or [None, ''])[1] if order.get('company_id') else '',
+                'customer_name': (order.get('partner_id') or [None, ''])[1] if order.get('partner_id') else '',
+                'state': order.get('state') or '',
+            }
+            for order in orders
+        ]
 
     @staticmethod
     def safe_extract_id(m2o_value: Any) -> Optional[int]:
@@ -219,10 +278,111 @@ class OdooService:
             return product_field[1]  # The name is at index 1
         return "Unknown Product"
 
+    # Depth 0 is the sale order line's own components; deeper than this is a modelling
+    # mistake, not a real assembly.
+    MAX_BOM_DEPTH = 10
+
+    @classmethod
+    def _template_ids(cls, product_ids: Set[int]) -> Dict[int, int]:
+        """{product_id: product_tmpl_id} for a whole level of the tree in one read."""
+        ids = sorted(pid for pid in product_ids if pid)
+        if not ids:
+            return {}
+        rows = cls._execute_kw(
+            'product.product', 'read', [ids], {'fields': ['product_tmpl_id']}
+        )
+        return {row['id']: cls.safe_extract_id(row.get('product_tmpl_id')) for row in rows}
+
+    @classmethod
+    def _expand_bom_level(cls, frontier: List[tuple], depth: int) -> List[tuple]:
+        """Attach one level of components to every node in `frontier`, in 3 RPCs.
+
+        Each frontier entry is (component dict, product_id, product_tmpl_id, ids of the
+        BOMs already on this node's path). Returns the next level's frontier.
+        """
+        template_ids = sorted({tmpl for _, _, tmpl, _ in frontier if tmpl})
+        if not template_ids:
+            return []
+
+        # A variant's BOM always belongs to that variant's template, so searching on the
+        # template alone finds everything the old per-product search did.
+        boms = cls._execute_kw(
+            'mrp.bom',
+            'search_read',
+            [[('product_tmpl_id', 'in', template_ids), cls._company_domain()]],
+            {'fields': ['id', 'product_id', 'product_tmpl_id']},
+            context=cls._company_context(),
+        )
+        boms_by_template: Dict[int, List[Dict[str, Any]]] = {}
+        for bom in boms:
+            key = cls.safe_extract_id(bom.get('product_tmpl_id'))
+            boms_by_template.setdefault(key, []).append(bom)
+
+        def bom_for(product_id: int, template_id: int) -> Optional[Dict[str, Any]]:
+            candidates = boms_by_template.get(template_id, [])
+            # This variant's own BOM wins, else the template-wide one. A sibling
+            # variant's BOM is never a match — the old `limit=1` search could return one.
+            for bom in candidates:
+                if cls.safe_extract_id(bom.get('product_id')) == product_id:
+                    return bom
+            for bom in candidates:
+                if not bom.get('product_id'):
+                    return bom
+            return None
+
+        pending = []
+        for component, product_id, template_id, visited in frontier:
+            bom = bom_for(product_id, template_id)
+            # A BOM already on this path is a cycle; leave the node childless.
+            if bom and bom['id'] not in visited:
+                pending.append((component, bom['id'], visited | {bom['id']}))
+        if not pending:
+            return []
+
+        bom_lines = cls._execute_kw(
+            'mrp.bom.line',
+            'search_read',
+            [[
+                ('bom_id', 'in', sorted({bom_id for _, bom_id, _ in pending})),
+                cls._company_domain(),
+            ]],
+            {'fields': ['id', 'product_id', 'bom_id']},
+            context=cls._company_context(),
+        )
+        lines_by_bom: Dict[int, List[Dict[str, Any]]] = {}
+        for line in bom_lines:
+            lines_by_bom.setdefault(cls.safe_extract_id(line.get('bom_id')), []).append(line)
+
+        templates = cls._template_ids(
+            {cls.safe_extract_id(line.get('product_id')) for line in bom_lines}
+        )
+
+        next_frontier = []
+        for component, bom_id, visited in pending:
+            for line in lines_by_bom.get(bom_id, []):
+                product_id = cls.safe_extract_id(line.get('product_id'))
+                template_id = templates.get(product_id)
+                if not template_id:
+                    continue
+                child = {
+                    'product_name': cls.extract_product_name(line.get('product_id')),
+                    'depth': depth,
+                    'children': [],
+                }
+                component['children'].append(child)
+                next_frontier.append((child, product_id, template_id, visited))
+
+        logger.debug("BOM depth %d: %d nodes expanded into %d children",
+                     depth, len(pending), len(next_frontier))
+        return next_frontier
+
     @classmethod
     def fetch_full_bom_data(cls, sales_order: str, cabinet_position: str) -> List[Dict[str, Any]]:
         """
         Fetch complete BOM hierarchy from Odoo for a given sales order and cabinet position.
+
+        Walks the tree breadth-first, one RPC round per level rather than three per node:
+        Odoo's search_read is cheap per record and expensive per round trip.
 
         Args:
             sales_order: Sales order number
@@ -237,7 +397,7 @@ class OdooService:
         is_all_cabinets = cabinet_position.strip().lower() in {"all", "all cabinets", "*"}
         domain = [
             ('order_id.name', '=', sales_order),
-            ('company_id', '=', 1),
+            cls._company_domain(),
         ]
         if not is_all_cabinets:
             domain.append(('x_studio_cabinet_position', '=', cabinet_position))
@@ -247,12 +407,8 @@ class OdooService:
             'sale.order.line',
             'search_read',
             [domain],
-            {
-                'fields': [
-                    'id', 'name', 'product_id', 'x_studio_cabinet_position',
-                    'product_uom_qty', 'product_uom'
-                ]
-            }
+            {'fields': ['id', 'product_id', 'x_studio_cabinet_position']},
+            context=cls._company_context(),
         )
 
         if not sale_lines:
@@ -264,157 +420,33 @@ class OdooService:
                 detail=f"No BOM items found for {target}"
             )
 
-        def explode_bom(
-            product_id: int,
-            product_tmpl_id: int,
-            quantity: float = 1.0,
-            depth: int = 0,
-            max_depth: int = 10,
-            visited_boms: Optional[Set[int]] = None
-        ) -> List[Dict[str, Any]]:
-            """
-            Recursively explode BOM to get all components.
+        templates = cls._template_ids(
+            {cls.safe_extract_id(line.get('product_id')) for line in sale_lines}
+        )
 
-            Args:
-                product_id: Product variant ID
-                product_tmpl_id: Product template ID
-                quantity: Quantity multiplier for nested items
-                depth: Current recursion depth
-                max_depth: Maximum recursion depth to prevent infinite loops
-                visited_boms: Set of already visited BOM IDs to detect cycles
-
-            Returns:
-                List of component dictionaries with nested children
-            """
-            if visited_boms is None:
-                visited_boms = set()
-
-            # Prevent infinite recursion
-            if depth > max_depth:
-                logger.warning("Max recursion depth %d reached at depth %d", max_depth, depth)
-                return []
-
-            # Find applicable BOM for this product
-            domain = [
-                ('product_tmpl_id', '=', product_tmpl_id),
-                ('company_id', '=', 1),
-            ]
-            if product_id:
-                domain = ['|', ('product_id', '=', product_id)] + domain
-
-            boms = cls._execute_kw(
-                'mrp.bom',
-                'search_read',
-                [domain],
-                {
-                    'fields': ['id', 'product_id', 'product_tmpl_id', 'product_qty', 'product_uom_id'],
-                    'limit': 1
-                }
-            )
-
-            if not boms:
-                # No BOM found - this is a leaf component (raw material)
-                return []
-
-            bom = boms[0]
-            bom_id = bom['id']
-
-            # Check for cycles to prevent infinite loops
-            if bom_id in visited_boms:
-                logger.warning("Cycle detected: BOM %s already visited in this path", bom_id)
-                return []
-
-            # Mark this BOM as visited in current path
-            visited_boms.add(bom_id)
-            logger.debug("Depth %d: Processing BOM ID %s for product_tmpl_id %s", depth, bom_id, product_tmpl_id)
-
-            # Fetch BOM lines (the actual components in this BOM)
-            bom_lines = cls._execute_kw(
-                'mrp.bom.line',
-                'search_read',
-                [[('bom_id', '=', bom_id), ('company_id', '=', 1)]],
-                {
-                    'fields': ['id', 'product_id', 'product_qty', 'product_uom_id', 'bom_id']
-                }
-            )
-
-            result = []
-            for line in bom_lines:
-                line_product_id = cls.safe_extract_id(line.get('product_id'))
-                line_qty = line.get('product_qty', 0)
-
-                # Extract clean product name
-                product_name = cls.extract_product_name(line.get('product_id'))
-
-                if line_product_id:
-                    # Get product template for this component
-                    product = cls._execute_kw(
-                        'product.product',
-                        'read',
-                        [[line_product_id]],
-                        {'fields': ['product_tmpl_id']}
-                    )
-
-                    if product:
-                        line_product_tmpl_id = cls.safe_extract_id(
-                            product[0].get('product_tmpl_id')
-                        )
-
-                        component = {
-                            'product_name': product_name,
-                            'depth': depth,
-                            'children': []
-                        }
-
-                        # Recursively explode if this component has its own BOM
-                        # Pass a copy of visited_boms to allow same BOM in different branches
-                        child_components = explode_bom(
-                            line_product_id,
-                            line_product_tmpl_id,
-                            line_qty * quantity,
-                            depth + 1,
-                            max_depth,
-                            visited_boms.copy()  # Copy to allow reuse in sibling branches
-                        )
-
-                        if child_components:
-                            component['children'] = child_components
-
-                        result.append(component)
-
-            return result
-
-        # Process each sale order line
         processed_items = []
+        frontier = []
         for line in sale_lines:
             product_id = cls.safe_extract_id(line.get('product_id'))
-            quantity = line.get('product_uom_qty', 1.0)
+            template_id = templates.get(product_id)
+            if not template_id:
+                continue
 
-            # Extract clean product name
-            product_name = cls.extract_product_name(line.get('product_id'))
+            item = {
+                'product_name': cls.extract_product_name(line.get('product_id')),
+                # Odoo returns False, not None, for an unset char field, and False is
+                # not a str — it fails response validation.
+                'cabinet_position': line.get('x_studio_cabinet_position') or None,
+                'depth': 0,
+                'children': [],
+            }
+            processed_items.append(item)
+            frontier.append((item, product_id, template_id, frozenset()))
 
-            if product_id:
-                # Get product template
-                product = cls._execute_kw(
-                    'product.product',
-                    'read',
-                    [[product_id]],
-                    {'fields': ['product_tmpl_id']}
-                )
-
-                if product:
-                    product_tmpl_id = cls.safe_extract_id(
-                        product[0].get('product_tmpl_id')
-                    )
-
-                    item = {
-                        'product_name': product_name,
-                        'cabinet_position': line.get('x_studio_cabinet_position'),
-                        'depth': 0,
-                        'children': explode_bom(product_id, product_tmpl_id, quantity)
-                    }
-
-                    processed_items.append(item)
+        for depth in range(cls.MAX_BOM_DEPTH + 1):
+            if not frontier:
+                break
+            frontier = cls._expand_bom_level(frontier, depth)
 
         return processed_items
 
@@ -428,6 +460,7 @@ class OdooService:
         expected_delivery: Any,
         do_number: str | None,
         items: List[Any],
+        sync_key: str | None = None,
     ) -> str:
         meta = [
             ("Sales Order", sales_order),
@@ -436,6 +469,7 @@ class OdooService:
             ("Repair Reference", repair_reference),
             ("Expected Delivery", expected_delivery),
             ("DO Number", do_number),
+            ("Site Requisite Key", sync_key),
         ]
         rows = "".join(
             "<tr>"
@@ -466,6 +500,8 @@ class OdooService:
             if not values.get(field):
                 raise HTTPException(status_code=422, detail=f"Repair order missing {field}")
 
+        company_id = values.get('company_id') or cls.COMPANY_ID
+        company_context = cls._company_context(company_id)
         moves = []
         for item in items:
             product_name = (getattr(item, 'product_name', '') or '').strip()
@@ -477,6 +513,7 @@ class OdooService:
                 'name_search',
                 [product_name],
                 {'operator': 'ilike', 'limit': 1},
+                context=company_context,
             )
             product_id = cls.safe_extract_id(matches[0]) if matches else None
             if not product_id:
@@ -487,6 +524,7 @@ class OdooService:
                 'read',
                 [[product_id]],
                 {'fields': ['uom_id']},
+                context=company_context,
             )
             uom_id = cls.safe_extract_id(products[0].get('uom_id')) if products else None
             if not uom_id:
@@ -501,7 +539,7 @@ class OdooService:
                 'repair_line_type': 'add',
                 'location_id': values['location_id'],
                 'location_dest_id': values['location_dest_id'],
-                'company_id': values.get('company_id') or 1,
+                'company_id': company_id,
             }
             if values.get('picking_type_id'):
                 move['picking_type_id'] = values['picking_type_id']
@@ -527,12 +565,25 @@ class OdooService:
         expected_delivery: Any,
         do_number: str | None,
         items: List[Any],
+        sync_key: str | None = None,
     ) -> Dict[str, Any]:
+        company_context = cls._company_context()
+        if sync_key:
+            existing = cls._execute_kw(
+                'repair.order',
+                'search_read',
+                [[('internal_notes', 'ilike', f"Site Requisite Key:</b> {sync_key}")]],
+                {'fields': ['id', 'name'], 'limit': 1},
+            )
+            if existing:
+                return {'id': existing[0]['id'], 'name': existing[0].get('name', '')}
+
         orders = cls._execute_kw(
             'sale.order',
             'search_read',
-            [[('name', '=', sales_order), ('company_id', '=', 1)]],
+            [[('name', '=', sales_order), cls._company_domain()]],
             {'fields': ['id', 'partner_id'], 'limit': 1},
+            context=company_context,
         )
         if not orders:
             raise HTTPException(status_code=404, detail=f"Sales order '{sales_order}' not found in Odoo")
@@ -544,8 +595,10 @@ class OdooService:
                 'company_id', 'picking_type_id', 'schedule_date', 'location_id',
                 'location_dest_id', 'parts_location_id', 'recycle_location_id',
             ]],
+            context=company_context,
         )
         values = {key: value for key, value in defaults.items() if value}
+        values['company_id'] = cls.COMPANY_ID
         values[cls.REPAIR_ORDER_SALE_FIELD] = orders[0]['id']
         if sr_poc:
             values['x_studio_sr_poc'] = sr_poc
@@ -564,6 +617,7 @@ class OdooService:
                 'read',
                 [[picking_type_id]],
                 {'fields': ['default_location_src_id', 'default_location_dest_id']},
+                context=company_context,
             )
             if picking_type:
                 src_id = cls.safe_extract_id(picking_type[0].get('default_location_src_id'))
@@ -578,8 +632,9 @@ class OdooService:
             scrap_locations = cls._execute_kw(
                 'stock.location',
                 'search_read',
-                [[('scrap_location', '=', True), ('company_id', 'in', [1, False])]],
+                [[('scrap_location', '=', True), ('company_id', 'in', [cls.COMPANY_ID, False])]],
                 {'fields': ['id'], 'limit': 1},
+                context=company_context,
             )
             if scrap_locations:
                 values['parts_location_id'] = scrap_locations[0]['id']
@@ -592,12 +647,223 @@ class OdooService:
             expected_delivery=expected_delivery,
             do_number=do_number,
             items=items,
+            sync_key=sync_key,
         )
         values['move_ids'] = cls._repair_order_part_moves(items, values)
 
-        repair_id = cls._execute_kw('repair.order', 'create', [values])
-        repair = cls._execute_kw('repair.order', 'read', [[repair_id]], {'fields': ['name']})
+        repair_id = cls._execute_kw('repair.order', 'create', [values], context=company_context)
+        repair = cls._execute_kw(
+            'repair.order',
+            'read',
+            [[repair_id]],
+            {'fields': ['name']},
+            context=company_context,
+        )
         return {'id': repair_id, 'name': repair[0].get('name') if repair else ''}
+
+    @classmethod
+    def get_repair_order_states(cls, repair_order_ids: List[int]) -> Dict[int, str]:
+        ids = sorted(set(repair_order_ids))
+        if not ids:
+            return {}
+        orders = cls._execute_kw(
+            'repair.order',
+            'read',
+            [ids],
+            {'fields': ['state']},
+        )
+        return {order['id']: order.get('state', '') for order in orders}
+
+    @classmethod
+    def search_purchase_vendors(cls, search: str, limit: int = 20) -> List[Dict[str, Any]]:
+        term = search.strip()
+        if len(term) < 2:
+            return []
+        return cls._execute_kw(
+            "res.partner",
+            "search_read",
+            [[
+                ("active", "=", True),
+                ("supplier_rank", ">", 0),
+                ("name", "ilike", term),
+            ]],
+            {"fields": ["id", "name"], "limit": limit, "order": "name"},
+        )
+
+    @classmethod
+    def get_purchase_vendor(cls, vendor_id: int) -> Dict[str, Any]:
+        vendors = cls._execute_kw(
+            "res.partner",
+            "search_read",
+            [[
+                ("id", "=", vendor_id),
+                ("active", "=", True),
+                ("supplier_rank", ">", 0),
+            ]],
+            {"fields": ["id", "name"], "limit": 1},
+        )
+        if not vendors:
+            raise HTTPException(status_code=422, detail="Selected Odoo vendor is not active or purchasable")
+        return vendors[0]
+
+    @classmethod
+    def create_installation_service_rfq(
+        cls,
+        *,
+        vendor_id: int,
+        sales_order: str | None,
+        poc_name: str | None,
+        service_type: str,
+        quantity: float,
+        unit_price: float,
+        sync_key: str,
+    ) -> Dict[str, Any]:
+        sales_order = (sales_order or "").strip()
+        poc_name = (poc_name or "").strip()
+        if not sales_order or not poc_name:
+            raise HTTPException(status_code=422, detail="SO and POC name are required")
+
+        product_name = cls.PURCHASE_SERVICE_PRODUCTS.get(service_type)
+        if not product_name:
+            raise HTTPException(status_code=422, detail="Invalid installation service type")
+
+        existing = cls._execute_kw(
+            "purchase.order",
+            "search_read",
+            [[("origin", "=", sync_key)]],
+            {"fields": ["id"], "limit": 2},
+        )
+        if len(existing) > 1:
+            raise HTTPException(status_code=409, detail="Multiple Odoo RFQs share this request key")
+
+        vendor = cls.get_purchase_vendor(vendor_id)
+        products = cls._execute_kw(
+            "product.product",
+            "search_read",
+            [[
+                ("name", "=", product_name),
+                ("active", "=", True),
+                ("purchase_ok", "=", True),
+            ]],
+            {"fields": ["id", "name", "uom_po_id"], "limit": 2},
+        )
+        if len(products) != 1:
+            raise HTTPException(status_code=422, detail=f"Odoo must contain exactly one active '{product_name}' product")
+
+        product = products[0]
+        product_uom = cls.safe_extract_id(product.get("uom_po_id"))
+        if not product_uom:
+            raise HTTPException(status_code=422, detail=f"Odoo product '{product_name}' has no purchase unit of measure")
+
+        order_id = existing[0]["id"] if existing else cls._execute_kw(
+            "purchase.order",
+            "create",
+            [{
+                "partner_id": vendor["id"],
+                "origin": sync_key,
+                "x_studio_poc": poc_name,
+                "order_line": [(0, 0, {
+                    "product_id": product["id"],
+                    "name": product["name"],
+                    "product_qty": quantity,
+                    "product_uom": product_uom,
+                    "price_unit": unit_price,
+                    "x_studio_so_no": sales_order,
+                })],
+            }],
+        )
+
+        orders = cls._execute_kw(
+            "purchase.order",
+            "read",
+            [[order_id]],
+            {"fields": ["id", "name", "state", "partner_id", "origin", "x_studio_poc", "order_line"]},
+        )
+        if not orders:
+            raise HTTPException(status_code=502, detail="Created Odoo RFQ could not be read back")
+        order = orders[0]
+        lines = cls._execute_kw(
+            "purchase.order.line",
+            "read",
+            [order.get("order_line") or []],
+            {"fields": ["product_id", "product_qty", "product_uom", "price_unit", "x_studio_so_no"]},
+        )
+        line = lines[0] if len(lines) == 1 else None
+        if (
+            order.get("state") != "draft"
+            or cls.safe_extract_id(order.get("partner_id")) != vendor_id
+            or order.get("origin") != sync_key
+            or order.get("x_studio_poc") != poc_name
+            or not line
+            or cls.safe_extract_id(line.get("product_id")) != product["id"]
+            or cls.safe_extract_id(line.get("product_uom")) != product_uom
+            or abs(float(line.get("product_qty") or 0) - quantity) > 0.001
+            or abs(float(line.get("price_unit") or 0) - unit_price) > 0.001
+            or line.get("x_studio_so_no") != sales_order
+        ):
+            raise HTTPException(status_code=502, detail="Odoo RFQ read-back did not match the approved request")
+
+        return {"id": order["id"], "name": order.get("name", ""), "state": order["state"]}
+
+    @classmethod
+    def get_purchase_order_billing_statuses(cls, order_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+        ids = sorted(set(order_ids))
+        if not ids:
+            return {}
+
+        orders = cls._execute_kw(
+            "purchase.order",
+            "read",
+            [ids],
+            {"fields": ["name", "state", "invoice_status", "invoice_ids"]},
+        )
+        bill_ids = sorted({bill_id for order in orders for bill_id in order.get("invoice_ids") or []})
+        bills = cls._execute_kw(
+            "account.move",
+            "read",
+            [bill_ids],
+            {"fields": ["name", "state", "move_type"]},
+        ) if bill_ids else []
+        bills_by_id = {bill["id"]: bill for bill in bills if bill.get("move_type") == "in_invoice"}
+
+        statuses = {}
+        for order in orders:
+            bill = next(
+                (bills_by_id[bill_id] for bill_id in reversed(order.get("invoice_ids") or []) if bill_id in bills_by_id),
+                None,
+            )
+            statuses[order["id"]] = {
+                "name": order.get("name", ""),
+                "state": order.get("state", ""),
+                "invoice_status": order.get("invoice_status", ""),
+                "vendor_bill_id": bill.get("id") if bill else None,
+                "vendor_bill_name": bill.get("name") if bill else None,
+                "vendor_bill_state": bill.get("state") if bill else None,
+            }
+        return statuses
+
+    @classmethod
+    def get_purchase_order_billing_status(cls, order_id: int) -> Dict[str, Any]:
+        status = cls.get_purchase_order_billing_statuses([order_id]).get(order_id)
+        if not status:
+            raise HTTPException(status_code=404, detail="Odoo purchase order not found")
+        return status
+
+    @classmethod
+    def create_vendor_bill_from_purchase_order(cls, order_id: int) -> Dict[str, Any]:
+        status = cls.get_purchase_order_billing_status(order_id)
+        if status["vendor_bill_id"]:
+            return status
+        if status["state"] not in {"purchase", "done"}:
+            raise HTTPException(status_code=409, detail="Confirm the RFQ as a purchase order in Odoo first")
+        if status["invoice_status"] != "to invoice":
+            raise HTTPException(status_code=409, detail="This Odoo purchase order has nothing available to bill")
+
+        cls._execute_kw("purchase.order", "action_create_invoice", [[order_id]])
+        created = cls.get_purchase_order_billing_status(order_id)
+        if not created["vendor_bill_id"]:
+            raise HTTPException(status_code=502, detail="Odoo did not return the created vendor bill")
+        return created
 
     @classmethod
     def get_sales_order_details(cls, sales_order: str) -> Dict[str, Any]:
@@ -619,7 +885,7 @@ class OdooService:
         orders = cls._execute_kw(
             'sale.order',
             'search_read',
-            [[('name', '=', sales_order), ('company_id', '=', 1)]],
+            [[('name', '=', sales_order), cls._company_domain()]],
             {
                 'fields': [
                     'name', 'partner_id', 'partner_shipping_id',
@@ -627,7 +893,8 @@ class OdooService:
                     'amount_total', 'state',
                 ],
                 'limit': 1,
-            }
+            },
+            context=cls._company_context(),
         )
 
         if not orders:
@@ -641,7 +908,6 @@ class OdooService:
         # Use shipping address (delivery address) if available, else billing partner
         shipping_partner_id = cls.safe_extract_id(order.get('partner_shipping_id'))
         billing_partner_id = cls.safe_extract_id(order.get('partner_id'))
-        partner_id = shipping_partner_id or billing_partner_id
 
         result = {
             'sales_order': order.get('name'),
@@ -682,6 +948,7 @@ class OdooService:
                 'read',
                 [partner_ids],
                 {'fields': partner_fields},
+                context=cls._company_context(),
             )
             partners = {p['id']: p for p in records}
             ship = partners.get(shipping_partner_id, {})
@@ -723,6 +990,7 @@ class OdooService:
                         'read',
                         [[parent_id]],
                         {'fields': partner_fields},
+                        context=cls._company_context(),
                     )
                     if parents:
                         parent = parents[0]
@@ -753,8 +1021,9 @@ class OdooService:
             result = cls._execute_kw(
                 'sale.order',
                 'search',
-                [[('name', '=', sales_order), ('company_id', '=', 1)]],
-                {'limit': 1}
+                [[('name', '=', sales_order), cls._company_domain()]],
+                {'limit': 1},
+                context=cls._company_context(),
             )
             return bool(result)
         except Exception as e:
@@ -776,8 +1045,9 @@ class OdooService:
             sale_lines = cls._execute_kw(
                 'sale.order.line',
                 'search_read',
-                [[('order_id.name', '=', sales_order), ('company_id', '=', 1)]],
-                {'fields': ['x_studio_cabinet_position']}
+                [[('order_id.name', '=', sales_order), cls._company_domain()]],
+                {'fields': ['x_studio_cabinet_position']},
+                context=cls._company_context(),
             )
 
             # Extract unique cabinet positions
@@ -841,12 +1111,13 @@ class OdooService:
                     '|',
                     ('name', 'ilike', search_term),
                     ('default_code', 'ilike', search_term),
-                    ('company_id', 'in', [1, False]),
+                    ('company_id', 'in', [cls.COMPANY_ID, False]),
                 ]],
                 {
                     'fields': ['id', 'name', 'default_code', 'list_price'],
                     'limit': limit
-                }
+                },
+                context=cls._company_context(),
             )
 
             # Clean up product names
@@ -908,9 +1179,10 @@ class OdooService:
                 '|',
                 ('name', '=', source_doc),
                 ('origin', '=', source_doc),
-                ('company_id', '=', 1),
+                cls._company_domain(),
             ]],
-            {'fields': ['id', 'name', 'origin', 'partner_id', 'state']}
+            {'fields': ['id', 'name', 'origin', 'partner_id', 'state']},
+            context=cls._company_context(),
         )
 
         results: List[Dict[str, Any]] = []
@@ -998,47 +1270,38 @@ class OdooService:
     @classmethod
     def post_grn_result_to_odoo(cls, picking_id: int, missing_packages: List[str]) -> None:
         """Post GRN submission result as a chatter note on the stock.picking record."""
-        try:
-            if missing_packages:
-                body = (
-                    f"<b>GRN submitted with missing packages:</b><br/>"
-                    + "<br/>".join(f"• {p}" for p in missing_packages)
-                )
-            else:
-                body = "<b>GRN submitted — all packages received.</b>"
-
-            cls._execute_kw(
-                'stock.picking',
-                'message_post',
-                [[picking_id]],
-                {'body': body, 'message_type': 'comment', 'subtype_xmlid': 'mail.mt_note'}
+        if missing_packages:
+            body = (
+                "<b>GRN submitted with missing packages:</b><br/>"
+                + "<br/>".join(f"• {p}" for p in missing_packages)
             )
-        except Exception as e:
-            logger.warning("Failed to post GRN result to Odoo picking %s: %s", picking_id, e)
+        else:
+            body = "<b>GRN submitted — all packages received.</b>"
+
+        cls._execute_kw(
+            'stock.picking',
+            'message_post',
+            [[picking_id]],
+            {'body': body, 'message_type': 'comment', 'subtype_xmlid': 'mail.mt_note'}
+        )
 
     @classmethod
     def update_x_site_grn_status(cls, picking_id: int, has_missing: bool, submitted_at: Any = None) -> None:
         """Write GRN submission status back to x_site_grn linked to the picking."""
-        try:
-            grn_records = cls._execute_kw(
-                'x_site_grn',
-                'search_read',
-                [[('x_studio_delivery_order', '=', picking_id)]],
-                {'fields': ['id']}
-            )
-            grn_ids = [r['id'] for r in grn_records]
-            if grn_ids:
-                # x_studio_status selection: Done / Pending / Partially complete
-                vals: Dict[str, Any] = {
-                    'x_studio_status': 'Partially complete' if has_missing else 'Done'
-                }
-                if submitted_at and hasattr(submitted_at, 'strftime'):
-                    # Odoo expects UTC datetime string
-                    vals['x_studio_received_date'] = submitted_at.strftime('%Y-%m-%d %H:%M:%S')
-                cls._execute_kw('x_site_grn', 'write', [grn_ids, vals])
-        except Exception as e:
-            # Non-fatal: GRN submit must succeed even if Odoo writeback fails
-            logger.warning("Failed to update x_site_grn status for picking %s: %s", picking_id, e)
+        grn_records = cls._execute_kw(
+            'x_site_grn',
+            'search_read',
+            [[('x_studio_delivery_order', '=', picking_id)]],
+            {'fields': ['id']}
+        )
+        grn_ids = [r['id'] for r in grn_records]
+        if grn_ids:
+            vals: Dict[str, Any] = {
+                'x_studio_status': 'Partially complete' if has_missing else 'Done'
+            }
+            if submitted_at and hasattr(submitted_at, 'strftime'):
+                vals['x_studio_received_date'] = submitted_at.strftime('%Y-%m-%d %H:%M:%S')
+            cls._execute_kw('x_site_grn', 'write', [grn_ids, vals])
 
     @classmethod
     def probe_grn_line_fields(cls, field_names: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -1104,6 +1367,7 @@ class OdooService:
         except Exception as e:
             logger.warning("Could not discover grn line model for writeback: %s", e)
 
+        failures = []
         for update in line_updates:
             line_id = update.get('line_id')
             if not line_id:
@@ -1128,3 +1392,6 @@ class OdooService:
                 logger.debug("GRN line %s writeback OK: %s", line_id, vals)
             except Exception as e:
                 logger.warning("Failed to write back GRN line %s: %s", line_id, e)
+                failures.append(f"line {line_id}: {e}")
+        if failures:
+            raise RuntimeError("; ".join(failures))

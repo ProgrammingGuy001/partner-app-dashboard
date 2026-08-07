@@ -1,18 +1,10 @@
 import axiosInstance from './axios';
-import { clearAdminTokens, persistAdminTokens } from './authStorage';
 import type { AxiosResponse } from 'axios';
 
 // ============ Types ============
 export interface LoginRequest {
   email: string;
   password: string;
-}
-
-export interface SignupRequest {
-  email: string;
-  password: string;
-  isActive?: boolean;
-  isApproved?: boolean;
 }
 
 // Proper API response structure
@@ -57,6 +49,21 @@ export interface InvoiceRequest {
   job_name?: string | null;
 }
 
+export interface JobApprovalRequest {
+  id: number;
+  job_id: number;
+  action: 'start' | 'finish';
+  status: 'pending' | 'approved' | 'rejected';
+  reason: string;
+  requested_by_id: number | null;
+  requested_at: string | null;
+  reviewed_by_id: number | null;
+  reviewed_at: string | null;
+  review_notes: string | null;
+  job_name: string | null;
+  requested_by_name: string | null;
+}
+
 export interface BillingData {
   job_id: number;
   job_name: string;
@@ -79,7 +86,8 @@ export interface BillingData {
 
 export interface Job {
   id?: number;
-  name: string;
+  // Read-only: the server serves the customer's name. Never send this.
+  name?: string | null;
   customer_id?: number | null;
   customer_name?: string | null;
   customer_phone?: string | null;
@@ -92,15 +100,16 @@ export interface Job {
   type?: string | null;
   rate?: number | null;
   size?: number;
-  assigned_ip_id?: number;
+  // null on write clears the assignment, e.g. when a job moves from an IP to a supervisor.
+  assigned_ip_id?: number | null;
   assigned_ip_name?: string;
   assigned_ip?: AssignedIPSummary;
   is_ip_available?: boolean;
   start_date?: string;
   delivery_date: string;
-  checklist_link?: string;
   checklist_ids?: number[];
   job_checklists?: { checklist_id: number }[];
+  // Read-only: derived server-side from latitude/longitude. Never send this.
   google_map_link?: string;
   latitude?: number | null;
   longitude?: number | null;
@@ -110,11 +119,101 @@ export interface Job {
   additional_expense?: number;
   start_otp_verified?: boolean;
   end_otp_verified?: boolean;
+  handover_document_link?: string | null;
+  ncr_document_link?: string | null;
+  project_report_document_link?: string | null;
+  drawing_document_link?: string | null;
+  sales_order?: string | null;
+  // Optional attendance slot as "HH:MM:SS". When set, check-in opens at slot_start and
+  // closes 30 min later instead of the 10:30 cutoff. slot_end is informational.
+  slot_start?: string | null;
+  slot_end?: string | null;
+  user_id?: number | null;
+  assigned_admin_name?: string | null;
+  // Write-side alias of user_id: the supervisor who owns the site.
+  admin_assigned?: number | null;
   created_at?: string;
   updated_at?: string;
 }
 
 export type JobUpdate = Partial<Omit<Job, 'id'>>;
+
+// A rate card. Superadmins create them; any admin picks one on a job, which
+// stamps the card's type and rate onto that job.
+export interface JobRate {
+  id: number;
+  job_type_name: string;
+  base_rate: number;
+  location: string;
+  description?: string | null;
+}
+
+export type JobRateCreate = Omit<JobRate, 'id'>;
+
+export interface ResolvedMapUrl {
+  latitude: number | null;
+  longitude: number | null;
+  // Set when the link named a place but carried no pin — fall back to address search.
+  place_name: string | null;
+}
+
+export interface CompletionDocumentLinks {
+  handover_document_link: string;
+  ncr_document_link: string;
+  project_report_document_link: string;
+}
+
+export interface NcrDocumentRow {
+  sales_order: string;
+  part_no: string;
+  part_description: string;
+  qty: string;
+  issue_description: string;
+  disposition: string;
+}
+
+export interface ProjectDocumentRequest {
+  data_source: 'manual' | 'app';
+  project_name: string;
+  sales_order: string;
+  project_rating?: string;
+  accomplishment?: string;
+  total_expense?: string;
+  scope_summary?: string;
+  design_perspective?: string;
+  product?: string;
+  quality?: string;
+  operation?: string;
+  fulfillment?: string;
+  learning?: string;
+  ncr_document_number: string;
+  ncr_revision: string;
+  city_operation_in_charge: string;
+  project_marshal: string;
+  customer_quality_lead: string;
+  no_ncr_reported: boolean;
+  ncr_rows: NcrDocumentRow[];
+}
+
+export interface MonthlyProjectRow {
+  job_id: number | null;
+  project_id: string;
+  project_name: string;
+  handover_date: string;
+  days_taken: string;
+  learning: string;
+}
+
+export interface MonthlyDocumentRequest {
+  data_source: 'manual' | 'app';
+  month_year: string;
+  experience_centre: string;
+  ops_manager: string;
+  team_needed: string;
+  trained_team: string;
+  training_needed: string;
+  projects: MonthlyProjectRow[];
+}
 
 export interface JobStatusLog {
   id: number;
@@ -155,23 +254,6 @@ export interface PayoutSummary {
 // Backward-compatible type alias.
 export type PayoutByIPUser = PayoutByIP;
 
-export interface DailyJobUpdatePhoto {
-  id: number;
-  photo_url: string;
-  uploaded_at: string;
-}
-
-export interface DailyJobUpdate {
-  id: number;
-  job_id: number;
-  submitted_by_type: string;
-  submitted_by_id: number;
-  update_date: string;
-  notes?: string | null;
-  created_at: string;
-  photos: DailyJobUpdatePhoto[];
-}
-
 const JOBS_API_MAX_LIMIT = 200;
 
 export interface IPUser {
@@ -186,6 +268,7 @@ export interface IPUser {
   is_pan_verified: boolean;
   is_bank_details_verified: boolean;
   is_id_verified: boolean;
+  is_internal: boolean;
   pan_number?: string;
   pan_name?: string;
   account_number?: string;
@@ -214,6 +297,8 @@ export interface AdminUser {
   isActive: boolean;
   isApproved: boolean;
   is_superadmin: boolean;
+  is_dev?: boolean;
+  name?: string | null;
 }
 
 export interface User {
@@ -222,6 +307,46 @@ export interface User {
   isActive: boolean;
   isApproved: boolean;
   is_superadmin: boolean;
+  is_dev: boolean;
+  name?: string | null;
+}
+
+export interface PurchaseVendor {
+  id: number;
+  name: string;
+}
+
+export interface PurchaseOrderRequest {
+  id: number;
+  po_number: string | null;
+  vendor_id: number;
+  vendor_name: string;
+  sales_order: string | null;
+  poc_name: string | null;
+  service_type: 'b2b' | 'b2c';
+  product_name: string;
+  quantity: number;
+  unit_price: number;
+  status: 'pending' | 'approved';
+  requested_at: string;
+  requested_by_email?: string | null;
+  approved_at?: string | null;
+  approved_by_email?: string | null;
+  odoo_purchase_order_id?: number | null;
+  odoo_purchase_order_name?: string | null;
+  odoo_sync_error?: string | null;
+  odoo_purchase_order_state?: string | null;
+  odoo_invoice_status?: string | null;
+  odoo_status_error?: string | null;
+  bill_status: 'not_requested' | 'pending' | 'approved';
+  bill_requested_at?: string | null;
+  bill_requested_by_email?: string | null;
+  bill_approved_at?: string | null;
+  bill_approved_by_email?: string | null;
+  odoo_vendor_bill_id?: number | null;
+  odoo_vendor_bill_name?: string | null;
+  odoo_vendor_bill_state?: string | null;
+  bill_sync_error?: string | null;
 }
 
 export interface OTPResponse {
@@ -252,14 +377,12 @@ export interface Checklist {
   created_at?: string;
   updated_at?: string;
   checklist_items?: ChecklistItem[];
-  items?: ChecklistItem[]; // compatibility for existing UI code
 }
 
 export interface ChecklistItem {
   id: number;
   text: string;
   position: number;
-  checked?: boolean;
   status?: ChecklistItemStatus;
 }
 
@@ -267,6 +390,7 @@ export interface ChecklistItemStatus {
   id: number;
   checked: boolean;
   is_approved: boolean;
+  review_status: 'pending' | 'approved' | 'rejected';
   comment?: string;
   admin_comment?: string;
   document_link?: string;
@@ -278,6 +402,8 @@ export interface ChecklistWithStatus {
   id: number;
   name: string;
   description?: string;
+  document_link?: string | null;
+  template_available?: boolean;
   items: ChecklistItem[];
 }
 
@@ -294,6 +420,39 @@ const handleResponse = <T>(response: AxiosResponse<T> | T): T => {
   }
   // Fallback to the entire response
   return response as T;
+};
+
+const getAllPages = async <T>(
+  path: string,
+  params: Record<string, string | number | undefined> = {},
+  maxPages = 50,
+): Promise<T[]> => {
+  const items: T[] = [];
+  let offset = 0;
+
+  for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
+    const response = await axiosInstance.get(path, {
+      params: { ...params, offset, limit: JOBS_API_MAX_LIMIT },
+    });
+    const page = handleResponse<T[]>(response);
+    if (!Array.isArray(page) || page.length === 0) return items;
+    items.push(...page);
+    if (page.length < JOBS_API_MAX_LIMIT) return items;
+    offset += page.length;
+  }
+
+  throw new Error('Could not load all results. Narrow the filters and try again.');
+};
+
+const downloadAttachment = (response: AxiosResponse<Blob>, fallback: string) => {
+  const disposition = String(response.headers['content-disposition'] || '');
+  const filename = disposition.match(/filename="?([^";]+)/i)?.[1] || fallback;
+  const url = globalThis.URL.createObjectURL(response.data);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => globalThis.URL.revokeObjectURL(url), 10000);
 };
 
 const normalizeJob = (job: unknown): Job => {
@@ -328,14 +487,9 @@ const normalizeJobPayload = (job: Partial<Job>) => {
 
 // Auth APIs
 export const authAPI = {
+  // Tokens arrive as HttpOnly cookies; the copies in the body are deliberately ignored.
   login: (data: LoginRequest): Promise<unknown> =>
-    axiosInstance.post('/auth/login', data).then(res => {
-      persistAdminTokens(res.data);
-      return handleResponse(res);
-    }),
-
-  signup: (data: SignupRequest): Promise<unknown> =>
-    axiosInstance.post('/auth/signup', data).then(res => handleResponse(res)),
+    axiosInstance.post('/auth/login', data).then(res => handleResponse(res)),
 
   getCurrentUser: (): Promise<User> =>
     axiosInstance.get('/auth/me').then(res => handleResponse(res)),
@@ -344,22 +498,19 @@ export const authAPI = {
     axiosInstance.get('/auth/verify-token').then(res => handleResponse(res)),
 
   refreshToken: (): Promise<unknown> =>
-    axiosInstance.post('/auth/refresh-token').then(res => {
-      persistAdminTokens(res.data);
-      return handleResponse(res);
-    }),
+    axiosInstance.post('/auth/refresh-token').then(res => handleResponse(res)),
 
   logout: (): Promise<unknown> =>
-    axiosInstance.post('/auth/logout').then(res => {
-      clearAdminTokens();
-      return handleResponse(res);
-    }),
+    axiosInstance.post('/auth/logout').then(res => handleResponse(res)),
 
   // Superadmin-only: reset another admin's password.
   resetPassword: (email: string, newPassword: string): Promise<{ message: string; email: string }> =>
     axiosInstance
       .post('/auth/admin/reset-password', { email, new_password: newPassword })
       .then(res => handleResponse(res)),
+
+  updateProfile: (data: { name: string }): Promise<User> =>
+    axiosInstance.put('/auth/me', data).then(res => handleResponse(res)),
 };
 
 // Job APIs with pagination support
@@ -422,6 +573,11 @@ export const jobAPI = {
   getCustomers: (params?: { search?: string; limit?: number }): Promise<Customer[]> =>
     axiosInstance.get('/jobs/customers', { params }).then(res => handleResponse(res)),
 
+  // Short links (maps.app.goo.gl) can only be followed server-side — CORS hides the
+  // Location header from the browser.
+  resolveMapUrl: (url: string): Promise<ResolvedMapUrl> =>
+    axiosInstance.post('/jobs/resolve-map-url', { url }).then(res => handleResponse(res)),
+
   create: (data: Omit<Job, 'id'>): Promise<Job> =>
     axiosInstance.post('/jobs', normalizeJobPayload(data)).then(res => normalizeJob(handleResponse(res))),
 
@@ -437,8 +593,8 @@ export const jobAPI = {
   pause: (id: number, notes?: string): Promise<ApiResponse> =>
     axiosInstance.post(`/jobs/${id}/pause`, { notes }).then(res => handleResponse(res)),
 
-  finish: (id: number, notes?: string): Promise<ApiResponse> =>
-    axiosInstance.post(`/jobs/${id}/finish`, { notes }).then(res => handleResponse(res)),
+  finish: (id: number, notes: string | undefined, documents: CompletionDocumentLinks): Promise<ApiResponse> =>
+    axiosInstance.post(`/jobs/${id}/finish`, { notes, ...documents }).then(res => handleResponse(res)),
 
   // OTP-based job start/finish
   requestStartOTP: (id: number): Promise<OTPResponse> =>
@@ -450,15 +606,39 @@ export const jobAPI = {
   requestEndOTP: (id: number): Promise<OTPResponse> =>
     axiosInstance.post(`/jobs/${id}/request-end-otp`).then(res => handleResponse(res)),
 
-  verifyEndOTP: (id: number, otp: string, notes?: string): Promise<Job> =>
-    axiosInstance.post(`/jobs/${id}/verify-end-otp`, { otp, notes }).then(res => normalizeJob(handleResponse(res))),
+  verifyEndOTP: (id: number, otp: string, notes: string | undefined, documents: CompletionDocumentLinks): Promise<Job> =>
+    axiosInstance.post(`/jobs/${id}/verify-end-otp`, { otp, notes, ...documents }).then(res => normalizeJob(handleResponse(res))),
+
+  // Superadmin approval — the fallback when the customer OTP can't be used
+  createApprovalRequest: (
+    id: number,
+    data: { action: 'start' | 'finish'; reason: string } & Partial<CompletionDocumentLinks>,
+  ): Promise<JobApprovalRequest> =>
+    axiosInstance.post(`/jobs/${id}/approval-requests`, data).then(res => handleResponse(res)),
+
+  getApprovalRequests: (id: number): Promise<JobApprovalRequest[]> =>
+    axiosInstance.get(`/jobs/${id}/approval-requests`).then(res => handleResponse(res)),
+
+  getPendingApprovalRequests: (): Promise<JobApprovalRequest[]> =>
+    axiosInstance.get('/jobs/approval-requests/pending').then(res => handleResponse(res)),
+
+  approveApprovalRequest: (requestId: number): Promise<JobApprovalRequest> =>
+    axiosInstance.put(`/jobs/approval-requests/${requestId}/approve`).then(res => handleResponse(res)),
+
+  rejectApprovalRequest: (requestId: number, reason?: string): Promise<JobApprovalRequest> =>
+    axiosInstance.put(`/jobs/approval-requests/${requestId}/reject`, null, { params: { reason: reason || '' } })
+      .then(res => handleResponse(res)),
 
   getHistory: (id: number): Promise<JobStatusLog[]> =>
     axiosInstance.get(`/jobs/${id}/history`).then(res => handleResponse(res)),
 
-  uploadFile: (file: File): Promise<{ url: string }> => {
+  uploadFile: (file: File, completion?: { jobId: number; documentType: 'handover' | 'ncr' | 'project_report' }): Promise<{ url: string }> => {
     const formData = new FormData();
     formData.append("file", file);
+    if (completion) {
+      formData.append("job_id", String(completion.jobId));
+      formData.append("document_type", completion.documentType);
+    }
     return axiosInstance.post('/jobs/upload-file', formData, {
       headers: { "Content-Type": "multipart/form-data" },
     }).then(res => handleResponse(res));
@@ -486,7 +666,7 @@ export const jobAPI = {
     axiosInstance.get('/jobs/invoice-requests/pending').then(res => handleResponse(res)),
 
   getPendingApprovalJobs: (): Promise<Job[]> =>
-    axiosInstance.get('/jobs/pending-approval').then(res => handleResponse(res)),
+    getAllPages<Job>('/jobs/pending-approval'),
 
   approveJobCreation: (id: number): Promise<Job> =>
     axiosInstance.post(`/jobs/${id}/approve-creation`).then(res => normalizeJob(handleResponse(res))),
@@ -494,17 +674,45 @@ export const jobAPI = {
   rejectJobCreation: (id: number, reason?: string): Promise<Job> =>
     axiosInstance.post(`/jobs/${id}/reject-creation`, null, { params: { reason: reason || '' } }).then(res => normalizeJob(handleResponse(res))),
 
-  getDailyUpdates: (id: number, params?: { skip?: number; limit?: number; update_date?: string }): Promise<{ job_id: number; total: number; updates: DailyJobUpdate[] }> =>
-    axiosInstance.get(`/jobs/${id}/daily-updates`, { params }).then(res => handleResponse(res)),
+  generateNcr: async (id: number, data: ProjectDocumentRequest): Promise<{ url: string; filename: string } | null> => {
+    const response = await axiosInstance.post<Blob>(`/jobs/${id}/documents/project-ncr`, data, { responseType: 'blob' });
+    if (String(response.headers['content-type']).includes('application/json')) {
+      return JSON.parse(await response.data.text());
+    }
+    downloadAttachment(response, `level-2-ncr-job-${id}.pdf`);
+    return null;
+  },
 
-  downloadInvoice: async (id: number, jobName?: string | null): Promise<void> => {
-    const response = await axiosInstance.get(`/jobs/${id}/invoice-request/download`, {
+  downloadNcr: async (data: ProjectDocumentRequest): Promise<void> => {
+    const response = await axiosInstance.post('/jobs/documents/ncr', data, { responseType: 'blob' });
+    downloadAttachment(response, 'level-2-ncr.pdf');
+  },
+
+  generateProjectReport: async (id: number, data: MonthlyDocumentRequest): Promise<{ url: string; filename: string } | null> => {
+    const response = await axiosInstance.post<Blob>(`/jobs/${id}/documents/project-report`, data, { responseType: 'blob' });
+    if (String(response.headers['content-type']).includes('application/json')) {
+      return JSON.parse(await response.data.text());
+    }
+    downloadAttachment(response, `project-report-job-${id}.xlsx`);
+    return null;
+  },
+
+  downloadMonthlyProjects: async (data: MonthlyDocumentRequest): Promise<void> => {
+    const response = await axiosInstance.post('/jobs/documents/monthly', data, { responseType: 'blob' });
+    downloadAttachment(response, `monthly-executed-projects-${data.month_year}.xlsx`);
+  },
+
+  downloadInvoice: async (id: number, jobName?: string | null, invoiceRequestId?: number): Promise<void> => {
+    const path = invoiceRequestId
+      ? `/jobs/${id}/invoice-requests/${invoiceRequestId}/download`
+      : `/jobs/${id}/invoice-request/download`;
+    const response = await axiosInstance.get(path, {
       responseType: 'blob',
     });
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `billing_invoice_${jobName || id}.xlsx`);
+    link.setAttribute('download', `billing_invoice_${jobName || id}_${invoiceRequestId || 'latest'}.xlsx`);
     document.body.appendChild(link);
     link.click();
     link?.remove();
@@ -533,6 +741,33 @@ export const adminAPI = {
     axiosInstance.get(`/admin/ips/${ipId}/admins`).then(res => handleResponse(res)),
 };
 
+export const purchaseOrderAPI = {
+  searchVendors: (search: string): Promise<PurchaseVendor[]> =>
+    axiosInstance.get('/admin/purchase-orders/vendors', { params: { search } }).then(res => handleResponse(res)),
+
+  list: (): Promise<PurchaseOrderRequest[]> =>
+    getAllPages<PurchaseOrderRequest>('/admin/purchase-orders'),
+
+  create: (data: {
+    vendor_id: number;
+    sales_order: string;
+    poc_name: string;
+    service_type: 'b2b' | 'b2c';
+    quantity: number;
+    unit_price: number;
+  }): Promise<PurchaseOrderRequest> =>
+    axiosInstance.post('/admin/purchase-orders', data).then(res => handleResponse(res)),
+
+  approve: (id: number): Promise<PurchaseOrderRequest> =>
+    axiosInstance.post(`/admin/purchase-orders/${id}/approve`).then(res => handleResponse(res)),
+
+  requestBill: (id: number): Promise<PurchaseOrderRequest> =>
+    axiosInstance.post(`/admin/purchase-orders/${id}/bill-request`).then(res => handleResponse(res)),
+
+  approveBill: (id: number): Promise<PurchaseOrderRequest> =>
+    axiosInstance.post(`/admin/purchase-orders/${id}/bill-request/approve`).then(res => handleResponse(res)),
+};
+
 // Analytics APIs
 export const analyticsAPI = {
   getPayoutReport: (params: {
@@ -556,7 +791,7 @@ export const analyticsAPI = {
   getJobStages: (): Promise<JobStageCount[]> =>
     axiosInstance.get('/analytics/job-stages').then(res => handleResponse(res)),
 
-  getIPPerformance: (): Promise<unknown> =>
+  getIPPerformance: (): Promise<PayoutByIP[]> =>
     axiosInstance.get('/analytics/ip-performance').then(res => handleResponse(res)),
 };
 
@@ -565,10 +800,17 @@ export interface DailyAttendance {
   job_id: number | null;
   job_name: string | null;
   phone: string;
+  attendance_type: 'check_in' | 'check_out';
   latitude: number;
   longitude: number;
+  // null means the job had no map pin to measure against, not "outside the fence".
+  distance_meters: number | null;
+  within_geofence: boolean | null;
   manual_location: string | null;
   photo_url: string | null;
+  report_document_url: string | null;
+  report_status: 'submitted' | 'submitted_late' | 'auto_closed' | null;
+  checkout_source: 'manual' | 'auto' | null;
   recorded_at: string;
 }
 
@@ -577,6 +819,14 @@ export interface AttendanceListResponse {
   skip: number;
   limit: number;
   completion_summary?: IPAttendanceCompletion[];
+  missing_reports?: Array<{
+    ip_user_id: number | null;
+    phone: string;
+    job_id: number | null;
+    job_name: string | null;
+    attendance_date: string;
+    status: 'missing' | 'overdue';
+  }>;
   records: DailyAttendance[];
 }
 
@@ -609,6 +859,20 @@ export const attendanceAPI = {
     limit?: number;
   }): Promise<AttendanceListResponse> =>
     axiosInstance.get('/admin/attendance', { params }).then(res => handleResponse(res)),
+
+  exportXlsx: async (params?: {
+    job_id?: number;
+    phone?: string;
+    admin_id?: number;
+    date_from?: string;
+    date_to?: string;
+  }): Promise<void> => {
+    const response = await axiosInstance.get<Blob>('/admin/attendance/export', {
+      params,
+      responseType: 'blob',
+    });
+    downloadAttachment(response, 'attendance.xlsx');
+  },
 };
 
 export interface AdminAttendanceRecord {
@@ -618,6 +882,11 @@ export interface AdminAttendanceRecord {
   marked_at: string;
   latitude: number | null;
   longitude: number | null;
+  // Supervisors don't name a site, so the fix is matched to the nearest pinned job.
+  matched_job_id: number | null;
+  matched_job_name: string | null;
+  distance_meters: number | null;
+  within_geofence: boolean | null;
   notes: string | null;
   manual_location: string | null;
   photo_url: string | null;
@@ -654,19 +923,83 @@ export const adminAttendanceAPI = {
     axiosInstance.get('/admin/all-attendance', { params }).then(res => handleResponse(res)),
 };
 
+export interface SundayWorkRequestIP {
+  id: number;
+  first_name: string | null;
+  last_name: string | null;
+  phone_number: string;
+}
+
+export interface SundayWorkRequestAdmin {
+  id: number;
+  name: string | null;
+  email: string;
+}
+
+export interface SundayWorkRequest {
+  id: number;
+  ip_user_id: number | null;
+  admin_id: number | null;
+  requester_type: 'ip' | 'supervisor';
+  request_date: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reason: string | null;
+  reviewed_by_admin_id: number | null;
+  reviewed_at: string | null;
+  review_notes: string | null;
+  created_at: string;
+  ip_user: SundayWorkRequestIP | null;
+  admin: SundayWorkRequestAdmin | null;
+}
+
+// IPs submit from the mobile app, supervisors from this dashboard; only superadmins approve.
+export const sundayWorkRequestAPI = {
+  list: (status?: string): Promise<SundayWorkRequest[]> =>
+    getAllPages<SundayWorkRequest>('/admin/sunday-requests', { status }),
+
+  create: (data: { request_date: string; reason?: string }): Promise<SundayWorkRequest> =>
+    axiosInstance.post('/admin/sunday-requests', data).then(res => handleResponse(res)),
+
+  approve: (id: number, reviewNotes?: string): Promise<SundayWorkRequest> =>
+    axiosInstance.put(`/admin/sunday-requests/${id}/approve`, { review_notes: reviewNotes }).then(res => handleResponse(res)),
+
+  reject: (id: number, reviewNotes?: string): Promise<SundayWorkRequest> =>
+    axiosInstance.put(`/admin/sunday-requests/${id}/reject`, { review_notes: reviewNotes }).then(res => handleResponse(res)),
+};
+
 // Checklist APIs
+export const jobRateAPI = {
+  getAll: (): Promise<JobRate[]> =>
+    axiosInstance.get('/job-rates').then(res => handleResponse(res)),
+
+  create: (data: JobRateCreate): Promise<JobRate> =>
+    axiosInstance.post('/job-rates', data).then(res => handleResponse(res)),
+};
+
 export const checklistAPI = {
   getAll: (): Promise<Checklist[]> =>
     axiosInstance.get('/checklists').then(res => handleResponse(res)),
 
-  create: (data: { name: string }): Promise<Checklist> =>
+  create: (data: { name: string; description?: string }): Promise<Checklist> =>
     axiosInstance.post('/checklists', data).then(res => handleResponse(res)),
+
+  update: (id: number, data: { name: string; description?: string }): Promise<Checklist> =>
+    axiosInstance.put(`/checklists/${id}`, data).then(res => handleResponse(res)),
+
+  delete: (id: number): Promise<Checklist> =>
+    axiosInstance.delete(`/checklists/${id}`).then(res => handleResponse(res)),
 
   getById: (id: number): Promise<Checklist> =>
     axiosInstance.get(`/checklists/${id}`).then(res => handleResponse(res)),
 
-  createItem: (checklistId: number, data: { text: string }): Promise<ApiResponse> =>
+  createItem: (checklistId: number, data: { text: string; position?: number }): Promise<ChecklistItem> =>
     axiosInstance.post('/checklists/items', { ...data, checklist_id: checklistId }).then(res => handleResponse(res)),
+
+  updateItem: (itemId: number, data: { text: string; position: number }): Promise<ChecklistItem> =>
+    axiosInstance.put(`/checklists/items/${itemId}`, data).then(res => handleResponse(res)),
+
+  deleteItem: (itemId: number): Promise<ChecklistItem> =>
+    axiosInstance.delete(`/checklists/items/${itemId}`).then(res => handleResponse(res)),
 
   getJobChecklistsStatus: (jobId: number): Promise<ChecklistWithStatus[]> =>
     axiosInstance.get(`/checklists/jobs/${jobId}/status`).then(res => handleResponse(res)),
@@ -674,9 +1007,29 @@ export const checklistAPI = {
   updateJobChecklistItemStatus: (
     jobId: number,
     itemId: number,
-    data: { checked?: boolean; is_approved?: boolean; admin_comment?: string | null }
+    data: { checked?: boolean; is_approved?: boolean; review_status?: 'pending' | 'approved' | 'rejected'; admin_comment?: string | null; document_link?: string | null }
   ): Promise<ApiResponse> =>
     axiosInstance.put(`/checklists/jobs/${jobId}/items/${itemId}/status`, data).then(res => handleResponse(res)),
+
+  downloadJobChecklistTemplate: async (jobId: number, checklistId: number): Promise<void> => {
+    const response = await axiosInstance.get<Blob>(`/checklists/jobs/${jobId}/${checklistId}/template`, { responseType: 'blob' });
+    downloadAttachment(response, 'All Check-list.xlsx');
+  },
+
+  exportJobChecklist: async (jobId: number, checklistId: number, checklistName: string): Promise<void> => {
+    const response = await axiosInstance.get<Blob>(`/checklists/jobs/${jobId}/${checklistId}/export`, { responseType: 'blob' });
+    downloadAttachment(response, `Job-${jobId}-${checklistName}.pdf`);
+  },
+
+  uploadJobChecklistDocument: (jobId: number, checklistId: number, file: File): Promise<{ document_link: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return axiosInstance
+      .post(`/checklists/jobs/${jobId}/${checklistId}/document`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then(res => handleResponse(res));
+  },
 };
 
 // ─── Site GRN Types ───────────────────────────────────────────────────────────
@@ -695,19 +1048,34 @@ export interface GRNIPUser {
   phone_number: string;
 }
 
+export interface GRNAdminUser {
+  id: number;
+  name: string | null;
+  email: string | null;
+}
+
+export interface GRNJob {
+  id: number;
+  name: string | null;
+}
+
 export interface GRN {
   id: number;
   source_document: string;
   odoo_picking_id: number | null;
   odoo_picking_name: string | null;
-  ip_user_id: number;
+  ip_user_id: number | null;
+  job_id: number | null;
   created_by_admin_id: number;
   status: 'pending' | 'submitted';
   has_missing: boolean;
+  odoo_sync_error: string | null;
   created_at: string;
   submitted_at: string | null;
   packages: GRNPackage[];
   ip_user: GRNIPUser | null;
+  created_by: GRNAdminUser | null;
+  job: GRNJob | null;
 }
 
 export interface OdooPackageInfo {
@@ -729,12 +1097,111 @@ export const grnAPI = {
   lookup: (sourceDoc: string): Promise<OdooPickingInfo[]> =>
     axiosInstance.get(`/admin/grn/lookup/${encodeURIComponent(sourceDoc)}`).then(res => handleResponse(res)),
 
-  create: (data: { source_document: string; ip_user_id: number; picking_ids?: number[] }): Promise<GRN[]> =>
+  create: (data: { source_document: string; ip_user_id?: number | null; assign_to_self?: boolean; job_id?: number | null; picking_ids?: number[] }): Promise<GRN[]> =>
     axiosInstance.post('/admin/grn/', data).then(res => handleResponse(res)),
 
-  list: (limit = 50, offset = 0): Promise<GRN[]> =>
-    axiosInstance.get('/admin/grn/', { params: { limit, offset } }).then(res => handleResponse(res)),
+  list: (limit = 50, offset = 0, jobId?: number): Promise<GRN[]> =>
+    axiosInstance.get('/admin/grn/', { params: { limit, offset, job_id: jobId } }).then(res => handleResponse(res)),
 
   get: (id: number): Promise<GRN> =>
     axiosInstance.get(`/admin/grn/${id}`).then(res => handleResponse(res)),
+
+  retrySync: (id: number): Promise<GRN> =>
+    axiosInstance.post(`/admin/grn/${id}/retry-sync`).then(res => handleResponse(res)),
+
+  submit: (id: number, packages: Array<{ package_id: number; is_received: boolean }>): Promise<GRN> =>
+    axiosInstance.post(`/admin/grn/${id}/submit`, { packages }).then(res => handleResponse(res)),
+};
+
+export interface DevUser {
+  id: number;
+  email: string | null;
+  name: string | null;
+  isActive: boolean;
+  isApproved: boolean;
+  is_superadmin: boolean;
+  is_dev: boolean;
+  created_at?: string | null;
+}
+
+export interface DevIPUser {
+  id: number;
+  phone_number: string;
+  first_name: string | null;
+  last_name: string | null;
+  city: string | null;
+  pincode: number | null;
+  is_internal: boolean;
+  is_id_verified: boolean;
+}
+
+export interface DevAttendanceBackfill {
+  subject_type: 'ip' | 'admin';
+  subject_id: number;
+  attendance_date: string;
+  reason: string;
+  job_id?: number;
+  attendance_type?: 'check_in' | 'check_out';
+}
+
+export interface DevAuditEntry {
+  id: number;
+  actor_email: string | null;
+  action: string;
+  target_email: string | null;
+  detail: string | null;
+  created_at: string;
+}
+
+export const devAPI = {
+  listUsers: (): Promise<DevUser[]> =>
+    axiosInstance.get('/dev/users').then(res => handleResponse(res)),
+
+  createUser: (data: {
+    email: string;
+    name?: string;
+    password: string;
+    is_superadmin: boolean;
+  }): Promise<DevUser> =>
+    axiosInstance.post('/dev/users', data).then(res => handleResponse(res)),
+
+  updateUser: (
+    id: number,
+    data: {
+      isActive?: boolean;
+      isApproved?: boolean;
+      is_superadmin?: boolean;
+      name?: string | null;
+      email?: string;
+    },
+  ): Promise<DevUser> =>
+    axiosInstance.patch(`/dev/users/${id}`, data).then(res => handleResponse(res)),
+
+  revokeSessions: (id: number): Promise<{ message: string; email: string }> =>
+    axiosInstance.post(`/dev/users/${id}/revoke-sessions`).then(res => handleResponse(res)),
+
+  listIPUsers: (): Promise<DevIPUser[]> =>
+    axiosInstance.get('/dev/ip-users').then(res => handleResponse(res)),
+
+  updateIPUser: (
+    id: number,
+    data: {
+      phone_number?: string;
+      first_name?: string | null;
+      last_name?: string | null;
+      city?: string | null;
+      pincode?: number | null;
+      is_internal?: boolean;
+    },
+  ): Promise<DevIPUser> =>
+    axiosInstance.patch(`/dev/ip-users/${id}`, data).then(res => handleResponse(res)),
+
+  backfillAttendance: (data: DevAttendanceBackfill): Promise<{
+    message: string;
+    record: { id: number; subject_label: string; attendance_date: string };
+  }> =>
+    axiosInstance.post('/dev/attendance', data).then(res => handleResponse(res)),
+
+  getAuditLog: (): Promise<DevAuditEntry[]> =>
+    axiosInstance.get('/dev/audit-log').then(res => handleResponse(res)),
 };

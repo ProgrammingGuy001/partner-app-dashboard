@@ -15,19 +15,20 @@ import './App.css';
 
 // Lazy load pages for better performance
 const Login = React.lazy(() => import('@/pages/Login'));
-const SignUp = React.lazy(() => import('@/pages/SignUp'));
 const Dashboard = React.lazy(() => import('@/pages/Dashboard'));
 const Jobs = React.lazy(() => import('@/pages/Jobs'));
 const Workers = React.lazy(() => import('@/pages/Workers'));
 const JobHistory = React.lazy(() => import('@/pages/JobHistory'));
-const JobDailyUpdates = React.lazy(() => import('@/pages/JobDailyUpdates'));
 const Checklists = React.lazy(() => import('@/pages/Checklist'));
 const BOMHistory = React.lazy(() => import('@/pages/BOMHistory'));
 const SiteRequisite = React.lazy(() => import('@/pages/SiteRequisite'));
-const SiteRequisiteBucket = React.lazy(() => import('@/pages/SiteRequisiteBucket'));
-const SiteRequisiteSubmit = React.lazy(() => import('@/pages/SiteRequisiteSubmit'));
+const SiteRequisiteReview = React.lazy(() => import('@/pages/SiteRequisiteReview'));
 const Attendance = React.lazy(() => import('@/pages/Attendance'));
 const SiteGRN = React.lazy(() => import('@/pages/SiteGRN'));
+const PurchaseOrders = React.lazy(() => import('@/pages/PurchaseOrders'));
+const DocumentAutomation = React.lazy(() => import('@/pages/DocumentAutomation'));
+const Profile = React.lazy(() => import('@/pages/Profile'));
+const Dev = React.lazy(() => import('@/pages/Dev'));
 
 // Loading Fallback
 const PageLoader = () => (
@@ -96,13 +97,11 @@ function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/register" element={<SignUp />} />
             <Route path="/dashboard" element={<DashboardLayout />}>
               <Route index element={<Dashboard />} />
               <Route path="jobs" element={<Jobs />} />
               <Route path="workers" element={<Workers />} />
               <Route path="jobs/:jobId/history" element={<JobHistory />} />
-              <Route path="jobs/:jobId/updates" element={<JobDailyUpdates />} />
               <Route path="checklists" element={<Checklists />} />
               <Route path="bom" element={<BOMHistory />} />
               <Route path="site-requisite" element={
@@ -111,11 +110,14 @@ function App() {
                 </RequisiteProvider>
               }>
                 <Route index element={<SiteRequisite />} />
-                <Route path="bucket" element={<SiteRequisiteBucket />} />
-                <Route path="submit" element={<SiteRequisiteSubmit />} />
+                <Route path="review" element={<SiteRequisiteReview />} />
               </Route>
               <Route path="attendance" element={<Attendance />} />
               <Route path="site-grn" element={<SiteGRN />} />
+              <Route path="purchase-orders" element={<PurchaseOrders />} />
+              <Route path="document-automation" element={<DocumentAutomation />} />
+              <Route path="profile" element={<Profile />} />
+              <Route path="dev" element={<Dev />} />
               <Route path="admin" element={<Navigate to="/dashboard/workers" replace />} />
             </Route>
 

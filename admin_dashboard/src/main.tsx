@@ -5,6 +5,7 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { ThemeProvider } from 'next-themes';
 import './index.css';
 import App from './App.tsx';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -16,9 +17,7 @@ const queryClient = new QueryClient({
       refetchOnReconnect: true,
       throwOnError: false,
     },
-    mutations: {
-      retry: 1,
-    },
+    mutations: { retry: false },
   },
 });
 
@@ -32,8 +31,11 @@ reactDOM.createRoot(rootElement).render(
   <StrictMode>
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <QueryClientProvider client={queryClient}>
-        <App />
-        <ReactQueryDevtools initialIsOpen={false} />
+        <ErrorBoundary>
+          <App />
+        </ErrorBoundary>
+        {/* Dev only: the devtools panel exposes every cached API payload. */}
+        {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
       </QueryClientProvider>
     </ThemeProvider>
   </StrictMode>

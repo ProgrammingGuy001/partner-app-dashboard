@@ -1,9 +1,12 @@
+import logging
 from sqlalchemy.orm import Session
 from app.model.job import Job
 from app.model.ip import ip
 from fastapi import HTTPException
 from app.utils.ip_assignment import is_admin_allowed_for_ip
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 def get_ip_by_id(db:Session,id:int):
     return db.query(ip).filter(ip.id==id).first()
@@ -73,7 +76,8 @@ def assign_ip(db: Session, ip_id: int, admin_id: int, is_superadmin: bool = Fals
     except Exception as e:
         if commit:
             db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error assigning IP: {str(e)}") from e
+        logger.exception("Error assigning IP")
+        raise HTTPException(status_code=500, detail="Could not assign the IP.") from e
 
 def unassign_ip(db: Session, ip_id: int, admin_id: int, is_superadmin: bool = False, commit: bool = True):
     """Unassign an IP from a job - marks is_assigned=False"""
@@ -98,7 +102,8 @@ def unassign_ip(db: Session, ip_id: int, admin_id: int, is_superadmin: bool = Fa
     except Exception as e:
         if commit:
             db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error unassigning IP: {str(e)}") from e
+        logger.exception("Error unassigning IP")
+        raise HTTPException(status_code=500, detail="Could not unassign the IP.") from e
 
 def check_ip_available(db: Session, ip_id: int) -> bool:
     """Check if an IP is available (exists and not assigned)"""

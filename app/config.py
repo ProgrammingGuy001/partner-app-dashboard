@@ -40,6 +40,14 @@ def get_env_file() -> str:
 
     return env_path(".env.test")
 
+from dotenv import load_dotenv
+
+# Force-load the correct env file, overriding any variables already in os.environ.
+# This prevents tools like Uvicorn or VS Code from locking the app into the wrong
+# environment by automatically loading a default .env file before this script runs.
+_active_env_file = get_env_file()
+load_dotenv(_active_env_file, override=True)
+
 
 class Settings(BaseSettings):
     # Environment
@@ -66,6 +74,11 @@ class Settings(BaseSettings):
     ADMIN_REFRESH_COOKIE_NAME: str = "admin_refresh_token"
     IP_REFRESH_COOKIE_NAME: str = "ip_refresh_token"
     SERVICE_SECRET_KEY: str
+
+    # Bootstrap dev account. Seeded on startup when both are set; the password is
+    # only applied when the account is first created, never on later boots.
+    DEV_EMAIL: Optional[str] = None
+    DEV_PASSWORD: Optional[str] = None
 
     # AWS
     AWS_ACCESS_KEY_ID: str
@@ -98,6 +111,7 @@ class Settings(BaseSettings):
     # OTP Settings
     OTP_EXPIRY_MINUTES: int = 10
     OTP_LENGTH: int = 6
+    OTP_MAX_ATTEMPTS: int = 5
     OTP_DEBUG_LOG_ENABLED: bool = False
     SMS_SEND_ENABLED: Optional[bool] = None
 
@@ -110,7 +124,9 @@ class Settings(BaseSettings):
     # File Upload Settings
     MAX_UPLOAD_SIZE_MB: int = 10
     ALLOWED_FILE_EXTENSIONS: str = ".jpg,.jpeg,.png,.pdf,.doc,.docx"
-    UPLOAD_READ_CHUNK_SIZE: int = 1024 * 1024
+
+    # Document automation service
+    DOCUMENT_AUTOMATION_URL: str = "http://127.0.0.1:3000"
 
     # API performance / observability
     API_REQUEST_LOGGING_ENABLED: bool = True
@@ -124,10 +140,12 @@ class Settings(BaseSettings):
     ODOO_USERNAME: Optional[str] = None
     ODOO_PASSWORD: Optional[str] = None
     ODOO_RPC_TIMEOUT_SECONDS: int = 30
+    # Default Odoo company for lookups that do not resolve one from the record.
+    ODOO_COMPANY_ID: int = 1
     # Set to "false" to disable SSL verification for Odoo (dev only, never in prod)
     ODOO_SSL_VERIFY: str = "true"
-    
-    ModulaCare_URL: str 
+
+    ModulaCare_URL: str
 
     @field_validator("SECRET_KEY")
     @classmethod
@@ -161,6 +179,21 @@ class Settings(BaseSettings):
     @property
     def is_secure_cookie_environment(self) -> bool:
         return self.normalized_environment in {"production", "prod", "staging"}
+
+    @property
+    def log_plaintext_otp(self) -> bool:
+        """Never log an OTP in a secure environment, whatever the .env says.
+
+        A plaintext OTP in the log is a working credential for anyone with log
+        access, so OTP_DEBUG_LOG_ENABLED is treated as a local-development
+        convenience that production cannot switch back on by accident.
+        """
+        return self.OTP_DEBUG_LOG_ENABLED and not self.is_secure_cookie_environment
+
+    @property
+    def expose_api_docs(self) -> bool:
+        """/docs publishes every route and schema, including KYC and bank fields."""
+        return not self.is_secure_cookie_environment
 
     @property
     def should_send_sms(self) -> bool:

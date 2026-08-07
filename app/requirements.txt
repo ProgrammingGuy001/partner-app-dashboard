@@ -38,3 +38,9 @@ defusedxml==0.7.1
 
 # Excel export
 openpyxl==3.1.5
+
+# Supplied PDF template filling
+Pillow==12.3.0
+playwright==1.54.0
+pypdf==5.9.0
+reportlab==4.4.3

@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Linking, View, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
+import { View, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@react-native-vector-icons/ionicons';
@@ -8,6 +8,8 @@ import { useLogout } from '../../hooks/useLogout';
 import { useAuthStore } from '../../store/authStore';
 import { useTheme } from '../../hooks/useTheme';
 import { Notice } from '../../components/common/Primitives';
+import DeleteVerificationDataButton from '../../components/verification/DeleteVerificationDataButton';
+import { useToast } from '../../hooks/useToast';
 
 const PendingApprovalScreen = () => {
   const { colors } = useTheme();
@@ -15,18 +17,19 @@ const PendingApprovalScreen = () => {
   const user = useAuthStore((state) => state.user);
   const refreshProfile = useAuthStore((state) => state.refreshProfile);
   const [refreshing, setRefreshing] = useState(false);
+  const toast = useToast();
 
   const handleRefresh = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setRefreshing(true);
     try {
       await refreshProfile();
-    } catch (e) {
-      // silently fail
+    } catch (error) {
+      toast.error(error.message || 'Failed to refresh verification status');
     } finally {
       setRefreshing(false);
     }
-  }, [refreshProfile]);
+  }, [refreshProfile, toast]);
 
   const verificationStatus = [
     {
@@ -155,24 +158,13 @@ const PendingApprovalScreen = () => {
         <Notice
           tone="info"
           title="What happens next?"
-          message={"Our admin team will review your documents.\nYou'll receive a notification once approved.\nApproval typically takes 24-48 hours.\nYou can log out and check back later."}
+          message={"An admin will review your ID document. Pull down to refresh your approval status, or log out and check again later."}
         />
 
-        {/* Support Section */}
-        <View className="mt-8 items-center">
-          <Text className="text-xs text-muted-foreground text-center mb-2">
-            Need help? Contact support
-          </Text>
-          <TouchableOpacity
-            onPress={() => Linking.openURL('mailto:support@modula.com')}
-            accessibilityRole="link"
-            accessibilityLabel="Email support at support@modula.com"
-            className="flex-row items-center gap-1.5 px-4 py-2.5 bg-surface rounded-xl border border-border"
-          >
-            <Ionicons name="mail" size={16} color={colors.primary} />
-            <Text className="text-[13px] font-semibold text-primary">support@modula.com</Text>
-          </TouchableOpacity>
+        <View className="mt-5">
+          <DeleteVerificationDataButton />
         </View>
+
       </ScrollView>
     </SafeAreaView>
   );

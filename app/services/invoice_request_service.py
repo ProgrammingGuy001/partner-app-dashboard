@@ -1,9 +1,20 @@
 from datetime import datetime
 
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.model.invoice_request import InvoiceRequest
+
+
+def _requested_by_label(req: InvoiceRequest) -> str | None:
+    if req.requested_by:
+        return req.requested_by.email
+    if req.requested_by_ip:
+        ip_user = req.requested_by_ip
+        name = f"{ip_user.first_name or ''} {ip_user.last_name or ''}".strip()
+        return name or ip_user.phone_number
+    return None
 
 
 def serialize_invoice_request(req: InvoiceRequest | None) -> dict | None:
@@ -17,7 +28,7 @@ def serialize_invoice_request(req: InvoiceRequest | None) -> dict | None:
         "completion_percentage": req.completion_percentage,
         "notes": req.notes,
         "requested_at": req.requested_at.isoformat() if req.requested_at else None,
-        "requested_by": f"{req.requested_by.email}" if req.requested_by else None,
+        "requested_by": _requested_by_label(req),
         "approved_at": req.approved_at.isoformat() if req.approved_at else None,
         "approved_by": f"{req.approved_by.email}" if req.approved_by else None,
         "rejection_reason": req.rejection_reason,
@@ -56,6 +67,7 @@ def create_invoice_request(
     job_id: int,
     *,
     requested_by_id: int | None = None,
+    requested_by_ip_id: int | None = None,
     completion_percentage: int | None = None,
     notes: str | None = None,
 ) -> InvoiceRequest:
@@ -66,12 +78,19 @@ def create_invoice_request(
         job_id=job_id,
         status="pending",
         requested_by_id=requested_by_id,
+        requested_by_ip_id=requested_by_ip_id,
         completion_percentage=completion_percentage,
         notes=notes.strip() if notes else None,
     )
     db.add(req)
-    db.flush()
-    req.invoice_number = f"INV-{job_id}-{req.id}-{datetime.utcnow().year}"
-    db.commit()
+    try:
+        db.flush()
+        req.invoice_number = f"INV-{job_id}-{req.id}-{datetime.utcnow().year}"
+        db.commit()
+    except IntegrityError:
+        # Partial unique index (one pending request per job) closes the
+        # check-then-insert race between concurrent callers.
+        db.rollback()
+        raise HTTPException(status_code=400, detail="An invoice request is already pending for this job") from None
     db.refresh(req)
     return req

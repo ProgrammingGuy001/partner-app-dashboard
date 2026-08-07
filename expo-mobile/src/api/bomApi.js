@@ -21,12 +21,12 @@ const assertPositiveId = (value, label) => {
 const BOM_FETCH_TIMEOUT_MS = 120000;
 
 export const bomAPI = {
-  fetchBOM: async (salesOrder, cabinetPosition) => {
+  fetchBOM: async (salesOrder, cabinetPosition, search) => {
     const so = assertNonEmpty(salesOrder, 'Sales order');
     const position = assertNonEmpty(cabinetPosition, 'Cabinet position');
     const response = await apiClient.get(
       `/dashboard/bom/${encodePathSegment(so)}/${encodePathSegment(position)}`,
-      { timeout: BOM_FETCH_TIMEOUT_MS }
+      { params: { search }, timeout: BOM_FETCH_TIMEOUT_MS }
     );
     return response.data;
   },
@@ -37,10 +37,16 @@ export const bomAPI = {
   },
 
   getHistory: async (limit = 50, offset = 0) => {
-    const response = await apiClient.get('/dashboard/bom/history', {
-      params: { limit, offset },
-    });
-    return response.data;
+    const history = [];
+    while (history.length < limit) {
+      const pageLimit = Math.min(50, limit - history.length);
+      const response = await apiClient.get('/dashboard/bom/history', {
+        params: { limit: pageLimit, offset: offset + history.length },
+      });
+      history.push(...response.data);
+      if (response.data.length < pageLimit) break;
+    }
+    return history;
   },
 
   getHistoryBySalesOrder: async (salesOrder) => {
@@ -54,6 +60,11 @@ export const bomAPI = {
     const response = await apiClient.patch(`/dashboard/bom/history/${id}/status`, null, {
       params: { status },
     });
+    return response.data;
+  },
+
+  retrySync: async (soId) => {
+    const response = await apiClient.post(`/dashboard/bom/history/${soId}/retry-sync`);
     return response.data;
   },
 

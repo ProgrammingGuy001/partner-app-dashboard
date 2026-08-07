@@ -7,7 +7,8 @@ import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, Search, X } from 'lucide-react';
+import { Link2, Loader2, Search, X } from 'lucide-react';
+import { jobAPI } from '@/api/services';
 
 // react-leaflet ships without bundled marker assets, and mergeOptions is flaky under
 // Vite (imported PNGs can resolve to module objects / anchor gets dropped → broken pin).
@@ -43,16 +44,29 @@ interface PhotonFeature {
     name?: string;
     street?: string;
     housenumber?: string;
+    district?: string;
     city?: string;
+    county?: string;
     state?: string;
     postcode?: string;
     country?: string;
   };
 }
 
+/** Address parts behind a pin. Any field may be missing — Photon fills what it knows. */
+export interface ResolvedAddress {
+  address_line_1?: string;
+  address_line_2?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+}
+
 interface LocationPickerProps {
   value: LocationValue;
   onChange: (value: LocationValue) => void;
+  /** Called with the address behind a pin dropped from a pasted Maps link. */
+  onAddress?: (address: ResolvedAddress) => void;
 }
 
 function describeFeature(f: PhotonFeature): string {
@@ -65,6 +79,26 @@ function describeFeature(f: PhotonFeature): string {
     p.country,
   ].filter(Boolean);
   return parts.join(', ');
+}
+
+function toAddress(f: PhotonFeature): ResolvedAddress {
+  const p = f.properties;
+  return {
+    address_line_1: [p.housenumber, p.street].filter(Boolean).join(' ') || p.name,
+    address_line_2: p.district,
+    city: p.city || p.county,
+    state: p.state,
+    // The form wants a 6-digit Indian PIN; anything else is Photon guessing.
+    pincode: /^\d{6}$/.test(p.postcode ?? '') ? p.postcode : undefined,
+  };
+}
+
+/** Photon reverse geocode — same free service as the search box above. */
+async function reverseGeocode(lat: number, lng: number): Promise<ResolvedAddress | null> {
+  const res = await fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}&lang=en&limit=1`);
+  const data = await res.json();
+  const feature: PhotonFeature | undefined = data.features?.[0];
+  return feature ? toAddress(feature) : null;
 }
 
 /** Moves the map when a search result is picked (decoupled from pin drags). */
@@ -98,7 +132,7 @@ function ClickToPlace({ onPlace }: { onPlace: (lat: number, lng: number) => void
   return null;
 }
 
-const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange }) => {
+const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange, onAddress }) => {
   const { latitude, longitude, geofenceRadius } = value;
   const hasPin = latitude != null && longitude != null;
 
@@ -106,8 +140,13 @@ const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange }) => {
   const [results, setResults] = useState<PhotonFeature[]>([]);
   const [searching, setSearching] = useState(false);
   const [flyTarget, setFlyTarget] = useState<{ lat: number; lng: number; key: number } | null>(null);
+  const [mapUrl, setMapUrl] = useState('');
+  const [resolving, setResolving] = useState(false);
+  const [urlStatus, setUrlStatus] = useState<{ kind: 'ok' | 'info' | 'error'; text: string } | null>(null);
   const markerRef = useRef<L.Marker>(null);
   const searchRef = useRef<HTMLDivElement>(null);
+  // The last URL we resolved, so blur-after-Enter doesn't fire a second request.
+  const resolvedRef = useRef('');
 
   const radius = geofenceRadius ?? DEFAULT_RADIUS;
 
@@ -172,6 +211,49 @@ const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange }) => {
     onChange({ latitude: lat, longitude: lng, geofenceRadius: radius });
   };
 
+  // Supervisors already have the site open in the Maps app, so the share link is the
+  // fastest route to a pin. Short links resolve on the backend — CORS hides the
+  // redirect from us — so this is one round trip, not client-side parsing.
+  const resolveMapUrl = async (raw: string) => {
+    const url = raw.trim();
+    if (!url || url === resolvedRef.current) return;
+    resolvedRef.current = url;
+    setResolving(true);
+    setUrlStatus(null);
+    try {
+      const resolved = await jobAPI.resolveMapUrl(url);
+      if (resolved.latitude != null && resolved.longitude != null) {
+        placePin(resolved.latitude, resolved.longitude);
+        setFlyTarget({ lat: resolved.latitude, lng: resolved.longitude, key: Date.now() });
+        setUrlStatus({ kind: 'ok', text: 'Pin dropped from the link — drag it if the site is slightly off.' });
+        // Best-effort: the pin is the point of the link, the address is a bonus.
+        if (onAddress) {
+          reverseGeocode(resolved.latitude, resolved.longitude)
+            .then((address) => address && onAddress(address))
+            .catch(() => {});
+        }
+      } else if (resolved.place_name) {
+        // The link named a place but carried no pin; hand it to the address search.
+        setQuery(resolved.place_name);
+        setUrlStatus({
+          kind: 'info',
+          text: `No coordinates in that link — searching for "${resolved.place_name}". Pick a result or drop the pin.`,
+        });
+      } else {
+        setUrlStatus({ kind: 'error', text: "Couldn't read a location from that link. Drop the pin on the map instead." });
+      }
+    } catch (err) {
+      resolvedRef.current = ''; // let them retry the same URL
+      const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+      setUrlStatus({
+        kind: 'error',
+        text: typeof detail === 'string' ? detail : 'Could not open that link. Drop the pin on the map instead.',
+      });
+    } finally {
+      setResolving(false);
+    }
+  };
+
   const handleSelectResult = (f: PhotonFeature) => {
     const [lng, lat] = f.geometry.coordinates;
     placePin(lat, lng);
@@ -197,6 +279,49 @@ const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange }) => {
   return (
     <div className="space-y-2">
       <Label>Job Location (drag the pin to the exact site)</Label>
+
+      {/* Paste a Google Maps share link — the pin comes straight off it */}
+      <div className="relative">
+        <Link2 className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          value={mapUrl}
+          onChange={(e) => setMapUrl(e.target.value)}
+          onPaste={(e) => {
+            // Resolve on paste so nobody has to press Enter afterwards.
+            const pasted = e.clipboardData.getData('text');
+            if (pasted.trim()) {
+              setMapUrl(pasted);
+              resolveMapUrl(pasted);
+            }
+          }}
+          onBlur={(e) => resolveMapUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              // The picker lives inside a form; Enter here must not submit the job.
+              e.preventDefault();
+              resolveMapUrl(mapUrl);
+            }
+          }}
+          placeholder="Paste a Google Maps link (maps.app.goo.gl/… or google.com/maps/…)"
+          className="pl-8 pr-8"
+        />
+        {resolving && (
+          <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+        )}
+      </div>
+      {urlStatus && (
+        <p
+          className={
+            urlStatus.kind === 'error'
+              ? 'text-xs text-destructive'
+              : urlStatus.kind === 'ok'
+                ? 'text-xs text-green-600'
+                : 'text-xs text-muted-foreground'
+          }
+        >
+          {urlStatus.text}
+        </p>
+      )}
 
       {/* Search box — convenience to jump the map near the address */}
       <div className="relative" ref={searchRef}>

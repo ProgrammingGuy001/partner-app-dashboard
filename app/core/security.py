@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
+from app.model.refresh_token import RefreshToken
 from app.model.user import User
 
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
@@ -39,6 +41,53 @@ def create_refresh_token(data: dict, expires_delta: timedelta | None = None):
     to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
+
+
+def _refresh_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def store_refresh_token(db: Session, subject: str, token: str) -> None:
+    """Persist a hash of an issued refresh token so logout/rotation can revoke it."""
+    now = datetime.now(timezone.utc)
+    # Opportunistic cleanup of this subject's expired rows.
+    db.query(RefreshToken).filter(
+        RefreshToken.subject == subject, RefreshToken.expires_at < now
+    ).delete(synchronize_session=False)
+    db.add(
+        RefreshToken(
+            subject=subject,
+            token_hash=_refresh_token_hash(token),
+            expires_at=now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        )
+    )
+    db.commit()
+
+
+def consume_refresh_token(db: Session, token: str) -> bool:
+    """Single-use check: True and delete the row if the token is known and unexpired."""
+    row = (
+        db.query(RefreshToken)
+        .filter(RefreshToken.token_hash == _refresh_token_hash(token))
+        .first()
+    )
+    if row is None:
+        return False
+    expires_at = row.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    valid = expires_at >= datetime.now(timezone.utc)
+    db.delete(row)
+    db.commit()
+    return valid
+
+
+def revoke_refresh_tokens(db: Session, subject: str) -> None:
+    """Revoke every refresh token for a subject (logout / password reset)."""
+    db.query(RefreshToken).filter(RefreshToken.subject == subject).delete(
+        synchronize_session=False
+    )
+    db.commit()
 
 
 def strip_bearer_prefix(token: str | None) -> str | None:

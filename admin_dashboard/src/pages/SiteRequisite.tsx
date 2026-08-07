@@ -4,26 +4,26 @@ import { Search, ShoppingCart, Building2, FolderOpen, MapPin, CircleAlert, UserC
 import { bomAPI, type BOMTreeNode as BOMTreeNodeType, type SOLookupDetails } from '@/api/bom';
 import { useRequisite } from '@/context/RequisiteContext';
 import BOMTreeNode from '@/components/BOMTreeNode';
-import AddToBucketModal from '@/components/AddToBucketModal';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 const SiteRequisite: React.FC = () => {
     const navigate = useNavigate();
-    const { state, setSO, addItem } = useRequisite();
+    const { state, setSO, addItem, removeItem } = useRequisite();
 
     const [salesOrderInput, setSalesOrderInput] = useState(state.salesOrder);
     const [cabinetInput, setCabinetInput] = useState(state.cabinetPosition);
     const [allCabinets, setAllCabinets] = useState(state.cabinetPosition === 'ALL');
+    const [searchInput, setSearchInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [bomData, setBomData] = useState<BOMTreeNodeType[]>([]);
     const [soDetails, setSODetails] = useState<SOLookupDetails | null>(state.soDetails);
     const [detailsError, setDetailsError] = useState('');
-    const [selectedItem, setSelectedItem] = useState<BOMTreeNodeType | null>(null);
 
     const formatOrderState = (value?: string) => {
         const normalized = (value || '').trim().toLowerCase();
@@ -70,30 +70,67 @@ const SiteRequisite: React.FC = () => {
             if (resolvedDetails) {
                 setSODetails(resolvedDetails);
             } else if (detailsResult.status === 'rejected') {
-                const msg = detailsResult.reason instanceof Error
-                    ? detailsResult.reason.message
-                    : 'Sales order details could not be fetched from Odoo.';
+                const msg = getApiErrorMessage(detailsResult.reason, 'Sales order details could not be fetched from Odoo.');
                 setDetailsError(msg);
             }
         } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : 'Failed to fetch BOM data';
+            const msg = getApiErrorMessage(err, 'Failed to fetch BOM data');
             setError(msg);
         } finally {
             setLoading(false);
         }
     };
 
+    const filteredBomData = React.useMemo(() => {
+        if (!searchInput.trim() || !bomData.length) return bomData;
+        const searchLower = searchInput.toLowerCase();
+        
+        const filterTree = (nodes: BOMTreeNodeType[]): BOMTreeNodeType[] => {
+            const result: BOMTreeNodeType[] = [];
+            for (const node of nodes) {
+                if (node.product_name.toLowerCase().includes(searchLower)) {
+                    result.push(node);
+                } else {
+                    const filteredChildren = filterTree(node.children || []);
+                    if (filteredChildren.length > 0) {
+                        result.push({ ...node, children: filteredChildren });
+                    }
+                }
+            }
+            return result;
+        };
+        
+        return filterTree(bomData);
+    }, [bomData, searchInput]);
+
+    const selectedProducts = React.useMemo(
+        () => new Set(state.bucket.map((item) => item.product_name)),
+        [state.bucket],
+    );
+
+    const handleToggleItem = (node: BOMTreeNodeType, selected: boolean) => {
+        if (selected) {
+            addItem({ product_name: node.product_name, quantity: 1 });
+        } else {
+            removeItem(node.product_name);
+        }
+    };
 
     return (
-        <div className="mx-auto w-full max-w-5xl">
+        <div className="mx-auto w-full max-w-5xl animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="mb-5 flex flex-col gap-4 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight text-primary sm:text-3xl">Site Requisite</h1>
                     <p className="mt-1 text-sm text-muted-foreground sm:text-base">Search BOM and build requisite requests</p>
                 </div>
-                <Button onClick={() => navigate('/dashboard/site-requisite/bucket')} className="relative h-10 w-full px-5 sm:w-auto">
+                <Button
+                    type="button"
+                    onClick={() => navigate('/dashboard/site-requisite/review')}
+                    disabled={state.bucket.length === 0}
+                    className="relative h-10 w-full px-5 sm:w-auto"
+                >
                     <ShoppingCart className="w-4 h-4 mr-2" />
-                    Bucket
+                    Review &amp; Continue
                     {state.bucket.length > 0 && (
                         <Badge className="absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center p-0 text-[10px]">
                             {state.bucket.length}
@@ -138,7 +175,7 @@ const SiteRequisite: React.FC = () => {
                         </div>
                         <Button type="submit" disabled={loading} className="h-10 px-6 w-full sm:w-auto">
                             <Search className="w-4 h-4 mr-2" />
-                            {loading ? 'Searching...' : 'Search'}
+                            {loading ? 'Fetching...' : 'Fetch BOM'}
                         </Button>
                     </form>
 
@@ -224,33 +261,51 @@ const SiteRequisite: React.FC = () => {
 
             {bomData.length > 0 && (
                 <Card className="mb-8">
-                    <CardHeader className="bg-muted/30 border-b">
-                        <CardTitle className="text-lg">BOM Hierarchy</CardTitle>
+                    <CardHeader className="bg-muted/30 border-b flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <CardTitle className="text-lg">BOM Hierarchy</CardTitle>
+                            <p className="mt-1 text-xs text-muted-foreground">Select multiple components, then complete their status and description below.</p>
+                        </div>
+                        <div className="w-full sm:w-64">
+                            <Input
+                                placeholder="Search components..."
+                                value={searchInput}
+                                onChange={(e) => setSearchInput(e.target.value)}
+                                className="h-9"
+                            />
+                        </div>
                     </CardHeader>
                     <CardContent className="pt-6">
                         <div className="space-y-2 overflow-x-hidden">
-                            {bomData.map((item, index) => (
-                                <BOMTreeNode
-                                    key={`${item.product_name}-${index}`}
-                                    node={item}
-                                    onAddToBucket={(node) => setSelectedItem(node)}
-                                />
-                            ))}
+                            {filteredBomData.length > 0 ? (
+                                filteredBomData.map((item, index) => (
+                                    <BOMTreeNode
+                                        key={`${item.product_name}-${index}`}
+                                        node={item}
+                                        selectedProducts={selectedProducts}
+                                        onToggle={handleToggleItem}
+                                    />
+                                ))
+                            ) : (
+                                <div className="text-center py-6 text-muted-foreground text-sm">
+                                    No components match your search.
+                                </div>
+                            )}
                         </div>
                     </CardContent>
+                    {state.bucket.length > 0 && (
+                        <div className="flex items-center justify-between gap-4 border-t bg-muted/20 px-5 py-4">
+                            <p className="text-sm font-medium text-muted-foreground">
+                                {state.bucket.length} component{state.bucket.length === 1 ? '' : 's'} selected
+                            </p>
+                            <Button type="button" onClick={() => navigate('/dashboard/site-requisite/review')}>
+                                Continue
+                            </Button>
+                        </div>
+                    )}
                 </Card>
             )}
 
-            {selectedItem && (
-                <AddToBucketModal
-                    item={selectedItem}
-                    onSave={(bucketItem) => {
-                        addItem(bucketItem);
-                        setSelectedItem(null);
-                    }}
-                    onClose={() => setSelectedItem(null)}
-                />
-            )}
         </div>
     );
 };

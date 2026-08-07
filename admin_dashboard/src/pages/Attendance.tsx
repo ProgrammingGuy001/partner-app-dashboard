@@ -1,17 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { authAPI } from '@/api/services';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { attendanceAPI, authAPI, sundayWorkRequestAPI } from '@/api/services';
 import {
   useAttendance,
   useMyAdminAttendance,
   useAllAdminAttendance,
   useMarkAdminAttendance,
 } from '@/hooks/useAttendance';
+import { StatusBadge, type Status } from '@/components/StatusBadge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Table,
   TableBody,
@@ -29,8 +31,10 @@ import {
 } from '@/components/ui/dialog';
 import {
   IconCalendarCheck,
+  IconAlertCircle,
   IconCamera,
   IconCameraRotate,
+  IconDownload,
   IconMapPin,
   IconRefresh,
   IconSearch,
@@ -43,6 +47,8 @@ import type {
 } from '@/api/services';
 import { toast } from 'sonner';
 import {Label} from '@/components/ui/label';
+import { getApiErrorMessage } from '@/lib/apiError';
+import { captureVideoFrame } from '@/lib/image';
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString('en-IN', {
@@ -90,6 +96,28 @@ function CoordinateLink({
     >
       {coordinates}
     </a>
+  );
+}
+
+function formatDistance(meters: number) {
+  return meters >= 1000 ? `${(meters / 1000).toFixed(2)} km` : `${Math.round(meters)} m`;
+}
+
+/** null within_geofence means the site had no map pin, which is not the same as "outside". */
+function GeofenceBadge({
+  record,
+}: Readonly<{
+  record: Pick<AdminAttendanceRecord | DailyAttendance, 'within_geofence' | 'distance_meters'>;
+}>) {
+  if (record.within_geofence == null) {
+    return <span className="text-xs italic text-muted-foreground">No geofence</span>;
+  }
+  const distance = record.distance_meters == null ? null : formatDistance(record.distance_meters);
+  return (
+    <StatusBadge status={record.within_geofence ? 'success' : 'danger'} className="text-xs">
+      {record.within_geofence ? 'Inside' : 'Outside'}
+      {distance ? ` · ${distance}` : ''}
+    </StatusBadge>
   );
 }
 
@@ -152,6 +180,14 @@ function AttendanceTable({
                         {formatCoordinates(r) && (
                           <CoordinateLink record={r} />
                         )}
+                        {r.matched_job_name && (
+                          <div className="text-xs text-muted-foreground">
+                            Nearest site: {r.matched_job_name}
+                          </div>
+                        )}
+                        <div className="mt-1">
+                          <GeofenceBadge record={r} />
+                        </div>
                       </div>
                     </div>
                   ) : (
@@ -219,6 +255,12 @@ function AdminAttendanceCard({
           {!record.manual_location && !formatCoordinates(record) ? (
             <p className="italic text-muted-foreground">No location</p>
           ) : null}
+          {record.matched_job_name ? (
+            <p className="text-xs text-muted-foreground">Nearest site: {record.matched_job_name}</p>
+          ) : null}
+          <div className="mt-1">
+            <GeofenceBadge record={record} />
+          </div>
         </div>
       </div>
 
@@ -260,9 +302,10 @@ function IPAttendanceTable({ records, phoneToName }: Readonly<{ records: DailyAt
           <TableHead className="w-10">#</TableHead>
           <TableHead>IP</TableHead>
           <TableHead>Job</TableHead>
+          <TableHead>Type</TableHead>
           <TableHead>Date & Time</TableHead>
           <TableHead>Location</TableHead>
-          <TableHead>Photo</TableHead>
+          <TableHead>Photo & Report</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -284,6 +327,9 @@ function IPAttendanceTable({ records, phoneToName }: Readonly<{ records: DailyAt
               {r.job_name || (r.job_id ? `Job #${r.job_id}` : 'Independent')}
             </TableCell>
             <TableCell>
+              <Badge variant="outline">{r.attendance_type === 'check_out' ? 'Check Out' : 'Check In'}</Badge>
+            </TableCell>
+            <TableCell>
               <div className="text-sm font-medium">{formatDateOnly(r.recorded_at)}</div>
               <div className="text-xs text-muted-foreground">{formatDate(r.recorded_at)}</div>
             </TableCell>
@@ -296,6 +342,9 @@ function IPAttendanceTable({ records, phoneToName }: Readonly<{ records: DailyAt
                     {formatCoordinates(r) && (
                       <CoordinateLink record={r} />
                     )}
+                    <div className="mt-1">
+                      <GeofenceBadge record={r} />
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -314,6 +363,12 @@ function IPAttendanceTable({ records, phoneToName }: Readonly<{ records: DailyAt
               ) : (
                 <span className="text-sm text-muted-foreground italic">—</span>
               )}
+              {r.report_document_url ? (
+                <a href={r.report_document_url} download target="_blank" rel="noreferrer" className="ml-2 text-xs font-medium text-primary underline">
+                  Download report
+                </a>
+              ) : null}
+              <ReportStatusBadge status={r.report_status} />
             </TableCell>
           </TableRow>
         ))}
@@ -322,6 +377,17 @@ function IPAttendanceTable({ records, phoneToName }: Readonly<{ records: DailyAt
     </div>
     </>
   );
+}
+
+/** An auto clock-out is the system closing an abandoned day, not a submitted report. */
+function ReportStatusBadge({ status }: Readonly<{ status: DailyAttendance['report_status'] }>) {
+  if (status === 'auto_closed') {
+    return <Badge variant="secondary" className="ml-2">Auto clock-out — no report</Badge>;
+  }
+  if (status === 'submitted_late') {
+    return <Badge variant="destructive" className="ml-2">Submitted late</Badge>;
+  }
+  return null;
 }
 
 function IPAttendanceCard({ record, index, phoneToName }: Readonly<{ record: DailyAttendance; index: number; phoneToName?: Map<string, string> }>) {
@@ -338,6 +404,7 @@ function IPAttendanceCard({ record, index, phoneToName }: Readonly<{ record: Dai
         </div>
         <Badge variant="outline">#{index + 1}</Badge>
       </div>
+      <Badge variant="outline" className="mt-2">{record.attendance_type === 'check_out' ? 'Check Out' : 'Check In'}</Badge>
 
       <div className="mt-3 text-sm">
         <p className="font-medium">{formatDateOnly(record.recorded_at)}</p>
@@ -352,6 +419,9 @@ function IPAttendanceCard({ record, index, phoneToName }: Readonly<{ record: Dai
           {!record.manual_location && !formatCoordinates(record) ? (
             <p className="italic text-muted-foreground">No location</p>
           ) : null}
+          <div className="mt-1">
+            <GeofenceBadge record={record} />
+          </div>
         </div>
       </div>
 
@@ -364,6 +434,12 @@ function IPAttendanceCard({ record, index, phoneToName }: Readonly<{ record: Dai
           <span className="text-sm italic text-muted-foreground">No photo</span>
         )}
       </div>
+      {record.report_document_url ? (
+        <a href={record.report_document_url} download target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm font-medium text-primary underline">
+          Download Daily Installation Report
+        </a>
+      ) : null}
+      <ReportStatusBadge status={record.report_status} />
     </article>
   );
 }
@@ -381,7 +457,6 @@ const MarkAttendanceDialog: React.FC<{
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [locating, setLocating] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const markMutation = useMarkAdminAttendance();
 
@@ -438,29 +513,14 @@ const MarkAttendanceDialog: React.FC<{
 
   async function capturePhoto() {
     const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
+    if (!video) return;
 
-    const width = video.videoWidth || 1280;
-    const height = video.videoHeight || 720;
-    canvas.width = width;
-    canvas.height = height;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.drawImage(video, 0, 0, width, height);
-    const blob = await new Promise<Blob | null>(resolve =>
-      canvas.toBlob(resolve, 'image/jpeg', 0.85),
-    );
-    if (!blob) {
+    const file = await captureVideoFrame(video, `admin-attendance-${Date.now()}.jpg`);
+    if (!file) {
       toast.error('Failed to capture photo. Please try again.');
       return;
     }
 
-    const file = new File([blob], `admin-attendance-${Date.now()}.jpg`, {
-      type: 'image/jpeg',
-    });
     setPhoto(file);
     setPhotoPreview(URL.createObjectURL(file));
     setCameraOpen(false);
@@ -557,6 +617,7 @@ const MarkAttendanceDialog: React.FC<{
                     variant="secondary"
                     className="absolute right-2 top-2 h-8 w-8"
                     onClick={removePhoto}
+                    aria-label="Remove photo"
                   >
                     <IconX className="h-4 w-4" />
                   </Button>
@@ -596,6 +657,7 @@ const MarkAttendanceDialog: React.FC<{
                     onClick={flipCamera}
                     disabled={openingCamera}
                     title={facingMode === 'environment' ? 'Switch to front camera' : 'Switch to back camera'}
+                    aria-label={facingMode === 'environment' ? 'Switch to front camera' : 'Switch to back camera'}
                   >
                     <IconCameraRotate className="h-4 w-4" />
                   </Button>
@@ -610,7 +672,6 @@ const MarkAttendanceDialog: React.FC<{
                 </div>
               </div>
             )}
-            <canvas ref={canvasRef} className="hidden" />
             <p className="text-xs text-muted-foreground">
               Gallery upload is disabled; attendance photos must be captured from the camera.
             </p>
@@ -646,6 +707,31 @@ const MarkAttendanceDialog: React.FC<{
   );
 };
 
+/** Downloads both sheets in one workbook; the backend decides what the caller may see. */
+const ExportAttendanceButton: React.FC<{ filters?: { date_from?: string; date_to?: string } }> = ({
+  filters,
+}) => {
+  const [exporting, setExporting] = useState(false);
+
+  async function download() {
+    setExporting(true);
+    try {
+      await attendanceAPI.exportXlsx(filters);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to export attendance'));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  return (
+    <Button variant="outline" size="sm" onClick={download} disabled={exporting}>
+      <IconDownload className="h-4 w-4 mr-2" />
+      {exporting ? 'Exporting…' : 'Export XLSX'}
+    </Button>
+  );
+};
+
 const ATTENDANCE_PAGE_SIZE = 200;
 
 const AttendancePagination: React.FC<{
@@ -673,9 +759,183 @@ const AttendancePagination: React.FC<{
   );
 };
 
+const SUNDAY_REQUEST_STATUS_META: Record<string, { status: Status; label: string }> = {
+  pending: { status: 'warning', label: 'Pending' },
+  approved: { status: 'success', label: 'Approved' },
+  rejected: { status: 'danger', label: 'Rejected' },
+};
+
+const getErrorDetail = getApiErrorMessage;
+
+/** Next Sunday in YYYY-MM-DD, so the date field defaults to something the API accepts. */
+function nextSundayISO(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + ((7 - d.getDay()) % 7 || 7));
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+
+// IPs submit from the mobile app, supervisors from the button below; this panel is for
+// visibility and superadmin approval — so working a Sunday always leaves a record.
+const SundayRequestsPanel: React.FC<{ canReview: boolean }> = ({ canReview }) => {
+  const qc = useQueryClient();
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [requestDate, setRequestDate] = useState(nextSundayISO);
+  const [requestReason, setRequestReason] = useState('');
+  const requestIsSunday = Boolean(requestDate)
+    && new Date(`${requestDate}T00:00:00`).getDay() === 0;
+  const { data: requests = [], isLoading } = useQuery({
+    queryKey: ['sunday-work-requests'],
+    queryFn: () => sundayWorkRequestAPI.list(),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () => sundayWorkRequestAPI.create({
+      request_date: requestDate,
+      reason: requestReason.trim() || undefined,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sunday-work-requests'] });
+      toast.success('Sunday work request submitted for superadmin approval');
+      setRequestOpen(false);
+      setRequestReason('');
+    },
+    onError: (err: unknown) => toast.error(getErrorDetail(err, 'Failed to submit request')),
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: (id: number) => sundayWorkRequestAPI.approve(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sunday-work-requests'] });
+      toast.success('Sunday work request approved');
+    },
+    onError: () => toast.error('Failed to approve request'),
+  });
+  const rejectMutation = useMutation({
+    mutationFn: (id: number) => sundayWorkRequestAPI.reject(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sunday-work-requests'] });
+      toast.success('Sunday work request rejected');
+    },
+    onError: () => toast.error('Failed to reject request'),
+  });
+
+  const isMutating = approveMutation.isPending || rejectMutation.isPending;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="text-base">Sunday Work Requests</CardTitle>
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary">{requests.length} total</Badge>
+          {!canReview && (
+            <Button size="sm" variant="outline" onClick={() => setRequestOpen(true)}>
+              Request Sunday work
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="p-0">
+        {isLoading ? (
+          <div className="p-8 text-center text-muted-foreground">Loading...</div>
+        ) : requests.length === 0 ? (
+          <div className="p-8 text-center text-sm text-muted-foreground">No Sunday work requests.</div>
+        ) : (
+          <div className="divide-y">
+            {requests.map((req) => {
+              let name: string;
+              if (req.requester_type === 'supervisor') {
+                name = req.admin?.name || req.admin?.email || `Supervisor #${req.admin_id}`;
+              } else if (req.ip_user) {
+                name = `${req.ip_user.first_name ?? ''} ${req.ip_user.last_name ?? ''}`.trim() || req.ip_user.phone_number;
+              } else {
+                name = `IP #${req.ip_user_id}`;
+              }
+              const meta = SUNDAY_REQUEST_STATUS_META[req.status] ?? { status: 'neutral' as Status, label: req.status };
+              return (
+                <div key={req.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">
+                      {name}
+                      <Badge variant="outline" className="ml-2 text-[10px] uppercase">{req.requester_type}</Badge>
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Requested Sunday {new Date(req.request_date).toLocaleDateString()}
+                      {req.reason ? ` · ${req.reason}` : ''}
+                    </p>
+                    {req.reviewed_at && (
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {meta.label} {new Date(req.reviewed_at).toLocaleDateString()}
+                        {req.review_notes ? ` · ${req.review_notes}` : ''}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <StatusBadge status={meta.status}>{meta.label.toUpperCase()}</StatusBadge>
+                    {canReview && req.status === 'pending' && (
+                      <>
+                        <Button size="sm" disabled={isMutating} onClick={() => approveMutation.mutate(req.id)}>
+                          Approve
+                        </Button>
+                        <Button size="sm" variant="destructive" disabled={isMutating} onClick={() => rejectMutation.mutate(req.id)}>
+                          Reject
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+
+      <Dialog open={requestOpen} onOpenChange={setRequestOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Request Sunday work</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="sunday-date">Sunday</Label>
+              <Input
+                id="sunday-date"
+                type="date"
+                value={requestDate}
+                onChange={(e) => setRequestDate(e.target.value)}
+              />
+              {requestDate && !requestIsSunday && (
+                <p className="text-xs text-destructive">Select a Sunday.</p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="sunday-reason">Reason</Label>
+              <Textarea
+                id="sunday-reason"
+                value={requestReason}
+                onChange={(e) => setRequestReason(e.target.value)}
+                placeholder="Why is Sunday work needed?"
+                maxLength={500}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">A superadmin must approve this request.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRequestOpen(false)}>Cancel</Button>
+            <Button disabled={!requestIsSunday || createMutation.isPending} onClick={() => createMutation.mutate()}>
+              {createMutation.isPending ? 'Submitting...' : 'Submit request'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+};
+
 const AdminView: React.FC = () => {
   const [showMarkDialog, setShowMarkDialog] = useState(false);
-  const [activeTab, setActiveTab] = useState<'my' | 'ip'>('my');
+  const [activeTab, setActiveTab] = useState<'my' | 'ip' | 'sunday'>('my');
   const [ipPage, setIpPage] = useState(0);
   const { data, isLoading, refetch } = useMyAdminAttendance({ limit: 50 });
   const {
@@ -688,6 +948,7 @@ const AdminView: React.FC = () => {
   const ipRecords = ipData?.records ?? [];
   const ipTotal = ipData?.total ?? 0;
   const ipCompletionSummary = ipData?.completion_summary ?? [];
+  const missingReports = ipData?.missing_reports ?? [];
 
   const phoneToName = new Map(ipCompletionSummary.map(s => [s.phone, s.name]));
 
@@ -702,7 +963,7 @@ const AdminView: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col gap-5 sm:gap-6">
+    <div className="flex flex-col gap-5 sm:gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Attendance</h1>
@@ -713,6 +974,7 @@ const AdminView: React.FC = () => {
             <IconRefresh className="h-4 w-4 mr-2" />
             Refresh
           </Button>
+          <ExportAttendanceButton />
           <Button onClick={() => setShowMarkDialog(true)}>
             <IconCalendarCheck className="h-4 w-4 mr-2" />
             Mark Attendance
@@ -760,7 +1022,16 @@ const AdminView: React.FC = () => {
           IP Records
           <Badge variant="secondary" className="ml-2 h-5 px-1.5 text-xs">{ipTotal}</Badge>
         </Button>
+        <Button
+          size="sm"
+          variant={activeTab === 'sunday' ? 'default' : 'ghost'}
+          onClick={() => setActiveTab('sunday')}
+        >
+          Sunday Requests
+        </Button>
       </div>
+
+      {activeTab === 'sunday' && <SundayRequestsPanel canReview={false} />}
 
       {activeTab === 'my' && (
         <Card>
@@ -785,6 +1056,15 @@ const AdminView: React.FC = () => {
             <Badge variant="secondary">{ipTotal} total</Badge>
           </CardHeader>
           <CardContent className="p-0">
+            {missingReports.length > 0 && (
+              <Alert variant="destructive" className="m-4 w-auto">
+                <IconAlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  <strong>{missingReports.length} daily report{missingReports.length === 1 ? '' : 's'} missing:</strong>{' '}
+                  {missingReports.map((item) => `${item.job_name || `Job ${item.job_id}`} · ${item.phone} · ${item.attendance_date}`).join('; ')}
+                </AlertDescription>
+              </Alert>
+            )}
             {ipLoading ? (
               <div className="p-8 text-center text-muted-foreground">Loading...</div>
             ) : (
@@ -803,7 +1083,7 @@ const AdminView: React.FC = () => {
 };
 
 const SuperAdminView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'admin' | 'ip'>('admin');
+  const [activeTab, setActiveTab] = useState<'admin' | 'ip' | 'sunday'>('admin');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [appliedFilters, setAppliedFilters] = useState<{
@@ -865,16 +1145,19 @@ const SuperAdminView: React.FC = () => {
   const hasFilters = Object.values(appliedFilters).some(Boolean);
 
   return (
-    <div className="flex flex-col gap-5 sm:gap-6">
+    <div className="flex flex-col gap-5 sm:gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Attendance</h1>
           <p className="text-muted-foreground text-sm mt-1">Admin and IP attendance records</p>
         </div>
-        <Button variant="outline" size="sm" onClick={refreshAll}>
-          <IconRefresh className="h-4 w-4 mr-2" />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={refreshAll}>
+            <IconRefresh className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+          <ExportAttendanceButton filters={appliedFilters} />
+        </div>
       </div>
 
       {/* Filters */}
@@ -920,7 +1203,16 @@ const SuperAdminView: React.FC = () => {
           IP Records
           <Badge variant="secondary" className="ml-2 h-5 px-1.5 text-xs">{ipTotal}</Badge>
         </Button>
+        <Button
+          size="sm"
+          variant={activeTab === 'sunday' ? 'default' : 'ghost'}
+          onClick={() => setActiveTab('sunday')}
+        >
+          Sunday Requests
+        </Button>
       </div>
+
+      {activeTab === 'sunday' && <SundayRequestsPanel canReview />}
 
       {activeTab === 'admin' && (
         <Card>

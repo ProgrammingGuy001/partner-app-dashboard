@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Send, CheckCircle, AlertCircle, Loader2, Building2, FolderOpen, MapPin, UserCircle2, BadgeCheck } from 'lucide-react';
+import { Send, CheckCircle, AlertCircle, Loader2, Building2, FolderOpen, MapPin, UserCircle2, BadgeCheck } from 'lucide-react';
 import { bomAPI } from '@/api/bom';
 import { useRequisite } from '@/context/RequisiteContext';
 import { Card, CardContent } from '@/components/ui/card';
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 const SiteRequisiteSubmit: React.FC = () => {
     const navigate = useNavigate();
@@ -47,7 +48,7 @@ const SiteRequisiteSubmit: React.FC = () => {
             setSODetails(details);
             return details;
         } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : 'Failed to fetch sales order details from Odoo.';
+            const msg = getApiErrorMessage(err, 'Failed to fetch sales order details from Odoo.');
             setDetailsError(msg);
             return null;
         } finally {
@@ -67,12 +68,23 @@ const SiteRequisiteSubmit: React.FC = () => {
         e.preventDefault();
 
         if (bucket.length === 0) {
-            setError('Bucket is empty. Please add items before submitting.');
+            setError('Add at least one item before submitting.');
             return;
         }
 
         if (!salesOrder || !cabinetPosition) {
             setError('Sales order and cabinet position are required. Go back and search for a BOM first.');
+            return;
+        }
+
+        const itemWithoutStatus = bucket.find((item) => !item.component_status?.trim());
+        if (itemWithoutStatus) {
+            setError(`Select a component status for ${itemWithoutStatus.product_name}.`);
+            return;
+        }
+
+        if (!srPoc.trim()) {
+            setError('SR POC is required.');
             return;
         }
 
@@ -103,7 +115,7 @@ const SiteRequisiteSubmit: React.FC = () => {
                 navigate('/dashboard/bom');
             }, 2000);
         } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : 'Failed to submit requisite. Please try again.';
+            const msg = getApiErrorMessage(err, 'Failed to submit requisite. Please try again.');
             setError(msg);
             toast.error(msg);
         } finally {
@@ -134,16 +146,9 @@ const SiteRequisiteSubmit: React.FC = () => {
 
     return (
         <div className="mx-auto w-full max-w-4xl pb-8 sm:pb-10">
-            <div className="mb-6 flex items-center gap-3 border-b pb-5 sm:mb-8 sm:gap-4 sm:pb-6">
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => navigate('/dashboard/site-requisite/bucket')}
-                    className="h-10 w-10 shrink-0"
-                >
-                    <ArrowLeft className="w-5 h-5" />
-                </Button>
-                <h1 className="text-2xl font-bold tracking-tight text-primary sm:text-3xl">Submit Site Requisite</h1>
+            <div className="mb-6 border-b pb-5 sm:mb-8 sm:pb-6">
+                <h2 className="text-2xl font-bold tracking-tight text-primary">Submit Site Requisite</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Confirm the request details and create the repair order.</p>
             </div>
 
             {error && (
@@ -250,12 +255,14 @@ const SiteRequisiteSubmit: React.FC = () => {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label>SR POC (Point of Contact)</Label>
+                                    <Label htmlFor="sr-poc">SR POC (Point of Contact) <span className="text-destructive">*</span></Label>
                                     <Input
+                                        id="sr-poc"
                                         type="text"
                                         value={srPoc}
                                         onChange={(e) => setSrPoc(e.target.value)}
                                         placeholder="Enter POC name or email"
+                                        required
                                     />
                                 </div>
 
@@ -279,16 +286,7 @@ const SiteRequisiteSubmit: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-1 gap-3 border-t pt-4 sm:grid-cols-2 sm:gap-4">
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        onClick={() => navigate('/dashboard/site-requisite/bucket')}
-                                        size="lg"
-                                        className="w-full"
-                                    >
-                                        Back to Bucket
-                                    </Button>
+                                <div className="border-t pt-4">
                                     <Button
                                         type="submit"
                                         disabled={loading || detailsLoading || bucket.length === 0 || !soDetails}

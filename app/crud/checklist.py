@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from fastapi import HTTPException
 from app.model.job import (
     Job,
@@ -16,6 +16,35 @@ from app.schemas.checklist import (
     JobChecklistItemStatusCreate,
     JobChecklistItemStatusUpdate,
 )
+
+
+ISM_CHECKLIST_NAME = "ISM Checklist"
+
+
+def get_assigned_job_checklist(db: Session, job_id: int, checklist_id: int) -> JobChecklist:
+    job_checklist = (
+        db.query(JobChecklist)
+        .filter(
+            JobChecklist.job_id == job_id,
+            JobChecklist.checklist_id == checklist_id,
+        )
+        .first()
+    )
+    if not job_checklist:
+        raise HTTPException(status_code=404, detail="Checklist not found for this job")
+    return job_checklist
+
+
+def is_ism_checklist(job_checklist: JobChecklist) -> bool:
+    return job_checklist.checklist.name.casefold() == ISM_CHECKLIST_NAME.casefold()
+
+
+def get_ism_job_checklist(db: Session, job_id: int, checklist_id: int) -> JobChecklist:
+    """The job's ISM checklist — the only one with a printable PDF template."""
+    job_checklist = get_assigned_job_checklist(db, job_id, checklist_id)
+    if not is_ism_checklist(job_checklist):
+        raise HTTPException(status_code=404, detail="This checklist has no printable template")
+    return job_checklist
 
 
 def _ensure_job_checklist_item_link(db: Session, job_id: int, checklist_item_id: int) -> ChecklistItem:
@@ -45,7 +74,16 @@ def get_checklist(db: Session, checklist_id: int):
 
 
 def get_checklists(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(Checklist).offset(skip).limit(limit).all()
+    # selectinload, not joinedload: a collection joinedload makes offset/limit count
+    # joined rows and silently truncate checklists.
+    return (
+        db.query(Checklist)
+        .options(selectinload(Checklist.checklist_items))
+        .order_by(Checklist.id)
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 
 
 def create_checklist(db: Session, checklist: ChecklistCreate):
@@ -145,7 +183,10 @@ def create_job_checklist_item_status(
         raise HTTPException(status_code=404, detail=f"Job {status.job_id} not found")
     _ensure_job_checklist_item_link(db, status.job_id, status.checklist_item_id)
 
-    db_status = JobChecklistItemStatus(**status.model_dump())
+    create_data = status.model_dump()
+    if create_data["review_status"] == "approved":
+        create_data["is_approved"] = True
+    db_status = JobChecklistItemStatus(**create_data)
     db.add(db_status)
     db.commit()
     db.refresh(db_status)
@@ -168,9 +209,14 @@ def update_job_checklist_item_status(
             raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
         create_data = status.model_dump(exclude_unset=True)
+        if create_data.get('review_status') == 'approved' or create_data.get('is_approved') is True:
+            create_data['review_status'] = 'approved'
+            create_data['is_approved'] = True
+        elif create_data.get('review_status') == 'rejected':
+            create_data['is_approved'] = False
         create_data['job_id'] = job_id
         create_data['checklist_item_id'] = checklist_item_id
-        
+
         # Validate checked=True requirements for new records
         if create_data.get('checked') is True:
             if not create_data.get('document_link'):
@@ -191,13 +237,20 @@ def update_job_checklist_item_status(
         return db_status
 
     update_data = status.model_dump(exclude_unset=True)
-    
+    if update_data.get('review_status') == 'approved' or update_data.get('is_approved') is True:
+        update_data['review_status'] = 'approved'
+        update_data['is_approved'] = True
+    elif update_data.get('review_status') in {'pending', 'rejected'}:
+        update_data['is_approved'] = False
+    elif update_data.get('is_approved') is False and 'admin_comment' in update_data:
+        update_data['review_status'] = 'rejected' if update_data.get('admin_comment') else 'pending'
+
     # Validate checked=True requirements for existing records
     if update_data.get('checked') is True:
         # Get the final state after applying the update
         final_document_link = update_data.get('document_link', db_status.document_link)
         final_comment = update_data.get('comment', db_status.comment)
-        
+
         if not final_document_link:
             raise HTTPException(
                 status_code=422,
@@ -208,7 +261,7 @@ def update_job_checklist_item_status(
                 status_code=422,
                 detail='Notes/comment must be added before marking the item as complete.'
             )
-    
+
     for key, value in update_data.items():
         setattr(db_status, key, value)
     db.commit()
@@ -216,16 +269,18 @@ def update_job_checklist_item_status(
     return db_status
 
 
-def get_job_checklists_status(db: Session, job_id: int):
+def get_job_checklists_status(db: Session, job_id: int, checklist_id: int | None = None):
     # Single query: load JobChecklist → Checklist → ChecklistItems in one shot
-    job_checklists = (
+    query = (
         db.query(JobChecklist)
         .filter(JobChecklist.job_id == job_id)
         .options(
             joinedload(JobChecklist.checklist).joinedload(Checklist.checklist_items)
         )
-        .all()
     )
+    if checklist_id is not None:
+        query = query.filter(JobChecklist.checklist_id == checklist_id)
+    job_checklists = query.all()
     if not job_checklists:
         return []
 
@@ -260,6 +315,8 @@ def get_job_checklists_status(db: Session, job_id: int):
             items_with_status.append(item_dict)
 
         checklist_dict = checklist.__dict__.copy()
+        checklist_dict["document_link"] = jc.document_link
+        checklist_dict["template_available"] = is_ism_checklist(jc)
         checklist_dict["items"] = items_with_status
         result.append(checklist_dict)
 

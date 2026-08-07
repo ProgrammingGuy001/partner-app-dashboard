@@ -1,5 +1,5 @@
-import * as React from "react"
-import { useQuery } from "@tanstack/react-query"
+import * as React from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   IconDashboard,
   IconListDetails,
@@ -8,11 +8,14 @@ import {
   IconClipboardList,
   IconCalendarCheck,
   IconPackage,
-} from "@tabler/icons-react"
+  IconShoppingCart,
+  IconFileSpreadsheet,
+  IconShieldLock,
+} from "@tabler/icons-react";
 
-import { NavMain } from "@/components/nav-main"
-import { NavUser } from "@/components/nav-user"
-import { authAPI } from "@/api/services"
+import { NavMain } from "@/components/nav-main";
+import { NavUser } from "@/components/nav-user";
+import { authAPI } from "@/api/services";
 import {
   Sidebar,
   SidebarContent,
@@ -21,29 +24,64 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "@/components/ui/sidebar"
+} from "@/components/ui/sidebar";
 
 const navGroups = [
   {
-    label: "Operations",
+    label: "Overview",
     items: [
       {
         title: "Dashboard",
         url: "/dashboard",
         icon: IconDashboard,
       },
+    ],
+  },
+  {
+    label: "Field Operations",
+    items: [
       {
         title: "Jobs",
         url: "/dashboard/jobs",
         icon: IconListDetails,
       },
       {
+        title: "Checklists",
+        url: "/dashboard/checklists",
+        icon: IconClipboardList,
+      },
+      {
+        title: "Documents",
+        url: "/dashboard/document-automation",
+        icon: IconFileSpreadsheet,
+      },
+    ],
+  },
+  {
+    label: "Field Staff",
+    items: [
+      {
         title: "IP Personnel",
         url: "/dashboard/workers",
         icon: IconUsers,
       },
       {
-        title: "BOM Requests",
+        title: "Attendance",
+        url: "/dashboard/attendance",
+        icon: IconCalendarCheck,
+      },
+    ],
+  },
+  {
+    label: "Inventory & Logistics",
+    items: [
+      {
+        title: "Site GRN",
+        url: "/dashboard/site-grn",
+        icon: IconPackage,
+      },
+      {
+        title: "Site Requisite History",
         url: "/dashboard/bom",
         icon: IconBox,
       },
@@ -53,33 +91,43 @@ const navGroups = [
         icon: IconClipboardList,
       },
       {
-        title: "Attendance",
-        url: "/dashboard/attendance",
-        icon: IconCalendarCheck,
-      },
-      {
-        title: "Site GRN",
-        url: "/dashboard/site-grn",
-        icon: IconPackage,
+        title: "Purchase Orders",
+        url: "/dashboard/purchase-orders",
+        icon: IconShoppingCart,
       },
     ],
   },
-]
+];
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   // Use React Query cached user data (already fetched by ProtectedRoute)
   const { data: userData } = useQuery({
-    queryKey: ['auth', 'user'],
+    queryKey: ["auth", "user"],
     queryFn: () => authAPI.getCurrentUser(),
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
 
   const user = {
-    name: userData?.is_superadmin ? "Super Admin" : "Admin",
+    name: userData?.name || (userData?.is_superadmin ? "Super Admin" : "Admin"),
     email: userData?.email || "user@example.com",
     avatar: "/avatars/shadcn.jpg",
     is_superadmin: userData?.is_superadmin || false,
-  }
+    is_dev: userData?.is_dev || false,
+  };
+
+  // Account administration is dev-only, so this group is appended at render time
+  // rather than living in the static navGroups above.
+  const groups = userData?.is_dev
+    ? [
+        ...navGroups,
+        {
+          label: "Administration",
+          items: [
+            { title: "Dev", url: "/dashboard/dev", icon: IconShieldLock },
+          ],
+        },
+      ]
+    : navGroups;
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>
@@ -103,17 +151,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   className="h-10 object-contain transition-transform duration-200 hover:scale-105"
                 />
               </a>
-
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent className="px-2 py-4">
-        <NavMain groups={navGroups} />
+        <NavMain groups={groups} />
       </SidebarContent>
       <SidebarFooter className="border-t border-sidebar-border/50 bg-gradient-to-t from-sidebar to-sidebar/80 pt-3">
         <NavUser user={user} />
       </SidebarFooter>
     </Sidebar>
-  )
+  );
 }

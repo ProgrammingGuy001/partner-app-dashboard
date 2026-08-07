@@ -22,6 +22,7 @@ import { bomAPI } from "../../api/bomApi";
 import { useToast } from "../../hooks/useToast";
 import { useResponsive } from "../../hooks/useResponsive";
 import { useTheme } from "../../hooks/useTheme";
+import { formatters } from "../../util/formatters";
 
 const HistoryScreen = ({ navigation }) => {
   const toast = useToast();
@@ -35,6 +36,9 @@ const HistoryScreen = ({ navigation }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [downloadingId, setDownloadingId] = useState(null);
+  const [updatingId, setUpdatingId] = useState(null);
+  const [historyLimit, setHistoryLimit] = useState(100);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const handleDownload = async (id, salesOrder) => {
     setDownloadingId(id);
@@ -47,19 +51,33 @@ const HistoryScreen = ({ navigation }) => {
     }
   };
 
+  const runAction = async (id, action, successMessage) => {
+    setUpdatingId(id);
+    try {
+      await action();
+      await fetchHistory(true);
+      toast.success(successMessage);
+    } catch (err) {
+      toast.error(err?.message || 'Could not update requisite');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   const fetchHistory = useCallback(async (isRefresh = false) => {
-    if (!isRefresh) setLoading(true);
+    if (!isRefresh && historyLimit === 100) setLoading(true);
     setError("");
     try {
-      const data = await bomAPI.getHistory(100, 0);
+      const data = await bomAPI.getHistory(historyLimit, 0);
       setHistory(data);
     } catch (err) {
       setError(err.message || "Failed to fetch history");
     } finally {
       setLoading(false);
+      setLoadingMore(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [historyLimit]);
 
   useEffect(() => {
     fetchHistory();
@@ -91,7 +109,10 @@ const HistoryScreen = ({ navigation }) => {
       const matchesSearch =
         repairOrderName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.sales_order?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.sr_poc?.toLowerCase().includes(searchTerm.toLowerCase());
+        item.sr_poc?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.project_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.do_number?.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesStatus =
         statusFilter === "all" || item.status === statusFilter;
       return matchesSearch && matchesStatus;
@@ -204,7 +225,19 @@ const HistoryScreen = ({ navigation }) => {
         </View>
 
         {error ? (
-          <Notice tone="danger" message={error} className="mb-4" />
+          <View className="mb-4 gap-2">
+            <Notice tone="danger" message={error} />
+            <TouchableOpacity
+              onPress={handleRefresh}
+              disabled={refreshing}
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading requisite history"
+              accessibilityState={{ disabled: refreshing, busy: refreshing }}
+              className="min-h-11 items-center justify-center rounded-xl border border-border bg-surface px-4"
+            >
+              <Text className="text-sm font-bold text-primary">{refreshing ? "Retrying…" : "Retry"}</Text>
+            </TouchableOpacity>
+          </View>
         ) : null}
 
         {!filteredHistory.length ? (
@@ -262,10 +295,16 @@ const HistoryScreen = ({ navigation }) => {
                           Items: {item.site_requisites?.length || 0}
                         </Text>
                       </View>
+                      <Text className="text-xs text-muted-foreground font-semibold">
+                        Created: {formatters.dateTime(item.created_date) || "N/A"}
+                      </Text>
                     </View>
                     <View className="flex-row items-center gap-2">
                       <TouchableOpacity
-                        onPress={() => handleDownload(item.id, item.sales_order)}
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          handleDownload(item.id, item.sales_order);
+                        }}
                         disabled={downloadingId === item.id}
                         accessibilityRole="button"
                         accessibilityLabel={`Download repair order for ${repairOrderName}`}
@@ -319,10 +358,65 @@ const HistoryScreen = ({ navigation }) => {
                         </Text>
                       </View>
                     </View>
+                    <View className="gap-2 rounded-xl border border-border bg-background p-3">
+                      <Text className="text-[11px] font-bold uppercase text-muted-foreground">Odoo sync</Text>
+                      <Text className={`text-sm font-bold ${item.odoo_sync_status === 'failed' ? 'text-destructive' : 'text-foreground'}`}>
+                        {item.odoo_sync_status}
+                      </Text>
+                      {item.odoo_sync_error ? <Text className="text-xs text-destructive">{item.odoo_sync_error}</Text> : null}
+                      <View className="flex-row flex-wrap gap-2">
+                        {item.odoo_sync_status === 'failed' ? (
+                          <TouchableOpacity
+                            disabled={updatingId === item.id}
+                            onPress={() => runAction(item.id, () => bomAPI.retrySync(item.id), 'Odoo sync retried')}
+                            className="min-h-11 flex-row items-center justify-center gap-1 rounded-xl border border-border px-3"
+                            style={{ opacity: updatingId === item.id ? 0.5 : 1 }}
+                          >
+                            <Ionicons name="refresh" size={15} color={colors.primary} />
+                            <Text className="text-xs font-bold text-primary">Retry sync</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                        <TouchableOpacity
+                          disabled={updatingId === item.id}
+                          onPress={() => runAction(
+                            item.id,
+                            () => bomAPI.updateStatus(item.id, item.status === 'completed' ? 'pending' : 'completed'),
+                            item.status === 'completed' ? 'Requisite reopened' : 'Requisite completed',
+                          )}
+                          className="min-h-11 items-center justify-center rounded-xl border border-border px-3"
+                          style={{ opacity: updatingId === item.id ? 0.5 : 1 }}
+                        >
+                          <Text className="text-xs font-bold text-primary">{item.status === 'completed' ? 'Reopen' : 'Mark completed'}</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   </View>
 
                   {expanded && (
                     <View className="p-4 border-t border-background bg-background/50 gap-2.5">
+                      <View className="flex-row flex-wrap gap-2">
+                        {[
+                          ["Customer", item.customer_name],
+                          ["Project", item.project_name],
+                          ["Cabinet", item.cabinet_position],
+                          ["SO POC", item.so_poc],
+                          ["SO Status", item.so_status],
+                          ["Expected Delivery", formatters.date(item.expected_delivery)],
+                          ["DO Number", item.do_number],
+                          ["Repair Status", item.odoo_repair_order_state],
+                          ["Closed", formatters.dateTime(item.closed_date)],
+                          ["Delivery Address", item.delivery_address],
+                        ].map(([label, value]) => (
+                          <View key={label} className="min-w-[47%] flex-1 rounded-xl border border-border bg-surface p-3">
+                            <Text className="text-[10px] font-bold uppercase text-muted-foreground">{label}</Text>
+                            <Text className="mt-1 text-xs font-semibold text-foreground">{value || "N/A"}</Text>
+                          </View>
+                        ))}
+                      </View>
+
+                      <Text className="mt-2 text-xs font-extrabold uppercase text-muted-foreground">
+                        Requisite Items
+                      </Text>
                       {item.site_requisites?.length ? (
                         item.site_requisites.map((req, index) => (
                           <View
@@ -351,6 +445,13 @@ const HistoryScreen = ({ navigation }) => {
                                     </Text>
                                   </View>
                                 )}
+                                {req.component_status ? (
+                                  <View className="px-2 py-0.5 rounded-lg bg-muted">
+                                    <Text className="text-[10px] font-bold capitalize text-foreground">
+                                      {req.component_status}
+                                    </Text>
+                                  </View>
+                                ) : null}
                               </View>
                               <Text className="text-xs text-muted-foreground">
                                 <Text className="font-bold">Issue:</Text>{" "}
@@ -369,6 +470,24 @@ const HistoryScreen = ({ navigation }) => {
                 </View>
               );
             })}
+            {history.length === historyLimit ? (
+              <TouchableOpacity
+                onPress={() => {
+                  setLoadingMore(true);
+                  setHistoryLimit((current) => current + 100);
+                }}
+                disabled={loadingMore}
+                accessibilityRole="button"
+                accessibilityLabel="Load more requisite history"
+                accessibilityState={{ disabled: loadingMore, busy: loadingMore }}
+                className="min-h-12 items-center justify-center rounded-xl border border-border bg-surface px-4"
+                style={{ opacity: loadingMore ? 0.6 : 1 }}
+              >
+                <Text className="text-sm font-bold text-primary">
+                  {loadingMore ? "Loading…" : "Load 100 more"}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         )}
       </ScrollView>

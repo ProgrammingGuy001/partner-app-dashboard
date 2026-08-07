@@ -1,12 +1,20 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
+from app.model.user import User
 from app.schemas.analytics import PayoutSummary, JobStageCount, PayoutByIP
 from app.crud.analytics import get_payout_analytics, get_job_stage_summary, get_ip_performance
 from app.core.security import get_current_user
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
+
+
+def _require_superadmin(current_user: User = Depends(get_current_user)) -> User:
+    """Analytics expose global payout/IP data — superadmin only."""
+    if not getattr(current_user, "is_superadmin", False):
+        raise HTTPException(status_code=403, detail="Superadmin access required")
+    return current_user
 
 @router.get("/payout", response_model=PayoutSummary)
 def get_payout_report(
@@ -16,7 +24,7 @@ def get_payout_report(
     quarter: Optional[int] = Query(None, ge=1, le=4, description="Specific quarter (1-4, required for 'quarter' period with specific year)"),
     week: Optional[int] = Query(None, ge=1, le=53, description="Specific week number (1-53, required for 'week' period with specific year)"),
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user)
+    current_user: User = Depends(_require_superadmin)
 ):
     """
     Get comprehensive payout analytics for a specific period.
@@ -43,7 +51,7 @@ def get_payout_report(
 @router.get("/job-stages", response_model=List[JobStageCount])
 def get_job_stages(
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user)
+    current_user: User = Depends(_require_superadmin)
 ):
     """
     Get current count of jobs in each stage (all time).
@@ -55,7 +63,7 @@ def get_job_stages(
 @router.get("/ip-performance", response_model=List[PayoutByIP])
 def get_all_ip_performance(
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user)
+    current_user: User = Depends(_require_superadmin)
 ):
     """
     Get performance metrics for all IPs (all time).

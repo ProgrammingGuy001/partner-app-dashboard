@@ -12,6 +12,20 @@ const UnsavedChangesBar = () => {
   const saveChanges = useChecklistStore((state) => state.saveChanges);
   const discardChanges = useChecklistStore((state) => state.discardChanges);
 
+  const handleSave = async () => {
+    try {
+      const result = await saveChanges();
+      if (result?.partial_failure) {
+        Alert.alert(
+          'Some changes were not saved',
+          `${result.failed_count} update${result.failed_count === 1 ? '' : 's'} failed. The checklist was refreshed with the saved server state.`,
+        );
+      }
+    } catch (error) {
+      Alert.alert('Could not save checklist', error.message || 'Please try again.');
+    }
+  };
+
   if (!hasUnsavedChanges) return null;
 
   return (
@@ -45,7 +59,7 @@ const UnsavedChangesBar = () => {
         >
           <Text className="text-warning-muted-foreground text-xs">Discard</Text>
         </Button>
-        <Button size="sm" loading={isSaving} onPress={saveChanges}>
+        <Button size="sm" loading={isSaving} onPress={handleSave}>
           <Text className="text-xs">Save</Text>
         </Button>
       </View>

@@ -40,7 +40,6 @@ async def read_validated_upload(
     allowed_extensions: Iterable[str] | None = None,
     allowed_content_types: Iterable[str] | None = None,
     max_size_mb: int | None = None,
-    chunk_size: int | None = None,
 ) -> ValidatedUpload:
     filename = file.filename or ""
     validate_upload_extension(filename, allowed_extensions=allowed_extensions)
@@ -53,20 +52,16 @@ async def read_validated_upload(
 
     resolved_max_size_mb = settings.MAX_UPLOAD_SIZE_MB if max_size_mb is None else max_size_mb
     max_size_bytes = resolved_max_size_mb * 1024 * 1024
-    read_chunk_size = chunk_size if chunk_size is not None else settings.UPLOAD_READ_CHUNK_SIZE
-    buffer = bytearray()
-
-    while chunk := await file.read(read_chunk_size):
-        buffer.extend(chunk)
-        if len(buffer) > max_size_bytes:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"File too large. Maximum size: {resolved_max_size_mb}MB",
-            )
+    content = await file.read(max_size_bytes + 1)
+    if len(content) > max_size_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File too large. Maximum size: {resolved_max_size_mb}MB",
+        )
 
     return ValidatedUpload(
         filename=filename,
         content_type=file.content_type,
-        content=bytes(buffer),
-        size_bytes=len(buffer),
+        content=content,
+        size_bytes=len(content),
     )
