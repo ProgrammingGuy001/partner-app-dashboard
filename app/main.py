@@ -14,7 +14,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.api.v1 import attendance, auth, bom, jobs, verification
 from app.config import settings
 from app.core.scheduler import scheduler
-from app.database import Base, engine, SessionLocal
+from app.database import SessionLocal
 from app.routes.analytics import router as analytics_router
 from app.routes.approval import router as approval_router
 from app.routes.auth import router as auth_router
@@ -29,8 +29,13 @@ from app.routes.sunday_work_request import (
     admin_router as sunday_work_request_admin_router,
     ip_router as sunday_work_request_ip_router,
 )
-from app.utils.db_migrations import run_migrations
+from app.services.checklist_template_service import sync_checklist_templates
+# ponytail: reaching for a private name rather than editing db_migrations.py, which
+# has uncommitted edits in another branch. Rename to seed_dev_account and move it
+# beside sync_checklist_templates when that lands.
+from app.utils.db_migrations import _seed_dev_account as seed_dev_account
 from app.utils.error_text import sanitize_validation_errors
+from app.utils.migrate import upgrade_to_head
 from app.utils.rate_limiter import limiter, rate_limit_exceeded_handler
 
 logger = logging.getLogger(__name__)
@@ -47,17 +52,22 @@ builtins.print = _env_aware_print
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown events"""
-    if settings.enable_schema_sync:
-        Base.metadata.create_all(bind=engine)
-    else:
-        logger.info("Skipping automatic schema creation; use Alembic migrations instead.")
-
-    # Always run column-level migrations (idempotent)
+    # Schema comes from Alembic only. create_all is gone: it could add missing
+    # tables but never reconcile a column, which is how prod ended up without
+    # jobs_checklist_item_status while the code assumed it existed.
     try:
-        with SessionLocal() as db:
-            run_migrations(db)
+        upgrade_to_head()
     except Exception as exc:
         logger.exception("Startup migrations failed: %s", exc)
+        raise
+
+    # Reference data, not schema — idempotent and safe to re-run every boot.
+    try:
+        with SessionLocal() as db:
+            sync_checklist_templates(db)
+            seed_dev_account(db)
+    except Exception as exc:
+        logger.exception("Startup seeding failed: %s", exc)
         raise
 
     scheduler.start()

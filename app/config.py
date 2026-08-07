@@ -50,7 +50,6 @@ load_dotenv(_active_env_file, override=False)
 class Settings(BaseSettings):
     # Environment
     ENVIRONMENT: str = "test"  # "test" or "prod"
-    AUTO_CREATE_TABLES: Optional[bool] = None
 
     # Database
     DATABASE_URL: str
@@ -167,12 +166,6 @@ class Settings(BaseSettings):
     @property
     def normalized_environment(self) -> str:
         return self.ENVIRONMENT.strip().lower()
-
-    @property
-    def enable_schema_sync(self) -> bool:
-        if self.AUTO_CREATE_TABLES is not None:
-            return self.AUTO_CREATE_TABLES
-        return self.normalized_environment in {"test", "development", "dev", "local"}
 
     @property
     def is_secure_cookie_environment(self) -> bool:

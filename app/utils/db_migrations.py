@@ -35,56 +35,92 @@ def _column_is_nullable(db: Session, table: str, column: str) -> bool:
     return row is None or row[0] == "YES"
 
 
-def run_migrations(db: Session) -> None:
+def run_migrations(db: Session, *, verbose: bool = False) -> None:
     """Run all pending column migrations."""
-    _add_job_manual_type_rate_columns(db)
-    _add_so_detail_odoo_columns(db)
-    _add_site_requisite_export_columns(db)
-    _drop_so_detail_sales_order_unique(db)
-    _create_daily_attendance_table(db)
-    _make_daily_attendance_job_nullable(db)
-    _add_attendance_photo_url(db)
-    _add_attendance_manual_location(db)
-    _add_attendance_checkout_columns(db)
-    _add_attendance_report_data_and_job_unique(db)
-    _add_admin_created_at(db)
-    _create_invoice_requests_table(db)
-    _create_admin_attendance_table(db)
-    _add_admin_attendance_coordinates(db)
-    _add_admin_attendance_manual_location(db)
-    _add_admin_attendance_photo_url(db)
-    _add_invoice_request_multi_invoice_columns(db)
-    _add_job_checklist_document_link(db)
-    _create_site_grn_tables(db)
-    _make_site_grn_ip_optional(db)
-    _add_grn_package_barcode_columns(db)
-    _add_job_geofence_columns(db)
-    _add_job_slot_columns(db)
-    _add_job_completion_document_columns(db)
-    _add_ip_financials_kyc_consent_at(db)
-    _add_jobs_sales_order_column(db)
-    _add_site_grn_odoo_sync_error_column(db)
-    _add_job_status_log_actor_columns(db)
-    _add_review_and_requisite_sync_columns(db)
-    _create_purchase_order_requests_table(db)
-    _add_admin_name_column(db)
-    _add_job_drawing_document_column(db)
-    _add_site_grn_job_id_column(db)
-    _create_sunday_work_requests_table(db)
-    _add_sunday_work_request_admin_id_column(db)
-    _add_attendance_checkout_source_column(db)
-    _add_admin_is_dev_column(db)
-    _create_dev_audit_log_table(db)
-    _create_job_approval_requests_table(db)
-    _add_attendance_geofence_columns(db)
-    _add_admin_attendance_geofence_columns(db)
-    _add_job_rate_location_description_columns(db)
-    _drop_legacy_job_columns(db)
-    _enforce_business_invariants(db)
+    migrations = (
+        _add_job_manual_type_rate_columns,
+        _add_so_detail_odoo_columns,
+        _add_site_requisite_export_columns,
+        _drop_so_detail_sales_order_unique,
+        _create_daily_attendance_table,
+        _make_daily_attendance_job_nullable,
+        _add_attendance_photo_url,
+        _add_attendance_manual_location,
+        _add_attendance_checkout_columns,
+        _add_attendance_report_data_and_job_unique,
+        _add_admin_created_at,
+        _create_invoice_requests_table,
+        _create_admin_attendance_table,
+        _add_admin_attendance_coordinates,
+        _add_admin_attendance_manual_location,
+        _add_admin_attendance_photo_url,
+        _add_invoice_request_multi_invoice_columns,
+        _create_checklist_tables,
+        _add_job_checklist_document_link,
+        _create_site_grn_tables,
+        _make_site_grn_ip_optional,
+        _add_grn_package_barcode_columns,
+        _add_job_geofence_columns,
+        _add_job_slot_columns,
+        _add_job_completion_document_columns,
+        _add_ip_financials_kyc_consent_at,
+        _add_jobs_sales_order_column,
+        _add_site_grn_odoo_sync_error_column,
+        _add_job_status_log_actor_columns,
+        _add_review_and_requisite_sync_columns,
+        _create_purchase_order_requests_table,
+        _add_admin_name_column,
+        _add_job_drawing_document_column,
+        _add_site_grn_job_id_column,
+        _create_sunday_work_requests_table,
+        _add_sunday_work_request_admin_id_column,
+        _add_attendance_checkout_source_column,
+        _add_admin_is_dev_column,
+        _create_dev_audit_log_table,
+        _create_job_approval_requests_table,
+        _add_attendance_geofence_columns,
+        _add_admin_attendance_geofence_columns,
+        _add_job_rate_location_description_columns,
+        _drop_legacy_job_columns,
+        _enforce_business_invariants,
+    )
     from app.services.checklist_template_service import sync_checklist_templates
 
-    sync_checklist_templates(db)
-    _seed_dev_account(db)
+    for migration in (*migrations, sync_checklist_templates, _seed_dev_account):
+        if verbose:
+            logger.info("Migration step started: %s", migration.__name__)
+        migration(db)
+        if verbose:
+            logger.info("Migration step finished: %s", migration.__name__)
+
+
+def _create_checklist_tables(db: Session) -> None:
+    """Create checklist base tables before migrations alter them."""
+    from sqlalchemy import inspect
+
+    from app.model.job import Checklist, ChecklistItem, JobChecklist, JobChecklistItemStatus
+
+    tables = (
+        Checklist.__table__,
+        ChecklistItem.__table__,
+        JobChecklist.__table__,
+        JobChecklistItemStatus.__table__,
+    )
+    connection = db.connection()
+    missing = [table for table in tables if not inspect(connection).has_table(table.name)]
+    if not missing:
+        logger.debug("Migration: checklist tables already exist, skipping.")
+        return
+
+    try:
+        for table in missing:
+            table.create(bind=connection)
+        db.commit()
+        logger.info("Migration: created checklist tables: %s", ", ".join(t.name for t in missing))
+    except Exception:
+        db.rollback()
+        logger.exception("Migration failed creating checklist tables")
+        raise
 
 
 def _add_admin_is_dev_column(db: Session) -> None:
