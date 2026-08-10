@@ -44,8 +44,14 @@ export const useMarkAdminAttendance = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: { latitude: number; longitude: number; notes?: string; manual_location?: string; photo: File }) => adminAttendanceAPI.mark(data),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['admin-attendance'] });
+      // Sunday: the attempt went to the superadmin instead of being recorded. The GPS
+      // fix and photo travelled with it, so there is nothing to submit again.
+      if (data?.status === 'pending_approval') {
+        toast.success(data.message || 'Approval request sent to superadmin');
+        return;
+      }
       toast.success('Attendance marked successfully');
     },
     onError: (error: unknown) => {

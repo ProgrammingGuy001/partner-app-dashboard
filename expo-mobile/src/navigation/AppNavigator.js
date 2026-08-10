@@ -18,6 +18,7 @@ import ChecklistScreen from '../screens/checklist/ChecklistScreen';
 import DailyReportScreen from '../screens/report/DailyReportScreen';
 import SiteRequisiteScreen from '../screens/requisite/SiteRequisiteScreen';
 import BucketScreen from '../screens/requisite/BucketScreen';
+import ReviewScreen from '../screens/requisite/ReviewScreen';
 import SubmitScreen from '../screens/requisite/SubmitScreen';
 import HistoryScreen from '../screens/requisite/HistoryScreen';
 import AccountScreen from '../screens/account/AccountScreen';
@@ -314,6 +315,7 @@ const AppNavigator = () => {
           <Stack.Screen name={ROUTES.CHECKLIST} component={ChecklistScreen} options={{ title: 'Checklist' }} />
           <Stack.Screen name={ROUTES.DAILY_REPORT} component={DailyReportScreen} options={{ title: 'Daily Report' }} />
           <Stack.Screen name={ROUTES.BUCKET} component={BucketScreen} options={{ headerShown: false }} />
+          <Stack.Screen name={ROUTES.REVIEW} component={ReviewScreen} options={{ headerShown: false }} />
           <Stack.Screen name={ROUTES.SUBMIT} component={SubmitScreen} options={{ headerShown: false }} />
           <Stack.Screen name={ROUTES.HISTORY} component={HistoryScreen} options={{ headerShown: false }} />
           <Stack.Screen name={ROUTES.NOT_FOUND} component={NotFoundScreen} options={{ headerShown: false }} />

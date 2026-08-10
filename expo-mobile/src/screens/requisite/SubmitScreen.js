@@ -1,173 +1,30 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { KeyboardAvoidingView, Platform, FlatList, View, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from "@react-native-vector-icons/ionicons";
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Text } from '@/components/ui/text';
-import { bomAPI } from '../../api/bomApi';
+import RequisiteSubmitForm from '../../components/requisite/RequisiteSubmitForm';
+import RequisiteSuccessPanel from '../../components/requisite/RequisiteSuccessPanel';
 import useRequisiteStore from '../../store/requisiteStore';
 import { useTheme } from '../../hooks/useTheme';
 import { useResponsive } from '../../hooks/useResponsive';
-import { ROUTES } from '../../util/constants';
-import { Notice } from '../../components/common/Primitives';
-import { isISODate } from '../../util/isoDate';
 
 const SubmitScreen = ({ navigation }) => {
-  const { bucket, salesOrder, cabinetPosition, soDetails, setSODetails, clearBucket } = useRequisiteStore();
+  const bucket = useRequisiteStore((state) => state.bucket);
   const { colors } = useTheme();
   const { px } = useResponsive();
 
-
-  const [loading, setLoading] = useState(false);
-  const [detailsLoading, setDetailsLoading] = useState(false);
-  const [detailsError, setDetailsError] = useState('');
-  const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
-  const [expectedDelivery, setExpectedDelivery] = useState('');
-  const [doNumber, setDoNumber] = useState('');
-
-  const formatOrderState = (value) => {
-    const normalized = String(value ?? '').trim().toLowerCase();
-    if (!normalized) return '';
-
-    const labels = {
-      draft: 'Quotation',
-      sent: 'Quotation Sent',
-      sale: 'Confirmed',
-      done: 'Locked',
-      cancel: 'Cancelled',
-    };
-
-    return labels[normalized] || normalized.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
-  };
-
-  const fetchSODetails = useCallback(async () => {
-    if (!salesOrder) {
-      return null;
-    }
-
-    setDetailsLoading(true);
-    setDetailsError('');
-
-    try {
-      const details = await bomAPI.lookupSO(salesOrder);
-      setSODetails(details);
-      return details;
-    } catch (err) {
-      const message = err?.message || 'Failed to fetch sales order details from Odoo.';
-      setDetailsError(message);
-      return null;
-    } finally {
-      setDetailsLoading(false);
-    }
-  }, [salesOrder, setSODetails]);
-
-  useEffect(() => {
-    if (salesOrder && !soDetails) {
-      void fetchSODetails();
-    } else if (soDetails) {
-      setDetailsError('');
-    }
-  }, [fetchSODetails, salesOrder, soDetails]);
-
-  const handleSubmit = async () => {
-    if (!bucket.length) {
-      setError('Bucket is empty. Please add items before submitting.');
-      return;
-    }
-
-    if (!salesOrder || !cabinetPosition) {
-      setError('Sales order and cabinet position are required.');
-      return;
-    }
-
-    if (expectedDelivery && !isISODate(expectedDelivery)) {
-      setError('Expected delivery must be a valid date in YYYY-MM-DD format.');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-
-    try {
-      const resolvedDetails = await fetchSODetails();
-      if (!resolvedDetails) {
-        setError('Sales order details must be fetched from Odoo before submitting the site requisite.');
-        return;
-      }
-
-      const payload = {
-        sales_order: salesOrder,
-        cabinet_position: cabinetPosition,
-        expected_delivery: expectedDelivery || null,
-        do_number: doNumber.trim() || null,
-        items: bucket,
-      };
-
-      await bomAPI.submitRequisite(payload);
-      setSuccess(true);
-    } catch (err) {
-      setError(err.message || 'Failed to submit requisite. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   if (success) {
-    return (
-      <SafeAreaView className="flex-1 bg-background">
-        <View className="flex-1 justify-center items-center px-6">
-          <View
-            className="bg-surface rounded-2xl p-8 items-center w-full border border-border"
-            style={colors.shadowMd}
-          >
-            <View 
-              className="w-20 h-20 rounded-[40px] items-center justify-center mb-6"
-              style={{ backgroundColor: colors.success + '15' }}
-            >
-              <Ionicons name="checkmark-circle" size={48} color={colors.success} />
-            </View>
-            <Text className="text-2xl font-extrabold text-foreground text-center mb-2">
-              Submitted!
-            </Text>
-            <Text className="text-[15px] text-muted-foreground text-center mb-8 leading-[22px]">
-              Your site requisite request has been successfully created and saved to history.
-            </Text>
-            
-            <View className="w-full gap-3">
-              <Button
-                className="h-14 rounded-2xl bg-primary"
-                onPress={() => {
-                  clearBucket();
-                  navigation.navigate(ROUTES.HISTORY);
-                }}
-              >
-                <Text className="text-primary-foreground font-bold">View Requisite History</Text>
-              </Button>
-              <TouchableOpacity
-                className="h-[56px] items-center justify-center rounded-2xl"
-                accessibilityRole="button"
-                accessibilityLabel="Create new request"
-                onPress={() => {
-                  clearBucket();
-                  navigation.navigate(ROUTES.SITE_REQUISITE);
-                }}
-              >
-                <Text className="text-primary font-bold">Create New Request</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </SafeAreaView>
-    );
+    return <RequisiteSuccessPanel navigation={navigation} />;
   }
 
   const renderHeader = () => (
         <>
           {/* Header */}
           <View className="flex-row items-center gap-3 pt-4 mb-6">
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={() => navigation.goBack()}
               className="w-10 h-10 rounded-full bg-surface items-center justify-center border border-border"
               style={colors.shadowSm}
@@ -186,130 +43,7 @@ const SubmitScreen = ({ navigation }) => {
             </View>
           </View>
 
-          {error ? (
-            <Notice tone="danger" message={error} className="mb-4" />
-          ) : null}
-
-          <View
-            className="bg-surface rounded-2xl p-6 mb-6 border border-border"
-            style={colors.shadowMd}
-          >
-            <Text className="text-[17px] font-extrabold text-foreground mb-5">Project Context</Text>
-
-            <View className="rounded-2xl border border-border bg-background p-4 mb-5">
-              <View className="flex-row items-start justify-between gap-3">
-                <View className="flex-1">
-                  <Text className="text-[11px] font-bold text-muted-foreground uppercase">Sales-order details from Odoo</Text>
-                  <Text className="text-[12px] text-muted-foreground font-medium mt-1">
-                    These values are refreshed before submission and will populate the site requisite.
-                  </Text>
-                </View>
-                {detailsLoading ? (
-                  <Text className="text-[12px] font-bold" style={{ color: colors.textMuted }}>Fetching...</Text>
-                ) : soDetails ? (
-                  <Text className="text-[12px] font-bold" style={{ color: colors.success }}>Synced</Text>
-                ) : null}
-              </View>
-
-              {detailsError ? (
-                <Notice tone="warning" title="SO details not available yet" message={detailsError} className="mt-4" />
-              ) : soDetails ? (
-                <View className="gap-3 mt-4">
-                  <View className="flex-row items-start gap-2">
-                    <Ionicons name="business-outline" size={15} color={colors.primary} />
-                    <View className="flex-1">
-                      <Text className="text-[10px] text-muted-foreground uppercase">Customer</Text>
-                      <Text className="text-sm font-semibold text-foreground">{soDetails.customer_name || 'N/A'}</Text>
-                    </View>
-                  </View>
-                  <View className="flex-row items-start gap-2">
-                    <Ionicons name="folder-outline" size={15} color={colors.primary} />
-                    <View className="flex-1">
-                      <Text className="text-[10px] text-muted-foreground uppercase">Project</Text>
-                      <Text className="text-sm font-semibold text-foreground">{soDetails.project_name || 'N/A'}</Text>
-                    </View>
-                  </View>
-                  <View className="flex-row items-start gap-2">
-                    <Ionicons name="person-outline" size={15} color={colors.primary} />
-                    <View className="flex-1">
-                      <Text className="text-[10px] text-muted-foreground uppercase">SO POC</Text>
-                      <Text className="text-sm font-semibold text-foreground">{soDetails.client_order_ref || 'N/A'}</Text>
-                    </View>
-                  </View>
-                  <View className="flex-row items-start gap-2">
-                    <Ionicons name="shield-checkmark-outline" size={15} color={colors.primary} />
-                    <View className="flex-1">
-                      <Text className="text-[10px] text-muted-foreground uppercase">Order Status</Text>
-                      <Text className="text-sm font-semibold text-foreground">{formatOrderState(soDetails.order_state) || 'N/A'}</Text>
-                    </View>
-                  </View>
-                  <View className="flex-row items-start gap-2">
-                    <Ionicons name="location-outline" size={15} color={colors.primary} />
-                    <View className="flex-1">
-                      <Text className="text-[10px] text-muted-foreground uppercase">Delivery Address</Text>
-                      <Text className="text-sm font-semibold text-foreground">
-                        {[soDetails.address_line_1, soDetails.address_line_2, soDetails.city, soDetails.state, soDetails.pincode]
-                          .filter(Boolean)
-                          .join(', ') || 'N/A'}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              ) : null}
-            </View>
-            
-            <View className="gap-4 mb-6">
-              <View className="gap-2">
-                <Text className="text-[11px] font-bold text-muted-foreground uppercase">Sales Order</Text>
-                <View className="h-[56px] rounded-xl bg-background justify-center px-4 border border-border flex-row items-center">
-                   <Text className="text-base font-bold text-muted-foreground">{salesOrder}</Text>
-                </View>
-              </View>
-
-              <View className="gap-2">
-                <Text className="text-[11px] font-bold text-muted-foreground uppercase">Expected Delivery (Optional)</Text>
-                <Input
-                  value={expectedDelivery}
-                  onChangeText={setExpectedDelivery}
-                  placeholder="YYYY-MM-DD"
-                  maxLength={10}
-                  autoCorrect={false}
-                  accessibilityLabel="Expected delivery date"
-                  className="h-[56px] rounded-xl bg-background border border-border px-4 text-base font-semibold text-foreground"
-                />
-              </View>
-
-              <View className="gap-2">
-                <Text className="text-[11px] font-bold text-muted-foreground uppercase">DO Number (Optional)</Text>
-                <Input
-                  value={doNumber}
-                  onChangeText={setDoNumber}
-                  placeholder="Delivery order number"
-                  maxLength={255}
-                  accessibilityLabel="Delivery order number"
-                  className="h-[56px] rounded-xl bg-background border border-border px-4 text-base font-semibold text-foreground"
-                />
-              </View>
-
-              <View className="gap-2">
-                <Text className="text-[11px] font-bold text-muted-foreground uppercase">Cabinet Position</Text>
-                <View className="h-[56px] rounded-xl bg-background justify-center px-4 border border-border flex-row items-center">
-                   <Text className="text-base font-bold text-muted-foreground">{cabinetPosition}</Text>
-                </View>
-              </View>
-
-
-            </View>
-
-            <Button
-              loading={loading}
-              disabled={!bucket.length || detailsLoading || !soDetails}
-              onPress={handleSubmit}
-              className="h-[56px] rounded-2xl bg-primary"
-            >
-              <Text className="text-primary-foreground text-base font-bold">Confirm & Submit</Text>
-            </Button>
-          </View>
+          <RequisiteSubmitForm onSubmitted={() => setSuccess(true)} />
 
           <View className="flex-row items-center justify-between mb-4 mt-2">
             <Text className="text-base font-extrabold text-foreground">Items Summary</Text>

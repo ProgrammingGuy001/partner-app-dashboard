@@ -178,9 +178,9 @@ const SiteRequisiteScreen = ({ navigation, route }) => {
                 <Ionicons name="time-outline" size={20} color={colors.text} />
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => navigation.navigate(ROUTES.BUCKET)}
+                onPress={() => navigation.navigate(ROUTES.REVIEW)}
                 accessibilityRole="button"
-                accessibilityLabel={`Open bucket, ${bucket.length} items`}
+                accessibilityLabel={`Review requisite, ${bucket.length} items`}
                 className="h-11 flex-row items-center gap-2 rounded-xl bg-primary px-3"
               >
                 <Ionicons name="basket-outline" size={20} color={colors.primaryForeground} />

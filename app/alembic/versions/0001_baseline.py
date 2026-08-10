@@ -5,8 +5,9 @@ The two had drifted (ON DELETE clauses, JSONB vs JSON, BIGINT vs INTEGER, server
 defaults) after years of the hand-rolled app/utils/db_migrations.py, so generating
 the baseline from models would have silently rewritten production.
 
-Existing databases are stamped at this revision and never execute it. Only a fresh
-database runs the SQL, which reproduces production exactly.
+Existing databases are stamped at this revision and never execute it — see
+_adopt_legacy_database() in app/utils/migrate.py, which startup runs before every
+upgrade. Only a fresh database runs the SQL, which reproduces production exactly.
 
 Revision ID: 0001
 Revises:

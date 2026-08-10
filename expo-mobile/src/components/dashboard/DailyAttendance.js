@@ -210,7 +210,7 @@ const DailyAttendance = () => {
 
     setSubmitting(true);
     try {
-      await dashboardApi.recordAttendance({
+      const result = await dashboardApi.recordAttendance({
         jobId,
         latitude: loc.coords.latitude,
         longitude: loc.coords.longitude,
@@ -218,7 +218,20 @@ const DailyAttendance = () => {
         photoUri,
         attendanceType,
         reportFile: attendanceType === 'check_out' ? reportFile : null,
+        sundayReason: sundayReason.trim() || undefined,
       });
+
+      // Sunday: the attempt was filed for approval instead of recorded. The photo and
+      // GPS travelled with it, so there is nothing to submit again once it is granted.
+      if (result?.status === 'pending_approval') {
+        toast.success(result.message || 'Approval request sent to superadmin');
+        setPhotoUri(null);
+        setManualLocation('');
+        setSundayReason('');
+        setSundayBlocked(true);
+        await fetchSundayRequests();
+        return;
+      }
 
       toast.success(attendanceType === 'check_in' ? 'Check-in recorded' : 'Check-out and report submitted');
       setPhotoUri(null);
@@ -226,7 +239,8 @@ const DailyAttendance = () => {
       setReportFile(null);
       fetchRecords();
     } catch (err) {
-      if (err.status === 403 && /sunday/i.test(err.message || '')) {
+      // 409 covers a request already waiting on the superadmin, 403 a rejected one.
+      if ((err.status === 403 || err.status === 409) && /sunday/i.test(err.message || '')) {
         setSundayBlocked(true);
         await fetchSundayRequests();
       }

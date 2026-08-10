@@ -900,7 +900,9 @@ export interface AdminAttendanceListResponse {
 }
 
 export const adminAttendanceAPI = {
-  mark: (data: { latitude: number; longitude: number; notes?: string; manual_location?: string; photo: File }): Promise<{ message: string; record: AdminAttendanceRecord }> => {
+  // A Sunday attempt returns 202 with status 'pending_approval' and no record: it was
+  // filed for the superadmin, who records it on approval.
+  mark: (data: { latitude: number; longitude: number; notes?: string; manual_location?: string; photo: File }): Promise<{ message: string; status?: string; record?: AdminAttendanceRecord }> => {
     const formData = new FormData();
     formData.append('latitude', String(data.latitude));
     formData.append('longitude', String(data.longitude));

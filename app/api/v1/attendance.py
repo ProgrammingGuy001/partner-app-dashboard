@@ -2,6 +2,7 @@ from datetime import timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -18,8 +19,11 @@ from app.services.installation_report_service import (
     generate_daily_installation_report,
 )
 from app.services.s3_service import upload_file_to_s3
+from app.services.sunday_attendance import (
+    find_request as find_sunday_request,
+    park_attendance as park_sunday_attendance,
+)
 from app.services.upload_service import read_validated_upload
-from app.model.sunday_work_request import SundayWorkRequest
 from app.utils.attendance_policy import (
     ATTENDANCE_TIMEZONE,
     CHECK_OUT_CUTOFF,
@@ -75,6 +79,8 @@ async def record_independent_attendance(
     report_data: Annotated[str | None, Form()] = None,
     report_file: Annotated[UploadFile | None, File()] = None,
     progress_photos: Annotated[list[UploadFile] | None, File()] = None,
+    # Why they are working this Sunday. Only read when the day needs approval.
+    sunday_reason: Annotated[str | None, Form(max_length=500)] = None,
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db),
 ):
@@ -93,17 +99,24 @@ async def record_independent_attendance(
     uploaded_report = None
     report_photos: list[dict] = []
     record_date = business_date
+    # Set when this Sunday check-in has to wait for a superadmin. The attempt is not
+    # refused: it is parked below, once the photo is in S3, and replayed on approval.
+    park_for_approval = False
     if attendance_type == "check_in":
         if is_sunday(business_date):
-            approved_request = db.query(SundayWorkRequest.id).filter(
-                SundayWorkRequest.ip_user_id == current_user.id,
-                SundayWorkRequest.request_date == business_date,
-                SundayWorkRequest.status == "approved",
-            ).first()
-            if not approved_request:
+            sunday_request = find_sunday_request(db, business_date, ip_user_id=current_user.id)
+            if sunday_request is None:
+                park_for_approval = True
+            elif sunday_request.status == "pending":
+                # Nothing new to park, so return before paying for the photo upload.
+                raise HTTPException(
+                    status_code=409,
+                    detail="Your Sunday work request is already with the superadmin. Your attendance will be recorded once it is approved.",
+                )
+            elif sunday_request.status == "rejected":
                 raise HTTPException(
                     status_code=403,
-                    detail="Working on Sunday requires superadmin approval. Submit a Sunday work request first.",
+                    detail="Your Sunday work request for today was rejected, so attendance cannot be marked.",
                 )
         existing = db.query(DailyAttendance.id).filter(
             DailyAttendance.ip_user_id == current_user.id,
@@ -203,6 +216,34 @@ async def record_independent_attendance(
             uploaded_report.content,
             uploaded_report.filename,
             uploaded_report.content_type,
+        )
+
+    if park_for_approval:
+        request = park_sunday_attendance(
+            db,
+            business_date,
+            {
+                "job_id": job_id,
+                "phone": attendance_phone,
+                "latitude": latitude,
+                "longitude": longitude,
+                "manual_location": manual_location,
+                "photo_url": photo_url,
+                "distance_meters": fence_distance,
+                "within_geofence": fence_within,
+            },
+            ip_user_id=current_user.id,
+            reason=sunday_reason,
+        )
+        db.commit()
+        db.refresh(request)
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "pending_approval",
+                "message": "Approval request sent to superadmin. Your attendance will be recorded once it is approved.",
+                "sunday_request_id": request.id,
+            },
         )
 
     record = DailyAttendance(

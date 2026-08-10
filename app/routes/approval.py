@@ -1,6 +1,7 @@
 from datetime import datetime, date
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status, Path, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Annotated, List, Optional
@@ -15,6 +16,10 @@ from app.model.admin_attendance import AdminAttendance
 from app.model.sunday_work_request import SundayWorkRequest
 from app.services.attendance_export import build_attendance_workbook
 from app.services.s3_service import upload_file_to_s3
+from app.services.sunday_attendance import (
+    find_request as find_sunday_request,
+    park_attendance as park_sunday_attendance,
+)
 from app.services.upload_service import read_validated_upload
 from app.api.v1.attendance import _report_status
 from app.utils.attendance_policy import (
@@ -525,26 +530,29 @@ async def mark_admin_attendance(
         )
     ensure_attendance_window_open()
 
-    # Same gate the IP check-in path applies (app/api/v1/attendance.py): only an
-    # approved request for that exact Sunday unlocks the day — absent, pending and
-    # rejected all block.
+    # Same handling as the IP check-in path (app/api/v1/attendance.py): an approved
+    # request unlocks the day, an absent one is filed from this attempt and parked,
+    # pending and rejected both stop here.
     business_date = attendance_business_date()
+    park_for_approval = False
     if is_sunday(business_date):
-        approved_request = (
-            db.query(SundayWorkRequest.id)
-            .filter(
-                SundayWorkRequest.admin_id == current_user.id,
-                SundayWorkRequest.request_date == business_date,
-                SundayWorkRequest.status == "approved",
+        sunday_request = find_sunday_request(db, business_date, admin_id=current_user.id)
+        if sunday_request is None:
+            park_for_approval = True
+        elif sunday_request.status == "pending":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Your Sunday work request is already with the superadmin. "
+                    "Your attendance will be recorded once it is approved."
+                ),
             )
-            .first()
-        )
-        if not approved_request:
+        elif sunday_request.status == "rejected":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(
-                    "Working on Sunday requires superadmin approval. "
-                    "Submit a Sunday work request first."
+                    "Your Sunday work request for today was rejected, "
+                    "so attendance cannot be marked."
                 ),
             )
 
@@ -610,6 +618,37 @@ async def mark_admin_attendance(
     matched_job_id, fence_distance, fence_within = nearest_job_status(
         candidate_jobs, latitude, longitude
     )
+
+    if park_for_approval:
+        request = park_sunday_attendance(
+            db,
+            business_date,
+            {
+                "latitude": latitude,
+                "longitude": longitude,
+                "manual_location": manual_location.strip() if manual_location else None,
+                "matched_job_id": matched_job_id,
+                "distance_meters": fence_distance,
+                "within_geofence": fence_within,
+                "photo_url": photo_url,
+                "notes": notes.strip() if notes else None,
+            },
+            admin_id=current_user.id,
+            reason=notes,
+        )
+        db.commit()
+        db.refresh(request)
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "status": "pending_approval",
+                "message": (
+                    "Approval request sent to superadmin. "
+                    "Your attendance will be recorded once it is approved."
+                ),
+                "sunday_request_id": request.id,
+            },
+        )
 
     record = AdminAttendance(
         admin_id=current_user.id,

@@ -1,33 +1,72 @@
-# Secrets — app/.gitignore also covers app/.env and app/.env.test.
-# env.mode is tracked on purpose: it selects the file, it holds no credentials.
+# Root ignores for a polyglot repo: FastAPI backend (app/), React dashboard
+# (admin_dashboard/), Expo client (expo-mobile/), partnerfrontend (submodule).
+# Each client keeps its own .gitignore for stack-specific rules; this file holds
+# what applies repo-wide. Based on GitHub's Python, Node, macOS, JetBrains and
+# VisualStudioCode templates, trimmed to the tooling this repo actually uses.
+
+# ── Secrets ───────────────────────────────────────────────────────────────────
+# Every client also ignores its own .env; these patterns are the backstop.
+# app/env.mode is tracked on purpose: it only names which env file to load.
 .env
 .env.*
 !.env.example
+!.env.*.example
+*.pem
+*.key
 
-# Python
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
+.Python
 *.egg-info/
+.eggs/
 venv/
 .venv/
+env/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.dmypy.json
+.coverage
+.coverage.*
+htmlcov/
+.tox/
 
-# Node — every client in this repo
+# ── Node ──────────────────────────────────────────────────────────────────────
 node_modules/
 dist/
+dist-ssr/
 build/
 *.tsbuildinfo
+.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# Editors and OS
-.claude
-.idea
-.vscode
+# ── Editors ───────────────────────────────────────────────────────────────────
+# Shared VS Code config is committed; everything else in .vscode/ is personal.
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+.idea/
+*.swp
+*.swo
+.claude/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
 
-# Local artefacts
+# ── Local artefacts ───────────────────────────────────────────────────────────
 test.db
 *.log
-
-tests/
+app/env.mode
+tests/*

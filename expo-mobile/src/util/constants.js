@@ -107,6 +107,7 @@ export const ROUTES = {
   CHECKLIST: "Checklist",
   BUCKET: "Bucket",
   SUBMIT: "Submit",
+  REVIEW: "Review",
   NOT_FOUND: "NotFound",
   SITE_GRN: "SiteGRN",
   DAILY_REPORT: "DailyReport",

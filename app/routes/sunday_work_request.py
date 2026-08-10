@@ -8,6 +8,7 @@ from app.api.deps import get_current_user, get_fully_verified_user
 from app.database import get_db
 from app.model.sunday_work_request import SundayWorkRequest
 from app.model.user import User
+from app.services.sunday_attendance import record_parked_attendance
 from app.schemas.sunday_work_request import (
     SundayWorkRequestCreate,
     SundayWorkRequestResponse,
@@ -155,6 +156,10 @@ def approve_sunday_work_request(
     request.reviewed_by_admin_id = current_user.id
     request.reviewed_at = datetime.utcnow()
     request.review_notes = data.review_notes
+    # Approving a request that was raised by an attendance attempt records that
+    # attendance. One commit, so a failure here leaves the request pending rather
+    # than approved-but-unrecorded.
+    record_parked_attendance(db, request)
     db.commit()
     return _load(db, request_id)
 

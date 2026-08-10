@@ -70,7 +70,7 @@ export const dashboardApi = {
     return response.data;
   },
 
-  recordAttendance: async ({ jobId, latitude, longitude, manualLocation, photoUri, attendanceType, reportFile }) => {
+  recordAttendance: async ({ jobId, latitude, longitude, manualLocation, photoUri, attendanceType, reportFile, sundayReason }) => {
     const formData = new FormData();
     if (jobId) formData.append('job_id', String(assertPositiveId(jobId, 'job id')));
     formData.append('latitude', String(latitude));
@@ -83,6 +83,8 @@ export const dashboardApi = {
     const mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
     formData.append('photo', { uri: photoUri, name: filename || 'photo.jpg', type: mimeType });
     if (reportFile) formData.append('report_file', toRNFile(reportFile));
+    // Only read when the day turns out to need superadmin approval.
+    if (sundayReason) formData.append('sunday_reason', sundayReason);
 
     const response = await apiClient.post('/dashboard/attendance', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -112,7 +114,16 @@ export const dashboardApi = {
       formData.append('project_supervisor', manualJob.projectSupervisor.trim());
       formData.append('site_address', manualJob.siteAddress.trim());
     }
-    progressPhotos.forEach((file) => formData.append('progress_photos', toRNFile(file)));
+    // expo/fetch is a web-standard fetch, so its FormData has no special case for
+    // React Native's {uri, name, type} pseudo-file the way XHR/apiClient does —
+    // toRNFile() here serialises to the string "[object Object]" and the server
+    // rejects the part. expo-file-system's File is a real Blob, which FormData
+    // encodes properly. The explicit third argument keeps the extension the
+    // backend validates against ATTENDANCE_PHOTO_EXTENSIONS.
+    progressPhotos.forEach((photo) => {
+      if (!photo?.uri) return;
+      formData.append('progress_photos', new File(photo.uri), photo.name);
+    });
 
     const url = `${apiClient.defaults.baseURL || ''}/dashboard/jobs/${id}/daily-report`;
     const response = await expoFetch(url, {
