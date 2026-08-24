@@ -4,6 +4,7 @@
   "main": "index.js",
   "scripts": {
     "start": "expo start",
+    "generate:api": "openapi-ts -i http://localhost:8000/openapi.json -o src/api/generated -c @hey-api/client-axios",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
@@ -68,6 +69,7 @@
     "react-dom": "19.2.0"
   },
   "devDependencies": {
+    "@hey-api/openapi-ts": "0.99.0",
     "@types/react": "^19.2.10",
     "babel-plugin-module-resolver": "^5.0.2",
     "babel-plugin-transform-remove-console": "^6.9.4",
