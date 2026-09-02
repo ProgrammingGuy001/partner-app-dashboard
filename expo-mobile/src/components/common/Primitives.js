@@ -3,7 +3,7 @@ import { Pressable, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { Text } from '@/components/ui';
-import { hitSlop } from '../../theme/designSystem';
+import { hitSlop, radii, typography } from '../../theme/designSystem';
 import { useTheme } from '../../hooks/useTheme';
 
 export const Card = ({ children, elevated = false, padded = true, className = '', style, ...props }) => {
@@ -31,26 +31,22 @@ export const IconButton = ({
   style,
   iconSize = 20,
 }) => {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const toneStyles = {
     neutral: {
-      backgroundColor: colors.surface,
-      borderColor: colors.border,
+      className: 'bg-surface border-border',
       color: colors.text,
     },
     primary: {
-      backgroundColor: colors.primary,
-      borderColor: colors.primary,
+      className: 'bg-primary border-primary',
       color: colors.primaryForeground,
     },
     subtle: {
-      backgroundColor: colors.primaryLight,
-      borderColor: colors.primaryLight,
+      className: 'bg-primary-light border-primary-light',
       color: colors.primary,
     },
     danger: {
-      backgroundColor: colors.danger + (isDark ? '24' : '12'),
-      borderColor: colors.danger + '30',
+      className: 'bg-destructive-muted border-destructive',
       color: colors.danger,
     },
   };
@@ -69,14 +65,12 @@ export const IconButton = ({
       accessibilityLabel={label}
       accessibilityState={{ disabled }}
       hitSlop={hitSlop}
-      className={`items-center justify-center border ${className}`}
+      className={`items-center justify-center border ${toneStyle.className} ${className}`}
       style={({ pressed }) => [
         {
           width: size,
           height: size,
-          borderRadius: 14,
-          backgroundColor: toneStyle.backgroundColor,
-          borderColor: toneStyle.borderColor,
+          borderRadius: radii.lg,
           opacity: disabled ? 0.45 : pressed ? 0.76 : 1,
           transform: [{ scale: pressed && !disabled ? 0.97 : 1 }],
         },
@@ -103,7 +97,7 @@ export const SectionTitle = ({ title, subtitle, right, className = '' }) => (
         {title}
       </Text>
       {subtitle ? (
-        <Text className="text-[13px] text-muted-foreground mt-1">
+        <Text style={typography.caption} className="text-muted-foreground mt-1">
           {subtitle}
         </Text>
       ) : null}
@@ -113,25 +107,24 @@ export const SectionTitle = ({ title, subtitle, right, className = '' }) => (
 );
 
 export const StatusBadge = ({ label, tone = 'neutral', icon, className = '' }) => {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const tones = {
-    neutral: { bg: colors.surfaceAlt, fg: colors.textSecondary, border: colors.border },
-    primary: { bg: colors.primaryLight, fg: colors.primary, border: colors.primary + '28' },
-    success: { bg: colors.success + (isDark ? '22' : '14'), fg: colors.success, border: colors.success + '30' },
-    warning: { bg: colors.warning + (isDark ? '24' : '14'), fg: colors.warning, border: colors.warning + '32' },
-    danger: { bg: colors.danger + (isDark ? '24' : '12'), fg: colors.danger, border: colors.danger + '30' },
-    info: { bg: colors.info + (isDark ? '22' : '12'), fg: colors.info, border: colors.info + '30' },
+    neutral: { className: 'bg-surface-alt border-border', fg: colors.textSecondary },
+    primary: { className: 'bg-primary-light border-primary', fg: colors.primary },
+    success: { className: 'bg-success-muted border-success', fg: colors.success },
+    warning: { className: 'bg-warning-muted border-warning', fg: colors.warning },
+    danger: { className: 'bg-destructive-muted border-destructive', fg: colors.danger },
+    info: { className: 'bg-info-muted border-info', fg: colors.info },
   };
   const toneStyle = tones[tone] || tones.neutral;
 
   return (
     <View
-      className={`flex-row items-center gap-1.5 rounded-xl border px-2.5 py-1.5 ${className}`}
-      style={{ backgroundColor: toneStyle.bg, borderColor: toneStyle.border }}
+      className={`flex-row items-center gap-1.5 rounded-xl border px-2.5 py-1.5 ${toneStyle.className} ${className}`}
       accessibilityRole="text"
     >
       {icon ? <Ionicons name={icon} size={13} color={toneStyle.fg} /> : null}
-      <Text style={{ color: toneStyle.fg }} className="text-[11px] font-extrabold uppercase">
+      <Text style={{ fontSize: typography.micro.fontSize, lineHeight: typography.micro.lineHeight, color: toneStyle.fg }} className="font-extrabold uppercase">
         {label}
       </Text>
     </View>
@@ -139,22 +132,21 @@ export const StatusBadge = ({ label, tone = 'neutral', icon, className = '' }) =
 };
 
 export const Notice = ({ tone = 'info', title, message, icon, className = '' }) => {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const tones = {
-    info: { bg: colors.info + (isDark ? '22' : '10'), fg: colors.info, border: colors.info + '30', icon: icon || 'information-circle-outline' },
-    success: { bg: colors.success + (isDark ? '22' : '10'), fg: colors.success, border: colors.success + '30', icon: icon || 'checkmark-circle-outline' },
-    warning: { bg: colors.warning + (isDark ? '24' : '12'), fg: colors.warning, border: colors.warning + '32', icon: icon || 'warning-outline' },
-    danger: { bg: colors.danger + (isDark ? '24' : '12'), fg: colors.danger, border: colors.danger + '30', icon: icon || 'alert-circle-outline' },
+    info: { className: 'bg-info-muted border-info', fg: colors.info, icon: icon || 'information-circle-outline' },
+    success: { className: 'bg-success-muted border-success', fg: colors.success, icon: icon || 'checkmark-circle-outline' },
+    warning: { className: 'bg-warning-muted border-warning', fg: colors.warning, icon: icon || 'warning-outline' },
+    danger: { className: 'bg-destructive-muted border-destructive', fg: colors.danger, icon: icon || 'alert-circle-outline' },
   };
   const toneStyle = tones[tone] || tones.info;
 
   return (
     <View
-      className={`flex-row items-start gap-3 rounded-2xl border p-4 ${className}`}
-      style={{ backgroundColor: toneStyle.bg, borderColor: toneStyle.border }}
+      className={`flex-row items-start gap-3 rounded-2xl border p-4 ${toneStyle.className} ${className}`}
       accessibilityRole={tone === 'danger' || tone === 'warning' ? 'alert' : 'summary'}
     >
-      <Ionicons name={toneStyle.icon} size={20} color={toneStyle.fg} style={{ marginTop: 1 }} />
+      <Ionicons name={toneStyle.icon} size={20} color={toneStyle.fg} />
       <View className="flex-1">
         {title ? (
           <Text className="text-sm font-extrabold" style={{ color: toneStyle.fg }}>
@@ -162,7 +154,7 @@ export const Notice = ({ tone = 'info', title, message, icon, className = '' }) 
           </Text>
         ) : null}
         {message ? (
-          <Text className="text-[13px] font-medium mt-1 leading-[18px]" style={{ color: toneStyle.fg }}>
+          <Text style={[typography.caption, { color: toneStyle.fg }]} className="mt-1">
             {message}
           </Text>
         ) : null}

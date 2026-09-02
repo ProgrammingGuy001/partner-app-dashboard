@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Integer, JSON, String, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from typing import Optional
 
@@ -30,6 +30,9 @@ class DailyAttendance(Base):
         nullable=True,
         index=True,
     )
+    roster_entry_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("job_roster_entries.id"), nullable=True, index=True
+    )
     ip_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("ip_user.id"), nullable=True, index=True
     )
@@ -52,3 +55,5 @@ class DailyAttendance(Base):
     recorded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=func.now()
     )
+
+    roster_entry = relationship("JobRosterEntry", back_populates="attendance_records")

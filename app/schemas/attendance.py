@@ -21,6 +21,7 @@ class DailyAttendanceCreate(BaseModel):
 class DailyAttendanceResponse(BaseModel):
     id: int
     job_id: Optional[int] = None
+    roster_entry_id: Optional[int] = None
     ip_user_id: Optional[int] = None
     phone: str
     attendance_date: date

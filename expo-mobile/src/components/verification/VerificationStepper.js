@@ -64,7 +64,7 @@ const VerificationStepper = ({
           status === "done"
             ? colors.primaryLight
             : status === "active"
-              ? colors.primary + "10"
+              ? colors.primaryLight
               : colors.background;
         const lineColor = status === "done" ? colors.primary : colors.border;
 
@@ -106,7 +106,7 @@ const VerificationStepper = ({
 
             {!isLast && (
               <View
-                className="flex-1 h-0.5 -mx-2 mb-5 rounded-[1px]"
+                className="flex-1 h-0.5 -mx-2 mb-5 rounded-full"
                 style={{
                   backgroundColor: lineColor,
                   opacity: status === "done" ? 1 : 0.5,

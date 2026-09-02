@@ -1,20 +1,28 @@
 from typing import Annotated, List, Literal
 
-from fastapi import APIRouter, Depends, Form, HTTPException, status, UploadFile, File, Path, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, status, UploadFile, File, Path, Query, Response
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, ValidationError
+from app.config import settings
 from app.database import get_db
-from app.config import APP_DIR
 from app.model.ip import ip
 from app.model.job import ChecklistItem, JobChecklist
-from app.schemas.job import JobResponse
+from app.schemas.job import (
+    JobFinish,
+    JobFinishWithOTP,
+    JobResponse,
+    JobStart,
+    JobStartWithOTP,
+    OTPResponse,
+)
 from app.schemas.checklist import (
     JobChecklistItemStatusUpdate,
     JobChecklistItemStatusResponse
 )
 from app.schemas.job_status_log import JobStatusLogResponse, JobStatusLogCreate
 from app.api.deps import get_fully_verified_user
+from app.services.customer_otp_service import CustomerOTPService
 from app.services.s3_service import upload_file_to_s3
 from app.services.upload_service import read_validated_upload
 from app.services.billing_service import BillingService
@@ -26,15 +34,17 @@ from app.services.invoice_request_service import (
 )
 from app.crud.checklist import (
     get_assigned_job_checklist,
-    get_ism_job_checklist,
     get_job_checklists_status,
-    is_ism_checklist,
     update_job_checklist_item_status,
 )
 from app.services.checklist_export_service import checklist_export_pdf
-from app.services.checklist_template_service import CHECKLIST_WORKBOOK, WORKBOOK_MEDIA_TYPE
+from app.services.checklist_template_service import checklist_pdf_template
 from app.crud.job import (
+    finish_job,
     get_ip_job_by_id,
+    start_job,
+    validate_job_completion,
+    validate_job_start,
     get_job_checklist_items_with_status,
     get_job_checklists_overview,
     get_job_status_history,
@@ -53,6 +63,7 @@ from app.services.installation_report_service import (
 )
 from app.utils.attendance_policy import attendance_business_date
 from app.utils.error_text import sanitize_validation_errors
+from app.utils.job_documents import closure_documents, site_report_slot
 from datetime import date, datetime
 
 def _get_invoice_request(db: Session, job_id: int):
@@ -123,6 +134,155 @@ def get_job_history(
     return get_job_status_history(db, job_id, verify_exists=False)
 
 
+# ============ Start (same rights as the job's supervisor) ============
+
+
+@router.post("/{job_id}/request-start-otp", response_model=OTPResponse)
+def request_start_otp(
+    job_id: Annotated[int, Path(gt=0)],
+    background_tasks: BackgroundTasks,
+    current_user: ip = Depends(get_fully_verified_user),
+    db: Session = Depends(get_db),
+):
+    """Send the customer the start OTP for a job this IP is on."""
+    job = validate_job_start(db, job_id, ip_id=current_user.id)
+    if not job.customer_phone:
+        raise HTTPException(status_code=400, detail="Customer phone not set for this job")
+
+    otp = CustomerOTPService.create_start_otp(db, job_id)
+    background_tasks.add_task(
+        CustomerOTPService.send_customer_sms,
+        job.customer_phone,
+        job.customer_name or "Customer",
+        otp,
+        "start",
+    )
+    return OTPResponse(success=True, message="OTP generated and SMS queued")
+
+
+@router.post("/{job_id}/verify-start-otp", response_model=JobResponse)
+def verify_start_otp_and_start(
+    job_id: Annotated[int, Path(gt=0)],
+    otp_data: JobStartWithOTP,
+    current_user: ip = Depends(get_fully_verified_user),
+    db: Session = Depends(get_db),
+):
+    """Verify the customer OTP and start the job."""
+    job = get_ip_job_by_id(db, job_id, current_user.id)
+
+    # Jobs with no customer phone never got an OTP; the legacy /start covers them.
+    if job.customer_phone and not CustomerOTPService.verify_start_otp(db, job_id, otp_data.otp):
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+
+    return start_job(db, job_id, ip_id=current_user.id, notes=otp_data.notes)
+
+
+@router.post("/{job_id}/start", response_model=JobResponse)
+def start_assigned_job(
+    job_id: Annotated[int, Path(gt=0)],
+    job_start: JobStart = JobStart(),
+    current_user: ip = Depends(get_fully_verified_user),
+    db: Session = Depends(get_db),
+):
+    """Start or resume a job with no customer phone on file (no OTP possible)."""
+    job = get_ip_job_by_id(db, job_id, current_user.id)
+    if job.customer_phone:
+        raise HTTPException(
+            status_code=400,
+            detail="This job requires OTP verification. Use /request-start-otp then /verify-start-otp",
+        )
+    return start_job(db, job_id, ip_id=current_user.id, notes=job_start.notes)
+
+
+# ============ Finish (same rights as the job's supervisor) ============
+
+
+@router.post("/{job_id}/request-end-otp", response_model=OTPResponse)
+def request_end_otp(
+    job_id: Annotated[int, Path(gt=0)],
+    background_tasks: BackgroundTasks,
+    current_user: ip = Depends(get_fully_verified_user),
+    db: Session = Depends(get_db),
+):
+    """Send the customer the completion OTP for a job this IP is on."""
+    job = get_ip_job_by_id(db, job_id, current_user.id)
+    if not job.customer_phone:
+        raise HTTPException(status_code=400, detail="Customer phone not set for this job")
+
+    otp = CustomerOTPService.create_end_otp(db, job_id)
+    background_tasks.add_task(
+        CustomerOTPService.send_customer_sms,
+        job.customer_phone,
+        job.customer_name or "Customer",
+        otp,
+        "complete",
+    )
+    return OTPResponse(success=True, message="OTP generated and SMS queued")
+
+
+@router.post("/{job_id}/verify-end-otp", response_model=JobResponse)
+def verify_end_otp_and_finish(
+    job_id: Annotated[int, Path(gt=0)],
+    otp_data: JobFinishWithOTP,
+    current_user: ip = Depends(get_fully_verified_user),
+    db: Session = Depends(get_db),
+):
+    """Verify the customer OTP and complete the job."""
+    job = get_ip_job_by_id(db, job_id, current_user.id)
+
+    # Jobs with no customer phone never got an OTP; the legacy /finish covers them.
+    if job.customer_phone:
+        # Checked before the OTP is consumed, so a missing document does not burn it.
+        validate_job_completion(
+            db,
+            job_id,
+            ip_id=current_user.id,
+            handover_document_link=otp_data.handover_document_link,
+            ncr_document_link=otp_data.ncr_document_link,
+            project_report_document_link=otp_data.project_report_document_link,
+            site_report_document_link=otp_data.site_report_document_link,
+        )
+        if not CustomerOTPService.verify_end_otp(db, job_id, otp_data.otp):
+            raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+
+    return finish_job(
+        db,
+        job_id,
+        ip_id=current_user.id,
+        notes=otp_data.notes,
+        handover_document_link=otp_data.handover_document_link,
+        ncr_document_link=otp_data.ncr_document_link,
+        project_report_document_link=otp_data.project_report_document_link,
+        site_report_document_link=otp_data.site_report_document_link,
+    )
+
+
+@router.post("/{job_id}/finish", response_model=JobResponse)
+def finish_assigned_job(
+    job_id: Annotated[int, Path(gt=0)],
+    job_finish: JobFinish = JobFinish(),
+    current_user: ip = Depends(get_fully_verified_user),
+    db: Session = Depends(get_db),
+):
+    """Finish a job with no customer phone on file (no OTP possible)."""
+    job = get_ip_job_by_id(db, job_id, current_user.id)
+    if job.customer_phone:
+        raise HTTPException(
+            status_code=400,
+            detail="This job requires OTP verification. Use /request-end-otp then /verify-end-otp",
+        )
+    return finish_job(
+        db,
+        job_id,
+        ip_id=current_user.id,
+        notes=job_finish.notes,
+        handover_document_link=job_finish.handover_document_link,
+        ncr_document_link=job_finish.ncr_document_link,
+        project_report_document_link=job_finish.project_report_document_link,
+        site_report_document_link=job_finish.site_report_document_link,
+    )
+
+
 @router.post("/{job_id}/notes", response_model=dict)
 def add_job_note(
     job_id: Annotated[int, Path(gt=0)],
@@ -169,7 +329,10 @@ def get_attendance(
     get_ip_job_by_id(db, job_id, current_user.id)
     records = (
         db.query(DailyAttendance)
-        .filter(DailyAttendance.job_id == job_id)
+        .filter(
+            DailyAttendance.job_id == job_id,
+            DailyAttendance.ip_user_id == current_user.id,
+        )
         .order_by(DailyAttendance.recorded_at.desc())
         .offset(skip)
         .limit(limit)
@@ -237,6 +400,70 @@ async def upload_progress_update(
     }
 
 
+@router.post("/{job_id}/completion-documents/{document_type}", response_model=dict)
+async def upload_completion_document(
+    job_id: Annotated[int, Path(gt=0)],
+    document_type: str,
+    file: Annotated[UploadFile, File()],
+    current_user: ip = Depends(get_fully_verified_user),
+    db: Session = Depends(get_db),
+):
+    """Upload or replace completion evidence for a job assigned to this IP."""
+    job = get_ip_job_by_id(db, job_id, current_user.id)
+    if document_type not in closure_documents(job.type):
+        raise HTTPException(
+            status_code=422,
+            detail="This document is not required for this job type",
+        )
+    upload = await read_validated_upload(
+        file,
+        allowed_extensions=(
+            [*settings.allowed_extensions_list, ".xlsx"]
+            if document_type == "project_report"
+            else None
+        ),
+    )
+    file_url = upload_file_to_s3(
+        file_content=upload.content,
+        filename=upload.filename,
+        content_type=upload.content_type,
+    )
+    document = (
+        db.query(MediaDocument)
+        .filter(
+            MediaDocument.owner_type == "job_completion",
+            MediaDocument.owner_id == job_id,
+            MediaDocument.status == document_type,
+        )
+        .order_by(MediaDocument.uploaded_at.desc())
+        .first()
+    )
+    if document:
+        document.doc_link = file_url
+        document.uploaded_at = datetime.utcnow()
+    else:
+        db.add(
+            MediaDocument(
+                owner_type="job_completion",
+                owner_id=job_id,
+                status=document_type,
+                doc_link=file_url,
+            )
+        )
+    column = (
+        "site_report_document_link"
+        if document_type == site_report_slot(job.type)
+        else f"{document_type}_document_link"
+    )
+    setattr(job, column, file_url)
+    db.commit()
+    return {
+        "message": "Completion document uploaded",
+        "document_type": document_type,
+        "document_link": file_url,
+    }
+
+
 # ✅ Get job checklists (Metadata only)
 @router.get("/{job_id}/checklists", response_model=dict)
 def get_job_checklists(
@@ -291,7 +518,9 @@ def get_job_checklist_items(
             "name": checklist.name,
             "description": checklist.description,
             "document_link": job_checklist.document_link if job_checklist else None,
-            "template_available": bool(job_checklist and is_ism_checklist(job_checklist)),
+            "template_available": bool(
+                job_checklist and checklist_pdf_template(checklist.name)
+            ),
             "items": items_with_status
         }
     }
@@ -304,13 +533,16 @@ def download_checklist_template(
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db),
 ):
-    """Download the blank ISM checklist workbook to fill in and upload back."""
+    """Download this checklist's supplied printable PDF."""
     get_ip_job_by_id(db, job_id, current_user.id)
-    get_ism_job_checklist(db, job_id, checklist_id)
+    job_checklist = get_assigned_job_checklist(db, job_id, checklist_id)
+    template = checklist_pdf_template(job_checklist.checklist.name)
+    if not template:
+        raise HTTPException(status_code=404, detail="This checklist has no PDF template")
     return FileResponse(
-        CHECKLIST_WORKBOOK,
-        filename="All Check-list.xlsx",
-        media_type=WORKBOOK_MEDIA_TYPE,
+        template,
+        filename=template.name,
+        media_type="application/pdf",
     )
 
 
@@ -404,9 +636,16 @@ def export_checklist(
     current_user: ip = Depends(get_fully_verified_user),
     db: Session = Depends(get_db),
 ):
-    """Download the filled-in checklist — items, statuses, notes and evidence — as a PDF."""
+    """Export the supplied official PDF, falling back to the generated checklist."""
     job = get_ip_job_by_id(db, job_id, current_user.id)
-    get_assigned_job_checklist(db, job_id, checklist_id)
+    job_checklist = get_assigned_job_checklist(db, job_id, checklist_id)
+    template = checklist_pdf_template(job_checklist.checklist.name)
+    if template:
+        return FileResponse(
+            template,
+            filename=template.name,
+            media_type="application/pdf",
+        )
     checklists = get_job_checklists_status(db, job_id, checklist_id=checklist_id)
     document = checklist_export_pdf(job, checklists[0])
     return Response(
@@ -431,8 +670,7 @@ async def upload_checklist_document(
     get_ip_job_by_id(db, job_id, current_user.id)
     job_checklist = get_assigned_job_checklist(db, job_id, checklist_id)
     upload = await read_validated_upload(
-        file,
-        allowed_extensions=[".xlsx", ".pdf"] if is_ism_checklist(job_checklist) else None,
+        file, allowed_extensions=[".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx"]
     )
     file_url = upload_file_to_s3(
         file_content=upload.content,
@@ -518,7 +756,7 @@ def get_billing(
     db: Session = Depends(get_db),
 ):
     """Get billing / invoice-request status for a job (external IPs only)."""
-    get_ip_job_by_id(db, job_id, current_user.id)
+    get_ip_job_by_id(db, job_id, current_user.id, allow_roster=False)
     if current_user.is_internal:
         raise HTTPException(status_code=403, detail="Billing is only available for external IPs")
     invoice_req = _get_invoice_request(db, job_id)
@@ -539,7 +777,7 @@ def create_invoice_request(
     db: Session = Depends(get_db),
 ):
     """Create an invoice request (external IPs only). Blocks if one is already pending."""
-    get_ip_job_by_id(db, job_id, current_user.id)
+    get_ip_job_by_id(db, job_id, current_user.id, allow_roster=False)
     if current_user.is_internal:
         raise HTTPException(status_code=403, detail="Billing is only available for external IPs")
     req = create_invoice_request_record(db, job_id=job_id, requested_by_ip_id=current_user.id)
@@ -557,7 +795,7 @@ def create_additional_invoice_request(
     db: Session = Depends(get_db),
 ):
     """Create another invoice request for completion-based or phase-based billing."""
-    get_ip_job_by_id(db, job_id, current_user.id)
+    get_ip_job_by_id(db, job_id, current_user.id, allow_roster=False)
     if current_user.is_internal:
         raise HTTPException(status_code=403, detail="Billing is only available for external IPs")
 

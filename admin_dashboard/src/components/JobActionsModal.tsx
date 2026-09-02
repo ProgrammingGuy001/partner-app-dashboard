@@ -1,13 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { type Job, type BillingData, type CompletionDocumentLinks, type InvoiceRequest, jobAPI, checklistAPI, grnAPI } from '@/api/services';
+import { type Job, type BillingData, type CompletionDocumentLinks, type CompletionDocumentSlot, type InvoiceRequest, authAPI, jobAPI, checklistAPI, grnAPI } from '@/api/services';
+import { DOCUMENT_LABELS, siteReportSlot } from '@/lib/jobDocuments';
 import { useJobAction, useJobApprovalRequests, useCreateJobApprovalRequest } from '@/hooks/useJobs';
 import { useJobChecklists } from '@/hooks/useChecklists';
 import { Play, Pause, CheckCircle, AlertCircle, ListChecks, FileText, CheckSquare, Square, Phone, Key, Loader2, XCircle, Receipt, Upload, Download, Trash2, Package, ShieldCheck } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -19,6 +21,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 import { getApiErrorMessage } from "@/lib/apiError"
+import CreateGRNModal from "@/components/CreateGRNModal"
 
 interface JobActionsModalProps {
   job: Job;
@@ -56,6 +59,12 @@ interface ChecklistWithStatus {
 
 type OTPFlow = 'none' | 'start' | 'finish';
 
+// A note typed by a supervisor is stored in the IP's note field but stays attributed,
+// so the checklist and its PDF never read as though the IP filed it.
+const supervisorTag = (name: string) => `— added by ${name} (supervisor)`;
+const stripSupervisorTag = (comment: string) =>
+  comment.replace(/\s*— added by .*\(supervisor\)$/, '').trim();
+
 const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSuccess, initialTab = 'actions', isSuperadmin = false }) => {
   const [activeTab, setActiveTab] = useState<string>(initialTab);
   const [notes, setNotes] = useState('');
@@ -73,6 +82,10 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
   const [itemUploadLoading, setItemUploadLoading] = useState<Record<number, boolean>>({});
   const [itemDocuments, setItemDocuments] = useState<Record<number, string>>({});;
   const [checklistBusy, setChecklistBusy] = useState<Record<number, 'download' | 'upload' | 'export'>>({});
+  // A measurement, readiness or validation job closes on the one report filed on
+  // site; only installation-style jobs collect the three documents below.
+  const siteReportSlotForJob = siteReportSlot(job.type);
+  const [siteReportDocument, setSiteReportDocument] = useState<File | null>(null);
   const [handoverDocument, setHandoverDocument] = useState<File | null>(null);
   const [ncrDocument, setNcrDocument] = useState<File | null>(null);
   const [projectReportDocument, setProjectReportDocument] = useState<File | null>(null);
@@ -96,28 +109,42 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
   const { data: approvalRequests = [] } = useJobApprovalRequests(job.customer_phone ? job.id : undefined);
   const { mutateAsync: requestApproval, isPending: approvalSubmitting } = useCreateJobApprovalRequest();
 
-  const isInstallation = job.type === 'installation';
-  const { data: jobGrns = [], isLoading: grnLoading, isError: grnError, refetch: refetchGrns } = useQuery({
+  // Receiving material is the grn job's own work, so that is the job the Site GRN gates.
+  const isGrnJob = job.type === 'grn';
+  // The SO, the repair orders Odoo links to it, and this job's GRNs in one call -
+  // the same payload the assigned IP sees on their job.
+  const { data: paperwork, isLoading: grnLoading, isError: grnError, refetch: refetchGrns } = useQuery({
     queryKey: ['site-grn', 'job', job.id],
-    queryFn: () => grnAPI.list(50, 0, job.id),
-    // Also needed before the job starts: a linked GRN is the first prerequisite.
-    enabled: isInstallation && !!job.id && ['created', 'paused', 'in_progress'].includes(job.status),
+    queryFn: () => grnAPI.jobPaperwork(job.id!),
+    // Listed from the moment the job exists so the GRN can be created and assigned early.
+    enabled: isGrnJob && !!job.id && ['created', 'paused', 'in_progress'].includes(job.status),
   });
+  const jobGrns = paperwork?.grns ?? [];
   const hasSubmittedGrn = jobGrns.some((grn) => grn.status === 'submitted');
-  const hasLinkedGrn = jobGrns.length > 0;
-  const incompleteGrnCount = jobGrns.filter((grn) => grn.status !== 'submitted').length;
-  const allLinkedGrnsSubmitted = hasLinkedGrn && incompleteGrnCount === 0;
-  const grnBlocksStart = isInstallation && (grnLoading || grnError || !allLinkedGrnsSubmitted);
+  const [createGrnOpen, setCreateGrnOpen] = useState(false);
+  const [siteNotes, setSiteNotes] = useState<Record<number, string>>({});
+  const [siteNoteSaving, setSiteNoteSaving] = useState<Record<number, boolean>>({});
+
+  // Who to credit when a supervisor fills the note in for the IP.
+  const { data: currentUser } = useQuery({
+    queryKey: ['auth', 'user'],
+    queryFn: () => authAPI.getCurrentUser(),
+    staleTime: 1000 * 60 * 5,
+  });
+  const supervisorName = currentUser?.name || currentUser?.email || 'supervisor';
 
   useEffect(() => {
     const data = (checklistsData as unknown as ChecklistWithStatus[]) || [];
     const nextComments: Record<number, string> = {};
+    const nextSiteNotes: Record<number, string> = {};
     data.forEach((checklist) => {
       checklist.items.forEach((item) => {
         nextComments[item.id] = item.status?.admin_comment || '';
+        nextSiteNotes[item.id] = stripSupervisorTag(item.status?.comment || '');
       });
     });
     setAdminComments(nextComments);
+    setSiteNotes(nextSiteNotes);
   }, [checklistsData]); // checklists is derived from checklistsData — using it directly avoids new [] ref each render
 
   useEffect(() => {
@@ -131,19 +158,36 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
   }, [activeTab, job.id, isExternalIP]);
 
   // Handle legacy start/pause/finish without OTP (for jobs without customer phone)
-  const completionDocumentsSelected = !!(handoverDocument || job.handover_document_link)
-    && !!(ncrDocument || job.ncr_document_link)
-    && !!(projectReportDocument || job.project_report_document_link);
+  const completionDocumentsSelected = siteReportSlotForJob
+    ? !!(siteReportDocument || job.site_report_document_link)
+    : !!(handoverDocument || job.handover_document_link)
+      && !!(ncrDocument || job.ncr_document_link)
+      && !!(projectReportDocument || job.project_report_document_link);
   const canCompleteJob = completionDocumentsSelected
-    && (!isInstallation || (!grnLoading && !grnError && hasSubmittedGrn));
+    && (!isGrnJob || (!grnLoading && !grnError && hasSubmittedGrn));
 
   const uploadCompletionDocuments = async () => {
-    if ((!handoverDocument && !job.handover_document_link) || (!ncrDocument && !job.ncr_document_link) || (!projectReportDocument && !job.project_report_document_link)) {
-      throw new Error('Handover, NCR, and Project Report documents are required');
+    if (!completionDocumentsSelected) {
+      throw new Error(
+        siteReportSlotForJob
+          ? `The ${DOCUMENT_LABELS[siteReportSlotForJob]} is required`
+          : 'Handover, NCR, and Project Report documents are required',
+      );
     }
     if (uploadedDocumentsRef.current) return uploadedDocumentsRef.current;
     setCompletionUploadLoading(true);
     try {
+      if (siteReportSlotForJob) {
+        const report = siteReportDocument
+          ? await jobAPI.uploadFile(siteReportDocument, {
+              jobId: job.id!,
+              documentType: siteReportSlotForJob as CompletionDocumentSlot,
+            })
+          : { url: job.site_report_document_link! };
+        const documents = { site_report_document_link: report.url };
+        uploadedDocumentsRef.current = documents;
+        return documents;
+      }
       const [handover, ncr, projectReport] = await Promise.all([
         handoverDocument
           ? jobAPI.uploadFile(handoverDocument, { jobId: job.id!, documentType: 'handover' })
@@ -217,16 +261,16 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
       setError('Upload Handover, then upload or generate the Level 2 NCR and Project Report before completing the job.');
       return;
     }
-    if (isInstallation && grnLoading) {
+    if (isGrnJob && grnLoading) {
       setError('Wait for the Site GRN check to finish before completing the job.');
       return;
     }
-    if (isInstallation && grnError) {
+    if (isGrnJob && grnError) {
       setError('Could not verify the Site GRN. Retry the GRN check before completing the job.');
       return;
     }
-    if (isInstallation && !hasSubmittedGrn) {
-      setError('Submit the linked Site GRN before completing this installation job.');
+    if (isGrnJob && !hasSubmittedGrn) {
+      setError('Submit the linked Site GRN before completing this GRN job.');
       return;
     }
     setOtpLoading(true);
@@ -284,13 +328,13 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
     }
   };
 
-  const renderApprovalFallback = (action: 'start' | 'finish', blocked: boolean) => {
+  const renderApprovalFallback = (action: 'start' | 'finish', blocked = false) => {
     if (!requiresOTP) return null;
 
     const pending = approvalRequests.find((request) => request.action === action && request.status === 'pending');
     if (pending) {
       return (
-        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
           <p className="flex items-center gap-1.5 font-medium">
             <ShieldCheck size={14} /> Awaiting superadmin approval
           </p>
@@ -456,6 +500,28 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
     }
   };
 
+  const handleSaveSiteNote = async (item: ChecklistItem) => {
+    if (!job.id) return;
+
+    const note = (siteNotes[item.id] ?? '').trim();
+    setSiteNoteSaving((prev) => ({ ...prev, [item.id]: true }));
+    try {
+      await checklistAPI.updateJobChecklistItemStatus(job.id, item.id, {
+        comment: note ? `${note} ${supervisorTag(supervisorName)}` : null,
+      });
+      await refetchChecklists();
+      toast.success('Site note saved');
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, 'Failed to save the site note'));
+    } finally {
+      setSiteNoteSaving((prev) => {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+    }
+  };
+
   const handleRemoveDocument = async (item: ChecklistItem) => {
     if (!job.id) return;
 
@@ -487,7 +553,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
       return {
         label: 'Approved',
         variant: 'secondary' as const,
-        className: 'bg-green-100 text-green-800 hover:bg-green-100 gap-1',
+        className: 'bg-success/10 text-success hover:bg-success/10 gap-1',
         icon: <CheckCircle size={10} />,
       };
     }
@@ -505,7 +571,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
       return {
         label: 'Under Review',
         variant: 'outline' as const,
-        className: 'border-amber-200 text-amber-700 bg-amber-50 gap-1',
+        className: 'border-warning/30 text-warning bg-warning/10 gap-1',
         icon: null,
       };
     }
@@ -527,6 +593,9 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
           <DialogTitle className="flex justify-between items-center">
             <span>Job Management</span>
           </DialogTitle>
+          <DialogDescription>
+            Start, pause or complete {job.name}, and manage its checklists and documents.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
@@ -570,10 +639,56 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                 </Alert>
               )}
 
+              {isGrnJob && (
+                <div className="rounded-lg border p-3 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="flex items-center gap-1.5 font-medium">
+                      <Package size={14} /> Site GRN
+                    </p>
+                    <Button size="sm" variant="outline" onClick={() => setCreateGrnOpen(true)}>
+                      <Package size={14} className="mr-1" /> Create &amp; assign GRN
+                    </Button>
+                  </div>
+                  <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+                    <dt className="text-muted-foreground">Sales order</dt>
+                    <dd className="truncate font-medium">{paperwork?.sales_order || job.sales_order || 'Not set yet'}</dd>
+                    <dt className="text-muted-foreground">Repair order</dt>
+                    <dd className="truncate font-medium">
+                      {paperwork?.repair_orders.length
+                        ? paperwork.repair_orders.map((order) => order.name).join(', ')
+                        : paperwork?.lookup_error
+                          ? 'Could not reach Odoo'
+                          : 'None linked'}
+                    </dd>
+                  </dl>
+                  {grnLoading ? (
+                    <p className="mt-2 text-xs text-muted-foreground">Loading linked GRNs…</p>
+                  ) : grnError ? (
+                    <Button variant="outline" size="sm" className="mt-2" onClick={() => refetchGrns()}>Retry GRN check</Button>
+                  ) : jobGrns.length === 0 ? (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      No GRN linked yet. Create one from the delivery order / SO number
+                      {job.sales_order ? ` (${job.sales_order})` : ''} and assign the receiver.
+                    </p>
+                  ) : (
+                    <ul className="mt-2 space-y-1">
+                      {jobGrns.map((grn) => (
+                        <li key={grn.id} className="flex items-center justify-between gap-2 text-xs">
+                          <span className="truncate">{grn.odoo_picking_name || grn.source_document}</span>
+                          <Badge variant={grn.status === 'submitted' ? 'secondary' : 'outline'}>
+                            {grn.status}
+                          </Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
               {/* OTP Input Section */}
               {otpSent && otpFlow !== 'none' && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
-                  <div className="flex items-center gap-2 text-blue-700">
+                <div className="bg-info/10 border border-info/30 rounded-lg p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-info">
                     <Key size={16} />
                     <span className="font-medium">
                       OTP sent to customer ({job.customer_phone})
@@ -594,7 +709,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                     <Button
                       onClick={handleVerifyOTP}
                       disabled={otpLoading || completionUploadLoading || otp.length < 4 || (otpFlow === 'finish' && !canCompleteJob)}
-                      className="bg-blue-600 hover:bg-blue-700"
+                      className="bg-info hover:bg-info/90"
                     >
                       {otpLoading ? <Loader2 className="animate-spin" size={16} /> : 'Verify'}
                     </Button>
@@ -603,7 +718,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                     variant="ghost"
                     size="sm"
                     onClick={resetOTPFlow}
-                    className="text-gray-500"
+                    className="text-muted-foreground"
                   >
                     Cancel
                   </Button>
@@ -613,7 +728,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
               {/* Notes Section */}
               {!otpSent && (
                 <div className="space-y-2">
-                  <label htmlFor="action-notes" className="text-sm font-medium text-gray-700">Notes (Optional)</label>
+                  <label htmlFor="action-notes" className="text-sm font-medium text-muted-foreground">Notes (Optional)</label>
                   <Textarea
                     id="action-notes"
                     value={notes}
@@ -633,6 +748,31 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                         <h4 className="text-sm font-semibold">Required completion documents</h4>
                         <p className="text-xs text-muted-foreground">Uploads: PDF, JPG, PNG, DOC, DOCX or Project Report XLSX · maximum 10 MB each</p>
                       </div>
+                      {siteReportSlotForJob ? (
+                        <label className="block space-y-1 text-sm font-medium">
+                          <span>{DOCUMENT_LABELS[siteReportSlotForJob]} <span className="text-destructive">*</span></span>
+                          <p className="text-xs font-normal text-muted-foreground">
+                            Generated from the job&apos;s checklist at check-out and filed automatically.
+                            Upload a replacement only if it changed.
+                          </p>
+                          <Input
+                            type="file"
+                            accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"
+                            onChange={(event) => {
+                              uploadedDocumentsRef.current = null;
+                              setSiteReportDocument(event.target.files?.[0] || null);
+                            }}
+                            required={!job.site_report_document_link}
+                          />
+                          {siteReportDocument?.name ? <span className="block text-xs text-muted-foreground">{siteReportDocument.name}</span> : null}
+                          {job.site_report_document_link && (
+                            <a href={job.site_report_document_link} download target="_blank" rel="noreferrer" className="block text-xs font-medium text-primary underline">
+                              Download attached {DOCUMENT_LABELS[siteReportSlotForJob]}
+                            </a>
+                          )}
+                        </label>
+                      ) : (
+                        <>
                       <label className="block space-y-1 text-sm font-medium">
                         <span>Handover Document <span className="text-destructive">*</span></span>
                         <Input
@@ -685,7 +825,9 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                           <Link to={`/dashboard/document-automation?job=${job.id}`} className="font-medium text-primary underline">Generate from template</Link>
                         </div>
                       </div>
-                      {isInstallation && (
+                        </>
+                      )}
+                      {isGrnJob && (
                         <div className="rounded-md border p-3 text-sm">
                           <p className="flex items-center gap-1.5 font-medium">
                             <Package size={14} /> Site GRN <span className="text-destructive">*</span>
@@ -695,10 +837,10 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                         ) : grnError ? (
                           <Button variant="outline" size="sm" className="mt-2" onClick={() => refetchGrns()}>Retry GRN check</Button>
                         ) : hasSubmittedGrn ? (
-                            <p className="mt-1 text-xs text-green-700">Submitted GRN linked to this job — requirement met.</p>
+                            <p className="mt-1 text-xs text-success">Submitted GRN linked to this job — requirement met.</p>
                           ) : (
                             <p className="mt-1 text-xs text-destructive">
-                              No submitted GRN linked to this job yet. Create and submit one from Site GRN before completing an installation job.
+                              No submitted GRN linked to this job yet. Submit the linked GRN before completing this job.
                             </p>
                           )}
                         </div>
@@ -707,34 +849,10 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                   )}
                   {(job.status === 'created' || job.status === 'paused') && (
                     <>
-                    {isInstallation && (
-                      <div className="rounded-md border p-3 text-sm">
-                        <p className="flex items-center gap-1.5 font-medium">
-                          <Package size={14} /> Site GRN <span className="text-destructive">*</span>
-                        </p>
-                        {grnLoading ? (
-                          <p className="mt-1 text-xs text-muted-foreground">Checking for a linked GRN…</p>
-                        ) : grnError ? (
-                          <Button variant="outline" size="sm" className="mt-2" onClick={() => refetchGrns()}>Retry GRN check</Button>
-                        ) : allLinkedGrnsSubmitted ? (
-                          <p className="mt-1 text-xs text-green-700">
-                            All {jobGrns.length} linked GRN{jobGrns.length === 1 ? '' : 's'} completed — the job can be started.
-                          </p>
-                        ) : hasLinkedGrn ? (
-                          <p className="mt-1 text-xs text-destructive">
-                            Complete all linked Site GRNs before starting this job ({incompleteGrnCount} incomplete).
-                          </p>
-                        ) : (
-                          <p className="mt-1 text-xs text-destructive">
-                            No GRN linked to this job. Link one from Site GRN, then complete every linked GRN before starting.
-                          </p>
-                        )}
-                      </div>
-                    )}
                     <Button
                       onClick={() => requiresOTP ? handleRequestStartOTP() : handleAction('start')}
-                      disabled={isActionLoading || otpLoading || grnBlocksStart}
-                      className="w-full bg-blue-600 hover:bg-blue-700"
+                      disabled={isActionLoading || otpLoading}
+                      className="w-full bg-info hover:bg-info/90"
                       size="lg"
                     >
                       {otpLoading ? (
@@ -745,7 +863,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                       {job.status === 'paused' ? 'Resume Job' : 'Start Job'}
                       {requiresOTP && <span className="ml-2 text-xs opacity-75">(OTP)</span>}
                     </Button>
-                    {renderApprovalFallback('start', grnBlocksStart)}
+                    {renderApprovalFallback('start')}
                     </>
                   )}
 
@@ -755,7 +873,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                         onClick={() => handleAction('pause')}
                         disabled={isActionLoading || otpLoading}
                         variant="outline"
-                        className="w-full border-yellow-600 text-yellow-600 hover:bg-yellow-50"
+                        className="w-full border-warning/30 text-warning hover:bg-warning/10"
                         size="lg"
                       >
                         <Pause size={20} className="mr-2" />
@@ -764,7 +882,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                       <Button
                         onClick={() => requiresOTP ? handleRequestEndOTP() : handleAction('finish')}
                         disabled={isActionLoading || otpLoading || completionUploadLoading || !canCompleteJob}
-                        className="w-full bg-green-600 hover:bg-green-700"
+                        className="w-full bg-success hover:bg-success/90"
                         size="lg"
                       >
                         {otpLoading ? (
@@ -794,7 +912,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                       <div key={checklist.id} className="border rounded-lg overflow-hidden bg-card shadow-sm">
                         <div className="bg-muted/40 px-4 py-3 border-b flex flex-col">
                           <h4 className="font-semibold text-foreground flex items-center gap-2">
-                            <FileText size={16} className="text-blue-500" />
+                            <FileText size={16} className="text-info" />
                             {checklist.name}
                           </h4>
                           {checklist.description && (
@@ -805,7 +923,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                               href={checklist.document_link}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="mt-2 flex w-fit items-center gap-1 pl-6 text-xs font-semibold text-blue-600 hover:underline"
+                              className="mt-2 flex w-fit items-center gap-1 pl-6 text-xs font-semibold text-info hover:underline"
                             >
                               <FileText size={12} /> View completed checklist
                             </a>
@@ -885,7 +1003,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                               <div className="flex items-start gap-3">
                                 <div className="mt-0.5 text-muted-foreground shrink-0">
                                   {item.status?.checked ? (
-                                    <CheckSquare size={18} className="text-green-500" />
+                                    <CheckSquare size={18} className="text-success" />
                                   ) : (
                                     <Square size={18} />
                                   )}
@@ -905,8 +1023,8 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                                   </div>
 
                                   {item.status?.comment && (
-                                    <div className="text-xs text-foreground/70 bg-yellow-50/50 dark:bg-yellow-950/20 p-2 rounded border border-yellow-100/50 dark:border-yellow-900/30">
-                                      <span className="font-medium text-yellow-700 dark:text-yellow-400">IP Note:</span> {item.status.comment}
+                                    <div className="text-xs text-foreground/70 bg-warning/10 p-2 rounded border border-warning/30">
+                                      <span className="font-medium text-warning">IP Note:</span> {item.status.comment}
                                     </div>
                                   )}
                                   {item.status?.document_link && (
@@ -915,12 +1033,46 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                                         href={item.status.document_link}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="text-xs text-blue-600 hover:underline flex items-center gap-1 w-fit"
+                                        className="text-xs text-info hover:underline flex items-center gap-1 w-fit"
                                       >
                                         <FileText size={12} /> View Attached Document
                                       </a>
                                     </div>
                                   )}
+
+                                  {/* Site note — the IP's note field, fillable by the supervisor on site */}
+                                  <div className="rounded-md border border-dashed bg-muted/20 p-3 space-y-2">
+                                    <label
+                                      htmlFor={`site-note-${item.id}`}
+                                      className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                                    >
+                                      Site note
+                                    </label>
+                                    <Textarea
+                                      id={`site-note-${item.id}`}
+                                      value={siteNotes[item.id] ?? ''}
+                                      onChange={(event) =>
+                                        setSiteNotes((prev) => ({ ...prev, [item.id]: event.target.value }))
+                                      }
+                                      placeholder="What was observed or done on site. Required before the item can be marked complete."
+                                      className="min-h-[64px]"
+                                    />
+                                    <div className="flex items-center gap-2">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={!!siteNoteSaving[item.id]}
+                                        onClick={() => handleSaveSiteNote(item)}
+                                      >
+                                        {siteNoteSaving[item.id] && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                                        Save note
+                                      </Button>
+                                      <span className="text-xs text-muted-foreground">
+                                        Saved as your note, signed “{supervisorName} (supervisor)”.
+                                      </span>
+                                    </div>
+                                  </div>
 
                                   {/* Document Upload Section */}
                                   <div className="rounded-md border border-dashed bg-muted/20 p-3 space-y-2">
@@ -995,7 +1147,7 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                                         <Button
                                           onClick={() => handleReviewAction(item, 'approve')}
                                           size="sm"
-                                          className="bg-green-600 hover:bg-green-700"
+                                          className="bg-success hover:bg-success/90"
                                           disabled={!!currentAction}
                                         >
                                           {currentAction === 'approve' ? (
@@ -1047,6 +1199,17 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
           </Tabs>
         </div>
       </DialogContent>
+      {createGrnOpen && (
+        <CreateGRNModal
+          open
+          lockedJobId={job.id}
+          defaultSourceDoc={job.sales_order || ''}
+          onClose={() => {
+            setCreateGrnOpen(false);
+            refetchGrns();
+          }}
+        />
+      )}
     </Dialog>
   );
 };
@@ -1161,7 +1324,7 @@ const BillingSection: React.FC<{
   return (
     <div className="mt-6 border-t pt-5">
       <div className="flex items-center gap-2 mb-4">
-        <Receipt size={16} className="text-blue-500" />
+        <Receipt size={16} className="text-info" />
         <h4 className="font-semibold text-foreground">Billing</h4>
       </div>
 
@@ -1177,17 +1340,17 @@ const BillingSection: React.FC<{
         </Alert>
       ) : !billingData ? null : req === null ? (
         /* No request yet — show request button */
-        <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-5 text-center">
-          <Receipt size={28} className="mx-auto mb-2 text-gray-400" />
-          <p className="text-sm font-medium text-gray-700 mb-1">No invoice requested yet</p>
-          <p className="text-xs text-gray-500 mb-4">
+        <div className="rounded-lg border border-dashed border-border bg-muted p-5 text-center">
+          <Receipt size={28} className="mx-auto mb-2 text-muted-foreground" />
+          <p className="text-sm font-medium text-muted-foreground mb-1">No invoice requested yet</p>
+          <p className="text-xs text-muted-foreground mb-4">
             Send a request to the assigned admin and superadmin for approval.
           </p>
           <Button
             size="sm"
             onClick={handleRequest}
             disabled={actionLoading === 'request'}
-            className="bg-blue-600 hover:bg-blue-700"
+            className="bg-info hover:bg-info/90"
           >
             {actionLoading === 'request' ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : <Receipt className="mr-2 h-4 w-4" />}
             Request Invoice
@@ -1196,12 +1359,12 @@ const BillingSection: React.FC<{
       ) : req.status === 'pending' ? (
         /* Pending — show approve / reject */
         <div className="space-y-3">
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <div className="rounded-lg border border-warning/30 bg-warning/10 p-4">
             <div className="flex items-start gap-3">
-              <Loader2 size={18} className="text-amber-500 mt-0.5 shrink-0" />
+              <Loader2 size={18} className="text-warning mt-0.5 shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-amber-800">Invoice request pending approval</p>
-                <p className="text-xs text-amber-700 mt-0.5">
+                <p className="text-sm font-semibold text-warning">Invoice request pending approval</p>
+                <p className="text-xs text-warning mt-0.5">
                   Requested by {req.requested_by || 'admin'} on{' '}
                   {new Date(req.requested_at).toLocaleDateString('en-IN')}
                 </p>
@@ -1236,7 +1399,7 @@ const BillingSection: React.FC<{
             <div className="grid grid-cols-1 gap-2 sm:flex">
               <Button
                 size="sm"
-                className="bg-green-600 hover:bg-green-700"
+                className="bg-success hover:bg-success/90"
                 onClick={handleApprove}
                 disabled={!!actionLoading}
               >
@@ -1257,13 +1420,13 @@ const BillingSection: React.FC<{
       ) : req.status === 'rejected' ? (
         /* Rejected — allow re-request */
         <div className="space-y-3">
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4">
             <div className="flex items-start gap-3">
-              <XCircle size={18} className="text-red-500 mt-0.5 shrink-0" />
+              <XCircle size={18} className="text-destructive mt-0.5 shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-red-800">Invoice request rejected</p>
+                <p className="text-sm font-semibold text-destructive">Invoice request rejected</p>
                 {req.rejection_reason && (
-                  <p className="text-xs text-red-700 mt-0.5">Reason: {req.rejection_reason}</p>
+                  <p className="text-xs text-destructive mt-0.5">Reason: {req.rejection_reason}</p>
                 )}
               </div>
             </div>
@@ -1272,9 +1435,9 @@ const BillingSection: React.FC<{
       ) : (
         /* Approved — show full invoice */
         <div className="space-y-3">
-          <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-2.5 flex items-center gap-2">
-            <CheckCircle size={16} className="text-green-600 shrink-0" />
-            <div className="text-xs text-green-800">
+          <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-2.5 flex items-center gap-2">
+            <CheckCircle size={16} className="text-success shrink-0" />
+            <div className="text-xs text-success">
               <span className="font-semibold">Approved</span>
               {req.approved_by && ` by ${req.approved_by}`}
               {req.approved_at && ` on ${new Date(req.approved_at).toLocaleDateString('en-IN')}`}
@@ -1397,14 +1560,14 @@ const BillingInvoice: React.FC<{
   return (
     <div className="border rounded-lg overflow-hidden text-sm bg-white print:shadow-none" id="billing-invoice">
       {/* Header */}
-      <div className="flex flex-col gap-3 border-b bg-gray-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-xs text-gray-600 space-y-0.5">
+      <div className="flex flex-col gap-3 border-b bg-muted px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-xs text-muted-foreground space-y-0.5">
           <div>Date: {today}</div>
           {billingData.ip.city && <div>Add: {billingData.ip.city}</div>}
           <div>Mob.: {billingData.ip.phone}</div>
         </div>
         <div className="text-right">
-          <h2 className="text-xl font-bold tracking-wide text-gray-800">INVOICE</h2>
+          <h2 className="text-xl font-bold tracking-wide text-muted-foreground">INVOICE</h2>
         </div>
       </div>
 
@@ -1412,38 +1575,38 @@ const BillingInvoice: React.FC<{
       <div className="grid grid-cols-1 gap-0 border-b sm:grid-cols-2">
         <div className="space-y-1 border-b px-4 py-3 sm:border-b-0 sm:border-r">
           <div className="flex gap-2">
-            <span className="text-gray-500 w-28 shrink-0">Project ID:</span>
+            <span className="text-muted-foreground w-28 shrink-0">Project ID:</span>
             <span className="font-medium">{billingData.job_id}</span>
           </div>
           <div className="flex gap-2">
-            <span className="text-gray-500 w-28 shrink-0">Invoice No.:</span>
+            <span className="text-muted-foreground w-28 shrink-0">Invoice No.:</span>
             <span className="font-medium">{invoiceNo}</span>
           </div>
           <div className="flex gap-2">
-            <span className="text-gray-500 w-28 shrink-0">Invoice Date:</span>
+            <span className="text-muted-foreground w-28 shrink-0">Invoice Date:</span>
             <span className="font-medium">{today}</span>
           </div>
           <div className="flex gap-2">
-            <span className="text-gray-500 w-28 shrink-0">State:</span>
+            <span className="text-muted-foreground w-28 shrink-0">State:</span>
             <span className="font-medium">{billingData.state || '—'}</span>
           </div>
           <div className="flex gap-2">
-            <span className="text-gray-500 w-28 shrink-0">PAN No.:</span>
+            <span className="text-muted-foreground w-28 shrink-0">PAN No.:</span>
             <span className="font-medium">{billingData.ip.pan_number || '—'}</span>
           </div>
         </div>
         <div className="px-4 py-3 space-y-1">
-          <div className="font-semibold text-gray-700 mb-1">Bill to Party</div>
+          <div className="font-semibold text-muted-foreground mb-1">Bill to Party</div>
           <div className="font-medium">{BILL_TO.name}</div>
-          <div className="text-gray-600">{BILL_TO.address}</div>
-          <div className="text-gray-600">State: {BILL_TO.state}</div>
-          <div className="text-gray-600">PAN No.: {BILL_TO.pan}</div>
+          <div className="text-muted-foreground">{BILL_TO.address}</div>
+          <div className="text-muted-foreground">State: {BILL_TO.state}</div>
+          <div className="text-muted-foreground">PAN No.: {BILL_TO.pan}</div>
         </div>
       </div>
 
       {/* Project name */}
-      <div className="px-4 py-2 border-b bg-gray-50">
-        <span className="font-semibold text-gray-700">Project Name: </span>
+      <div className="px-4 py-2 border-b bg-muted">
+        <span className="font-semibold text-muted-foreground">Project Name: </span>
         <span>{jobName}</span>
       </div>
 
@@ -1451,7 +1614,7 @@ const BillingInvoice: React.FC<{
       <div className="overflow-x-auto border-b">
       <table className="w-full min-w-[520px] text-xs">
         <thead>
-          <tr className="bg-gray-100 text-gray-600">
+          <tr className="bg-muted text-muted-foreground">
             <th className="border-r px-2 py-2 text-left w-8">Sr.</th>
             <th className="border-r px-2 py-2 text-left">Description</th>
             <th className="border-r px-2 py-2 text-center w-16">UOM</th>
@@ -1477,8 +1640,8 @@ const BillingInvoice: React.FC<{
           </tr>
         </tbody>
         <tfoot>
-          <tr className="bg-gray-50 font-semibold">
-            <td colSpan={5} className="border-r border-t px-2 py-2 text-right text-gray-700">Total Amount</td>
+          <tr className="bg-muted font-semibold">
+            <td colSpan={5} className="border-r border-t px-2 py-2 text-right text-muted-foreground">Total Amount</td>
             <td className="border-t px-2 py-2 text-right">
               {totalAmount ? `₹${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
             </td>
@@ -1488,32 +1651,32 @@ const BillingInvoice: React.FC<{
       </div>
 
       {/* Amounts in words */}
-      <div className="px-4 py-2 border-b text-xs text-gray-700">
+      <div className="px-4 py-2 border-b text-xs text-muted-foreground">
         <span className="font-medium">Amounts in words: </span>
         {totalAmount ? amountToWords(totalAmount) : '—'}
       </div>
 
       {/* Declaration */}
-      <div className="px-4 py-2 border-b text-xs text-gray-500">
+      <div className="px-4 py-2 border-b text-xs text-muted-foreground">
         Declaration: Certified that the particulars given above are true and correct.
       </div>
 
       {/* Bank Details */}
       <div className="px-4 py-3 text-xs space-y-1">
-        <div className="font-semibold text-gray-700 mb-1">Bank Details</div>
+        <div className="font-semibold text-muted-foreground mb-1">Bank Details</div>
         <div className="grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
-          <div><span className="text-gray-500">Account Holder: </span>{billingData.ip.account_holder_name || '—'}</div>
-          <div><span className="text-gray-500">Account No.: </span>{billingData.ip.account_number || '—'}</div>
-          <div><span className="text-gray-500">IFSC Code: </span>{billingData.ip.ifsc_code || '—'}</div>
+          <div><span className="text-muted-foreground">Account Holder: </span>{billingData.ip.account_holder_name || '—'}</div>
+          <div><span className="text-muted-foreground">Account No.: </span>{billingData.ip.account_number || '—'}</div>
+          <div><span className="text-muted-foreground">IFSC Code: </span>{billingData.ip.ifsc_code || '—'}</div>
         </div>
       </div>
 
       {/* Print button */}
-      <div className="flex justify-end border-t bg-gray-50 px-4 py-3">
+      <div className="flex justify-end border-t bg-muted px-4 py-3">
         <button
           onClick={onDownload}
           disabled={downloading}
-          className="w-full rounded bg-blue-600 px-3 py-2 text-xs text-white hover:bg-blue-700 sm:w-auto sm:py-1.5"
+          className="w-full rounded bg-info px-3 py-2 text-xs text-white hover:bg-info/90 sm:w-auto sm:py-1.5"
         >
           {downloading ? 'Downloading...' : 'Download Bill XLSX'}
         </button>

@@ -13,7 +13,7 @@ import {
   useRejectJobCreation,
 } from '@/hooks/useJobs';
 import { useIPUsers } from '@/hooks/useIPUsers';
-import { CheckCircle2, ChevronLeft, ChevronRight, Plus, Search, Filter, RefreshCw, History, User, MoreVertical, XCircle, FileSpreadsheet, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, ChevronLeft, ChevronRight, Plus, Search, Filter, RefreshCw, History, User, MoreVertical, Pencil, XCircle, FileSpreadsheet, ShieldCheck } from 'lucide-react';
 import JobFormModal from '@/components/JobFormModal';
 import JobActionsModal from '@/components/JobActionsModal';
 import { StatusBadge, type Status } from '@/components/StatusBadge';
@@ -290,6 +290,7 @@ const Jobs: React.FC = () => {
           workers={workers}
           isLoading={pendingLoading || workersLoading}
           getWorkerName={getWorkerName}
+          onEdit={(job) => setEditingJob(job)}
           onApprove={(id) => approveJobMutation.mutate(id)}
           onReject={(id) => rejectJobMutation.mutate({ id })}
           isMutating={approveJobMutation.isPending || rejectJobMutation.isPending}
@@ -316,7 +317,7 @@ const Jobs: React.FC = () => {
       <Card>
         <CardHeader>
           <CardTitle>All Jobs</CardTitle>
-          <CardDescription>A list of all jobs in the system.</CardDescription>
+          <CardDescription>Open a job directly to start work, review checklists, and see daily reports.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="mb-5 flex flex-col gap-3 md:flex-row md:gap-4 lg:mb-6">
@@ -355,6 +356,7 @@ const Jobs: React.FC = () => {
                   <SelectItem value="measurement">Site Measurement</SelectItem>
                   <SelectItem value="site_validation">Site Validation</SelectItem>
                   <SelectItem value="site_readiness">Site Readiness</SelectItem>
+                  <SelectItem value="grn">GRN</SelectItem>
                   <SelectItem value="b2b">B2B</SelectItem>
                   <SelectItem value="b2c">B2C</SelectItem>
                 </SelectContent>
@@ -378,13 +380,10 @@ const Jobs: React.FC = () => {
                     key={job.id}
                     job={job}
                     workers={workers}
+                    isSuperadmin={isSuperadmin}
                     getWorkerName={getWorkerName}
                     onEdit={() => setEditingJob(job)}
                     onDelete={(id) => setDeleteJobId(id)}
-                    onAction={(tab) => {
-                      setActionJob(job);
-                      setActionModalTab(tab);
-                    }}
                   />
                 ))}
               </div>
@@ -410,9 +409,9 @@ const Jobs: React.FC = () => {
                     <TableHead>Assigned Personnel</TableHead>
                     <TableHead>Supervisor</TableHead>
                     <TableHead>Type</TableHead>
-                    <TableHead>Rate</TableHead>
+                    {isSuperadmin && <TableHead>Rate</TableHead>}
                     <TableHead>Status</TableHead>
-                    <TableHead className="text-right w-[60px]">Actions</TableHead>
+                    <TableHead className="w-[150px] text-right">Next action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -421,13 +420,10 @@ const Jobs: React.FC = () => {
                       key={job.id}
                       job={job}
                       workers={workers}
+                      isSuperadmin={isSuperadmin}
                       getWorkerName={getWorkerName}
                       onEdit={() => setEditingJob(job)}
                       onDelete={(id) => setDeleteJobId(id)}
-                      onAction={(tab) => {
-                        setActionJob(job);
-                        setActionModalTab(tab);
-                      }}
                     />
                   ))}
                 </TableBody>
@@ -505,7 +501,7 @@ const PendingInvoiceSection: React.FC<{
   error: string;
   onReview: (request: InvoiceRequest) => void;
 }> = ({ requests, isLoading, error, onReview }) => (
-  <Card className="border-amber-200 bg-amber-50/40 dark:border-amber-900/60 dark:bg-amber-950/10">
+  <Card className="border-warning/30 bg-warning/10">
     <CardHeader>
       <CardTitle className="flex items-center gap-2"><FileSpreadsheet className="h-5 w-5" /> Pending invoice requests</CardTitle>
       <CardDescription>Requests are already scoped by the backend to jobs you can manage.</CardDescription>
@@ -546,9 +542,9 @@ const StartFinishApprovalSection: React.FC<{
   onReject: (requestId: number) => void;
   isMutating: boolean;
 }> = ({ requests, isLoading, onApprove, onReject, isMutating }) => (
-  <Card className="border-amber-200 bg-amber-50/40 dark:border-amber-900/60 dark:bg-amber-950/10">
+  <Card className="border-warning/30 bg-warning/10">
     <CardHeader>
-      <CardTitle className="flex items-center gap-2 text-amber-900 dark:text-amber-200">
+      <CardTitle className="flex items-center gap-2 text-warning">
         <ShieldCheck className="h-5 w-5" />
         Start / Complete Without Customer OTP
       </CardTitle>
@@ -602,13 +598,14 @@ const PendingApprovalSection: React.FC<{
   workers: IPUser[];
   isLoading: boolean;
   getWorkerName: (id?: number | null) => string | null;
+  onEdit: (job: Job) => void;
   onApprove: (id: number) => void;
   onReject: (id: number) => void;
   isMutating: boolean;
-}> = ({ jobs, workers, isLoading, getWorkerName, onApprove, onReject, isMutating }) => (
-  <Card className="border-blue-200 bg-blue-50/40 dark:border-blue-900/60 dark:bg-blue-950/10">
+}> = ({ jobs, workers, isLoading, getWorkerName, onEdit, onApprove, onReject, isMutating }) => (
+  <Card className="border-info/30 bg-info/10">
     <CardHeader>
-      <CardTitle className="flex items-center gap-2 text-blue-900 dark:text-blue-200">
+      <CardTitle className="flex items-center gap-2 text-info">
         <CheckCircle2 className="h-5 w-5" />
         Pending Superadmin Approval
       </CardTitle>
@@ -681,7 +678,18 @@ const PendingApprovalSection: React.FC<{
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 gap-2 sm:flex">
+                  <div className="grid grid-cols-3 gap-2 sm:flex">
+                    {/* CRM-created jobs land here with no supervisor, rate or size; this
+                        is where a superadmin fills them in before approving. */}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onEdit(job)}
+                      disabled={isMutating}
+                    >
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Edit
+                    </Button>
                     <Button
                       size="sm"
                       onClick={() => job.id && onApprove(job.id)}
@@ -729,8 +737,8 @@ const JobMobileCard: React.FC<{
   getWorkerName: (id?: number | null) => string | null;
   onEdit: () => void;
   onDelete: (id: number) => void;
-  onAction: (tab: 'actions' | 'checklists') => void;
-}> = ({ job, workers, getWorkerName, onEdit, onDelete, onAction }) => {
+  isSuperadmin: boolean;
+}> = ({ job, workers, getWorkerName, onEdit, onDelete, isSuperadmin }) => {
   const workerName = getWorkerName(job.assigned_ip_id);
   const worker = workers.find(w => w.id === job.assigned_ip_id);
   const statusMeta = getJobStatusMeta(job.status);
@@ -746,7 +754,7 @@ const JobMobileCard: React.FC<{
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="truncate text-sm font-semibold">{job.name || 'Untitled Job'}</h3>
+            <Link to={`/dashboard/jobs/${job.id}`} className="block truncate text-sm font-semibold hover:underline">{job.name || 'Untitled Job'}</Link>
             {isPastStartDate && <span className="h-2 w-2 shrink-0 rounded-full bg-destructive" />}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -760,8 +768,6 @@ const JobMobileCard: React.FC<{
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuItem onClick={() => onAction('actions')}>Actions</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onAction('checklists')}>Checklists</DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link to={`/dashboard/document-automation?job=${job.id}`}>
                 <FileSpreadsheet className="mr-2 h-4 w-4" />
@@ -791,10 +797,12 @@ const JobMobileCard: React.FC<{
           <p className="text-muted-foreground">Type</p>
           <p className="mt-0.5 font-medium capitalize">{job.type?.replace('_', ' ') || '-'}</p>
         </div>
-        <div>
-          <p className="text-muted-foreground">Rate</p>
-          <p className="mt-0.5 font-medium">₹{job.rate ?? '-'}</p>
-        </div>
+        {isSuperadmin && (
+          <div>
+            <p className="text-muted-foreground">Rate</p>
+            <p className="mt-0.5 font-medium">₹{job.rate ?? '-'}</p>
+          </div>
+        )}
         <div>
           <p className="text-muted-foreground">Supervisor</p>
           <p className="mt-0.5 font-medium">{job.assigned_admin_name || '-'}</p>
@@ -824,6 +832,9 @@ const JobMobileCard: React.FC<{
           {statusMeta.label.toUpperCase()}
         </StatusBadge>
       </div>
+      <Button asChild className="mt-4 w-full" variant={job.status === 'created' || job.status === 'paused' ? 'default' : 'outline'}>
+        <Link to={`/dashboard/jobs/${job.id}`}>{job.status === 'created' ? 'Start job' : job.status === 'paused' ? 'Resume job' : 'Open job'}</Link>
+      </Button>
     </article>
   );
 };
@@ -834,8 +845,8 @@ const JobRow: React.FC<{
   getWorkerName: (id?: number | null) => string | null;
   onEdit: () => void;
   onDelete: (id: number) => void;
-  onAction: (tab: 'actions' | 'checklists') => void;
-}> = ({ job, workers, getWorkerName, onEdit, onDelete, onAction }) => {
+  isSuperadmin: boolean;
+}> = ({ job, workers, getWorkerName, onEdit, onDelete, isSuperadmin }) => {
   const workerName = getWorkerName(job.assigned_ip_id);
   const worker = workers.find(w => w.id === job.assigned_ip_id);
   const statusMeta = getJobStatusMeta(job.status);
@@ -852,7 +863,7 @@ const JobRow: React.FC<{
     <TableRow>
       <TableCell className="font-medium">
         <div className="flex items-center gap-2">
-          {job.name}
+          <Link to={`/dashboard/jobs/${job.id}`} className="hover:underline">{job.name}</Link>
           {isPastStartDate && (
             <TooltipProvider>
               <Tooltip>
@@ -893,14 +904,18 @@ const JobRow: React.FC<{
       </TableCell>
       <TableCell className="text-sm text-muted-foreground">{job.assigned_admin_name || '-'}</TableCell>
       <TableCell className="capitalize">{job.type?.replace('_', ' ')}</TableCell>
-      <TableCell>₹{job.rate}</TableCell>
+      {isSuperadmin && <TableCell>₹{job.rate ?? '-'}</TableCell>}
       <TableCell>
         <StatusBadge status={statusMeta.status}>
           {statusMeta.label.toUpperCase()}
         </StatusBadge>
       </TableCell>
       <TableCell className="text-right">
-        <DropdownMenu>
+        <div className="flex items-center justify-end gap-1">
+          <Button asChild size="sm" variant={job.status === 'created' || job.status === 'paused' ? 'default' : 'outline'}>
+            <Link to={`/dashboard/jobs/${job.id}`}>{job.status === 'created' ? 'Start' : job.status === 'paused' ? 'Resume' : 'Open'}</Link>
+          </Button>
+          <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
@@ -912,12 +927,6 @@ const JobRow: React.FC<{
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuItem onClick={() => onAction('actions')}>
-              Actions
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onAction('checklists')}>
-              Checklists
-            </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link to={`/dashboard/document-automation?job=${job.id}`}>
                 <FileSpreadsheet className="mr-2 h-4 w-4" />
@@ -941,7 +950,8 @@ const JobRow: React.FC<{
               Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
-        </DropdownMenu>
+          </DropdownMenu>
+        </div>
       </TableCell>
     </TableRow>
   );

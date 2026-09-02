@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { checklistApi } from '../api/checklistApi';
 import { logger } from '../util/helpers';
+import { getApiErrorMessage } from '../api/apiErrors';
 
 const CHECKLIST_TTL = 30 * 60_000; // 30 minutes
 const MAX_CACHE_ENTRIES = 20;
@@ -47,6 +48,7 @@ const useChecklistStore = create(
   isLoading: false,
   isSaving: false,
   error: null,
+  warning: null,
   dirtyItems: {},        // { [itemId]: true } — plain object, safe for JSON serialization
   pendingChanges: {},    // { [itemId]: { ...changes } } — plain object, safe for JSON serialization
   itemsBackup: [],
@@ -65,13 +67,15 @@ const useChecklistStore = create(
         jobId: cached.jobId,
         jobTitle: cached.jobTitle,
         isLoading: false,
+        error: null,
+        warning: null,
         dirtyItems: {},
         pendingChanges: {},
       });
       return;
     }
 
-    set({ isLoading: true, error: null });
+    set({ isLoading: true, error: null, warning: null });
 
     try {
       const data = await checklistApi.getChecklist(jobId, checklistId);
@@ -117,7 +121,7 @@ const useChecklistStore = create(
       }));
     } catch (error) {
       set({
-        error: error?.message || 'Failed to fetch checklist',
+        error: getApiErrorMessage(error),
         isLoading: false,
       });
       throw error;
@@ -170,7 +174,7 @@ const useChecklistStore = create(
       }
     }
 
-    set({ isSaving: true, error: null });
+    set({ isSaving: true, error: null, warning: null });
 
     const updates = Object.entries(pendingChanges).map(([id, changes]) => ({
       checklist_item_id: Number(id),
@@ -199,6 +203,7 @@ const useChecklistStore = create(
         pendingChanges: {},
         itemsBackup: [],
         isSaving: false,
+        warning: response.partial_failure ? response.partial_error : null,
         checklistCache: {
           ...state.checklistCache,
           [key]: {
@@ -219,7 +224,7 @@ const useChecklistStore = create(
         stats: calculateStats(itemsBackup),
         dirtyItems: {},
         pendingChanges: {},
-        error: error?.message || 'Failed to save changes',
+        error: getApiErrorMessage(error),
         isSaving: false,
       });
       throw error;
@@ -253,7 +258,7 @@ const useChecklistStore = create(
   uploadDocument: async (itemId, file, comment = null) => {
     const { jobId, checklist } = get();
 
-    set({ isSaving: true, error: null });
+    set({ isSaving: true, error: null, warning: null });
 
     try {
       const response = await checklistApi.uploadDocument(jobId, checklist.id, itemId, file, comment);
@@ -268,7 +273,7 @@ const useChecklistStore = create(
       return response;
     } catch (error) {
       set({
-        error: error?.message || 'Failed to upload document',
+        error: getApiErrorMessage(error),
         isSaving: false,
       });
       throw error;
@@ -276,7 +281,7 @@ const useChecklistStore = create(
   },
 
   uploadChecklistDocument: async (jobId, checklistId, file) => {
-    set({ isSaving: true, error: null });
+    set({ isSaving: true, error: null, warning: null });
 
     try {
       const response = await checklistApi.uploadChecklistDocument(jobId, checklistId, file);
@@ -305,7 +310,7 @@ const useChecklistStore = create(
       return response;
     } catch (error) {
       set({
-        error: error?.message || 'Failed to upload checklist document',
+        error: getApiErrorMessage(error),
         isSaving: false,
       });
       throw error;
@@ -326,6 +331,7 @@ const useChecklistStore = create(
       isLoading: false,
       isSaving: false,
       error: null,
+      warning: null,
       dirtyItems: {},
       pendingChanges: {},
       itemsBackup: [],

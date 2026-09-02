@@ -128,8 +128,8 @@ const SiteRequisiteSubmit: React.FC = () => {
             <div className="flex items-center justify-center p-6 min-h-[60vh]">
                 <Card className="shadow-md p-2 max-w-md w-full text-center">
                     <CardContent className="pt-8 pb-4 px-6 flex flex-col items-center">
-                        <div className="w-20 h-20 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center mb-6">
-                            <CheckCircle className="w-10 h-10 text-green-600" />
+                        <div className="w-20 h-20 bg-success/10 rounded-full flex items-center justify-center mb-6">
+                            <CheckCircle className="w-10 h-10 text-success" />
                         </div>
                         <h2 className="text-2xl font-bold text-foreground mb-3">Requisite Submitted!</h2>
                         <p className="text-muted-foreground mb-8">
@@ -181,7 +181,7 @@ const SiteRequisiteSubmit: React.FC = () => {
                                                 Fetching...
                                             </div>
                                         ) : soDetails ? (
-                                            <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                                            <div className="text-xs font-semibold text-success">
                                                 Synced
                                             </div>
                                         ) : (
@@ -192,7 +192,7 @@ const SiteRequisiteSubmit: React.FC = () => {
                                     </div>
 
                                     {detailsError ? (
-                                        <div className="mt-4 flex items-start gap-3 rounded-md border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-200">
+                                        <div className="mt-4 flex items-start gap-3 rounded-md border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
                                             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                                             <div>
                                                 <p className="font-semibold">SO details not available yet</p>

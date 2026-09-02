@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import { Text } from '@/components/ui';
-import Ionicons from '@react-native-vector-icons/ionicons';
-import { useTheme } from '../hooks/useTheme';
+import { IconButton } from './common/Primitives';
+import { radii, spacing, typography } from '../theme/designSystem';
 
 const BOMTreeNode = ({ node, depth = 0, onAddToBucket }) => {
-  const { colors } = useTheme();
   const [isExpanded, setIsExpanded] = useState(depth < 2);
   const hasChildren = node.children && node.children.length > 0;
 
@@ -13,37 +12,34 @@ const BOMTreeNode = ({ node, depth = 0, onAddToBucket }) => {
     <View>
       <View
         className={`flex-row items-center rounded-lg py-2 ${depth === 0 ? 'bg-muted/70' : ''}`}
-        style={{ paddingLeft: depth * 20 + 10 }}
+        style={{ paddingLeft: depth * radii.xl + spacing.sm }}
       >
-        <Pressable
-          onPress={() => hasChildren && setIsExpanded((prev) => !prev)}
-          className="w-8 h-8 items-center justify-center rounded-lg"
-          accessibilityRole={hasChildren ? 'button' : 'none'}
-          accessibilityLabel={hasChildren ? `${isExpanded ? 'Collapse' : 'Expand'} ${node.product_name}` : undefined}
-          accessibilityState={hasChildren ? { expanded: isExpanded } : undefined}
-        >
-          {hasChildren ? (
-            <Ionicons name={isExpanded ? 'chevron-down' : 'chevron-forward'} size={16} color={colors.textMuted} />
-          ) : (
-            <View className="w-[14px]" />
-          )}
-        </Pressable>
+        {hasChildren ? (
+          <IconButton
+            icon={isExpanded ? 'chevron-down' : 'chevron-forward'}
+            iconSize={typography.body.fontSize}
+            size={spacing.xl}
+            tone="neutral"
+            onPress={() => setIsExpanded((prev) => !prev)}
+            label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.product_name}`}
+          />
+        ) : <View style={{ width: spacing.xl }} />}
 
         <View className="ml-1 flex-1">
           <Text className="text-xs text-foreground">{node.product_name}</Text>
           {node.cabinet_position ? (
-            <Text className="text-[11px] text-muted-foreground">Position: {node.cabinet_position}</Text>
+            <Text style={typography.micro} className="text-muted-foreground">Position: {node.cabinet_position}</Text>
           ) : null}
         </View>
 
-        <Pressable
+        <IconButton
+          icon="add"
+          iconSize={typography.title3.fontSize}
+          size={spacing.xl + spacing.xxs}
+          tone="subtle"
           onPress={() => onAddToBucket(node)}
-          className="h-9 w-9 items-center justify-center rounded-xl bg-primary-light"
-          accessibilityRole="button"
-          accessibilityLabel={`Add ${node.product_name} to bucket`}
-        >
-          <Ionicons name="add" size={17} color={colors.primary} />
-        </Pressable>
+          label={`Add ${node.product_name} to bucket`}
+        />
       </View>
 
       {hasChildren && isExpanded

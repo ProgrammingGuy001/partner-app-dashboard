@@ -1,10 +1,15 @@
-import apiClient from './axiosConfig';
 import { toRNFile, logger } from '../util/helpers';
-import { fetch as expoFetch } from 'expo/fetch';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { STORAGE_KEYS } from '../util/constants';
-import * as SecureStore from '../util/secureStore';
+import {
+  exportChecklistPdf,
+  getChecklistItems,
+  getJobChecklists,
+  updateChecklistItem,
+  uploadCompletedChecklist,
+  uploadJobProgress,
+} from './checklistGeneratedApi';
+import { getApiErrorMessage } from './apiErrors';
 
 const computeStats = (items) => {
   const totalItems = items.length;
@@ -23,7 +28,16 @@ const computeStats = (items) => {
 };
 
 const normalizeChecklistPayload = (payload) => {
-  const checklist = payload?.checklist || {};
+  const checklist = payload?.checklist || null;
+  if (!checklist) {
+    return {
+      checklist: null,
+      items: [],
+      job_id: payload?.job_id,
+      job_title: payload?.job_title || '',
+      ...computeStats([]),
+    };
+  }
   const rawItems = checklist.items || [];
 
   const items = rawItems
@@ -66,8 +80,7 @@ const normalizeChecklistPayload = (payload) => {
 
 export const checklistApi = {
   getChecklist: async (jobId, checklistId) => {
-    const response = await apiClient.get(`/dashboard/jobs/${jobId}/checklists/${checklistId}/items`);
-    return normalizeChecklistPayload(response.data);
+    return normalizeChecklistPayload(await getChecklistItems(jobId, checklistId));
   },
 
   batchUpdate: async (jobId, checklistId, payload) => {
@@ -83,7 +96,7 @@ export const checklistApi = {
         if (typeof update.comment === 'string') body.comment = update.comment;
         if (typeof update.document_link === 'string') body.document_link = update.document_link;
 
-        return apiClient.put(`/dashboard/jobs/${jobId}/checklists/items/${itemId}/status`, body);
+        return updateChecklistItem(jobId, itemId, body);
       })
     );
 
@@ -92,8 +105,7 @@ export const checklistApi = {
     // All failed — throw immediately, no re-fetch needed
     if (failures.length === updates.length && updates.length > 0) {
       const firstError = failures[0]?.reason;
-      const errorMessage = firstError?.response?.data?.detail || firstError?.message || 'All updates failed. Please try again.';
-      throw new Error(errorMessage);
+      throw firstError;
     }
 
     if (failures.length > 0) {
@@ -109,6 +121,7 @@ export const checklistApi = {
         completion_percentage: refreshed.completion_percentage,
         partial_failure: true,
         failed_count: failures.length,
+        partial_error: getApiErrorMessage(failures[0]?.reason),
       };
     }
 
@@ -122,20 +135,13 @@ export const checklistApi = {
 
   uploadDocument: async (jobId, checklistId, itemId, file, comment = null) => {
     try {
-      const formData = new FormData();
       const rnFile = toRNFile(file);
       if (!rnFile) {
         throw new Error('Invalid file selected');
       }
-      formData.append('file', rnFile);
+      const uploadResponse = await uploadJobProgress(jobId, rnFile);
 
-      const uploadResponse = await apiClient.post(`/dashboard/jobs/${jobId}/upload`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-
-      const fileUrl = uploadResponse?.data?.file_url;
+      const fileUrl = uploadResponse?.file_url;
       if (!fileUrl) {
         throw new Error('Upload succeeded but file URL was not returned');
       }
@@ -147,7 +153,7 @@ export const checklistApi = {
         statusPayload.comment = comment;
       }
 
-      await apiClient.put(`/dashboard/jobs/${jobId}/checklists/items/${itemId}/status`, statusPayload);
+      await updateChecklistItem(jobId, itemId, statusPayload);
 
       const refreshed = await checklistApi.getChecklist(jobId, checklistId);
       return {
@@ -156,7 +162,7 @@ export const checklistApi = {
       };
     } catch (error) {
       // Extract error message from response
-      const errorMessage = error?.response?.data?.detail || error?.response?.data?.message || error.message || 'Upload failed';
+      const errorMessage = getApiErrorMessage(error);
       logger.error('checklistApi.uploadDocument', errorMessage, error);
       throw new Error(errorMessage);
     }
@@ -164,73 +170,29 @@ export const checklistApi = {
 
   uploadChecklistDocument: async (jobId, checklistId, file) => {
     try {
-      const formData = new FormData();
       const rnFile = toRNFile(file);
       if (!rnFile) {
         throw new Error('Invalid file selected');
       }
-      formData.append('file', rnFile);
-
-      const response = await apiClient.post(`/dashboard/jobs/${jobId}/checklists/${checklistId}/document`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-      return response.data;
+      return uploadCompletedChecklist(jobId, checklistId, rnFile);
     } catch (error) {
-      const errorMessage = error?.response?.data?.detail || error?.response?.data?.message || error.message || 'Upload failed';
+      const errorMessage = getApiErrorMessage(error);
       logger.error('checklistApi.uploadChecklistDocument', errorMessage, error);
       throw new Error(errorMessage);
     }
   },
 
-  downloadChecklistTemplate: async (jobId, checklistId) => {
-    const token = await SecureStore.getItemAsync(STORAGE_KEYS.AUTH_TOKEN);
-    if (!token) throw new Error('You need to log in again before downloading.');
-
-    const url = `${apiClient.defaults.baseURL || ''}/dashboard/jobs/${jobId}/checklists/${checklistId}/template`;
-    const response = await expoFetch(url, {
-      headers: { Authorization: `Bearer ${token}`, 'X-Requested-With': 'XMLHttpRequest' },
-    });
-    if (!response.ok) {
-      let detail = '';
-      try { detail = (await response.text()).trim(); } catch { detail = ''; }
-      throw new Error(detail || `Download failed with status ${response.status}`);
-    }
-
-    const file = new File(Paths.cache, 'All Check-list.xlsx');
-    file.create({ overwrite: true, intermediates: true });
-    file.write(await response.bytes());
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(file.uri, {
-        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        dialogTitle: 'All Check-list workbook',
-        UTI: 'com.microsoft.excel.xlsx',
-      });
-    }
-  },
-
-  // The filled-in checklist as a PDF: items, statuses, notes and evidence photos.
-  // Available for every checklist, unlike the ISM-only blank workbook above.
+  // Export the official PDF supplied for this checklist.
   exportChecklist: async (jobId, checklistId) => {
-    const token = await SecureStore.getItemAsync(STORAGE_KEYS.AUTH_TOKEN);
-    if (!token) throw new Error('You need to log in again before exporting.');
-
-    const url = `${apiClient.defaults.baseURL || ''}/dashboard/jobs/${jobId}/checklists/${checklistId}/export`;
-    const response = await expoFetch(url, {
-      headers: { Authorization: `Bearer ${token}`, 'X-Requested-With': 'XMLHttpRequest' },
-    });
-    if (!response.ok) {
-      let detail = '';
-      try { detail = (await response.text()).trim(); } catch { detail = ''; }
-      throw new Error(detail || `Export failed with status ${response.status}`);
-    }
-
-    const disposition = response.headers.get('content-disposition') || '';
-    const filename = disposition.match(/filename="?([^";]+)/i)?.[1] || 'checklist.pdf';
+    const response = await exportChecklistPdf(jobId, checklistId);
+    const disposition = String(response.headers?.['content-disposition'] || '');
+    const encodedFilename = disposition.match(/filename\*=utf-8''([^;]+)/i)?.[1];
+    const filename = encodedFilename
+      ? decodeURIComponent(encodedFilename)
+      : disposition.match(/filename="?([^";]+)/i)?.[1] || 'checklist.pdf';
     const file = new File(Paths.cache, filename);
     file.create({ overwrite: true, intermediates: true });
-    file.write(await response.bytes());
+    file.write(new Uint8Array(response.data));
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(file.uri, {
         mimeType: 'application/pdf',
@@ -241,8 +203,8 @@ export const checklistApi = {
   },
 
   getJobChecklists: async (jobId) => {
-    const response = await apiClient.get(`/dashboard/jobs/${jobId}/checklists`);
-    return response?.data?.checklists || [];
+    const response = await getJobChecklists(jobId);
+    return response?.checklists || [];
   },
 };
 

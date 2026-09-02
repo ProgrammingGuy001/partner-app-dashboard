@@ -6,6 +6,7 @@ import { STORAGE_KEYS } from '../util/constants';
 import { logger } from '../util/helpers';
 import * as SecureStore from '../util/secureStore';
 import { useToast } from './useToast';
+import { getApiErrorMessage, getApiFieldErrors } from '../api/apiErrors';
 
 export const useAuth = () => {
   const toast = useToast();
@@ -23,9 +24,10 @@ export const useAuth = () => {
         toast.success('OTP sent successfully!');
         return { success: true, data: loginResponse };
       } catch (error) {
-        const message = error.message || 'Registration failed';
+        const message = getApiErrorMessage(error);
+        const fields = getApiFieldErrors(error);
         toast.error(message);
-        return { success: false, error: message };
+        return { success: false, error: message, fieldErrors: fields };
       }
     },
     [setPhoneNumber, toast]
@@ -39,9 +41,10 @@ export const useAuth = () => {
         toast.success('OTP sent successfully!');
         return { success: true, data: response };
       } catch (error) {
-        const message = error.message || 'Login failed';
+        const message = getApiErrorMessage(error);
+        const fields = getApiFieldErrors(error);
         toast.error(message);
-        return { success: false, error: message };
+        return { success: false, error: message, fieldErrors: fields };
       }
     },
     [setPhoneNumber, toast]
@@ -74,9 +77,10 @@ export const useAuth = () => {
         return { success: true, data: response };
       } catch (error) {
         logger.error('useAuth', '❌ OTP verification failed:', error.message);
-        const message = error.message || 'OTP verification failed';
+        const message = getApiErrorMessage(error);
+        const fields = getApiFieldErrors(error);
         toast.error(message);
-        return { success: false, error: message };
+        return { success: false, error: message, fieldErrors: fields };
       }
     },
     [phoneNumber, setUser, toast]
@@ -89,7 +93,7 @@ export const useAuth = () => {
         toast.success('OTP resent successfully!');
         return { success: true, data: response };
       } catch (error) {
-        const message = error.message || 'Failed to resend OTP';
+        const message = getApiErrorMessage(error);
         toast.error(message);
         return { success: false, error: message };
       }

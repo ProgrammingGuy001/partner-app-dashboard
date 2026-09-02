@@ -5,6 +5,7 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, condecimal, model_validator
 
 from app.schemas.checklist import JobChecklistResponse
+from app.utils.job_documents import normalize_job_type
 
 
 class JobBase(BaseModel):
@@ -37,21 +38,25 @@ class JobBase(BaseModel):
     slot_start: Optional[time] = None
     slot_end: Optional[time] = None
 
-
 DRAWING_REQUIRED_JOB_TYPES = {"site_validation", "installation"}
-SLOT_EXCLUDED_JOB_TYPES = {"installation"}
+# Installation runs the full shift and GRN is not a site visit, so neither is slotted.
+# Every other type has to name its slot: the slot is what opens their check-in window.
+SLOT_EXCLUDED_JOB_TYPES = {"installation", "grn"}
 
 
 def validate_job_slot(job_type: Optional[str], slot_start, slot_end) -> None:
-    """A slot is both-or-neither, forward-going, and off-limits to installation jobs."""
+    """A slot is both-or-neither, forward-going, required except for installation and GRN."""
+    slotless_type = normalize_job_type(job_type) in SLOT_EXCLUDED_JOB_TYPES
     if slot_start is None and slot_end is None:
-        return
+        if slotless_type:
+            return
+        raise ValueError("Set an attendance slot: it is required for this job type")
+    if slotless_type:
+        raise ValueError(f"'{job_type}' jobs cannot use an attendance slot")
     if slot_start is None or slot_end is None:
         raise ValueError("Set both a slot start and a slot end, or neither")
     if slot_end <= slot_start:
         raise ValueError("Slot end must be after slot start")
-    if (job_type or "").strip().lower() in SLOT_EXCLUDED_JOB_TYPES:
-        raise ValueError("Installation jobs cannot use an attendance slot")
 
 
 class JobCreate(JobBase):
@@ -115,7 +120,6 @@ class JobUpdate(BaseModel):
     slot_start: Optional[time] = None
     slot_end: Optional[time] = None
 
-
 class MapUrlResolveRequest(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
 
@@ -138,9 +142,11 @@ class JobPause(BaseModel):
 
 class JobFinish(BaseModel):
     notes: Optional[str] = None
-    handover_document_link: str = Field(min_length=1)
-    ncr_document_link: str = Field(min_length=1)
-    project_report_document_link: str = Field(min_length=1)
+    # Required per job type, enforced in crud.job.validate_job_completion.
+    handover_document_link: Optional[str] = None
+    ncr_document_link: Optional[str] = None
+    project_report_document_link: Optional[str] = None
+    site_report_document_link: Optional[str] = None
 
 
 class JobStartWithOTP(BaseModel):
@@ -151,9 +157,10 @@ class JobStartWithOTP(BaseModel):
 class JobFinishWithOTP(BaseModel):
     notes: Optional[str] = None
     otp: str
-    handover_document_link: str = Field(min_length=1)
-    ncr_document_link: str = Field(min_length=1)
-    project_report_document_link: str = Field(min_length=1)
+    handover_document_link: Optional[str] = None
+    ncr_document_link: Optional[str] = None
+    project_report_document_link: Optional[str] = None
+    site_report_document_link: Optional[str] = None
 
 
 class OTPResponse(BaseModel):
@@ -169,13 +176,21 @@ class JobApprovalRequestCreate(BaseModel):
     handover_document_link: Optional[str] = None
     ncr_document_link: Optional[str] = None
     project_report_document_link: Optional[str] = None
+    site_report_document_link: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_completion_documents(self) -> "JobApprovalRequestCreate":
-        if self.action == "finish" and not all(
-            (self.handover_document_link, self.ncr_document_link, self.project_report_document_link)
+        # The job type decides which of these are needed; the route re-checks against
+        # the job itself before the request is parked.
+        if self.action == "finish" and not any(
+            (
+                self.handover_document_link,
+                self.ncr_document_link,
+                self.project_report_document_link,
+                self.site_report_document_link,
+            )
         ):
-            raise ValueError("Handover, NCR, and Project Report documents are required to request completion")
+            raise ValueError("Attach the completion documents this job type requires")
         return self
 
 
@@ -270,6 +285,7 @@ class JobResponse(BaseModel):
     handover_document_link: Optional[str] = None
     ncr_document_link: Optional[str] = None
     project_report_document_link: Optional[str] = None
+    site_report_document_link: Optional[str] = None
     drawing_document_link: Optional[str] = None
     sales_order: Optional[str] = None
     slot_start: Optional[time] = None

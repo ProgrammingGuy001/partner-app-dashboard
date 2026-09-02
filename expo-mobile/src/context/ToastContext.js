@@ -4,6 +4,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } fr
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../hooks/useTheme';
+import { radii, typography } from '../theme/designSystem';
 
 const ToastContext = createContext(null);
 
@@ -15,38 +16,34 @@ export const ToastProvider = ({ children }) => {
   const opacity = useSharedValue(0);
   const timerRef = useRef(null);
   const insets = useSafeAreaInsets();
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
 
   const variants = useMemo(() => ({
     success: {
       icon: 'checkmark-circle',
       iconColor: colors.success,
-      bg: colors.success + (isDark ? '24' : '12'),
-      border: colors.success + '35',
+      className: 'bg-success-muted border-success',
       text: colors.success,
     },
     error: {
       icon: 'close-circle',
       iconColor: colors.danger,
-      bg: colors.danger + (isDark ? '24' : '12'),
-      border: colors.danger + '35',
+      className: 'bg-destructive-muted border-destructive',
       text: colors.danger,
     },
     warning: {
       icon: 'warning',
       iconColor: colors.warning,
-      bg: colors.warning + (isDark ? '24' : '14'),
-      border: colors.warning + '35',
+      className: 'bg-warning-muted border-warning',
       text: colors.warning,
     },
     info: {
       icon: 'information-circle',
       iconColor: colors.info,
-      bg: colors.info + (isDark ? '24' : '10'),
-      border: colors.info + '30',
+      className: 'bg-info-muted border-info',
       text: colors.info,
     },
-  }), [colors, isDark]);
+  }), [colors]);
 
   const dismiss = useCallback(() => {
     translateY.value = withTiming(120, { duration: 220 });
@@ -83,18 +80,18 @@ export const ToastProvider = ({ children }) => {
           pointerEvents="none"
           className="absolute left-4 right-4 z-[9999] items-center"
           style={[
-            { bottom: insets.bottom + 20 },
+            { bottom: insets.bottom + radii.xl },
             animatedStyle,
           ]}
         >
           <View 
-            className="flex-row items-center gap-2 border rounded-full px-4 py-2.5 shadow-sm"
-            style={{ backgroundColor: v.bg, borderColor: v.border, ...colors.shadowMd }}
+            className={`flex-row items-center gap-2 rounded-full border px-4 py-2.5 shadow-sm ${v.className}`}
+            style={colors.shadowMd}
           >
             <Ionicons name={v.icon} size={18} color={v.iconColor} />
             <Text 
-              className="flex-1 text-[13px] font-semibold" 
-              style={{ color: v.text }} 
+              className="flex-1 font-semibold"
+              style={{ fontSize: typography.caption.fontSize, lineHeight: typography.caption.lineHeight, color: v.text }}
               numberOfLines={2}
             >
               {toast.message}

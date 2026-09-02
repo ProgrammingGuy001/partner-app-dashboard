@@ -1,16 +1,18 @@
 import React, { useMemo, useCallback } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
-import * as Haptics from 'expo-haptics';
+import { ScrollView, View } from 'react-native';
 import { Text } from '@/components/ui';
-import { JOB_STATUS, JOB_STATUS_ACCENT, JOB_STATUS_LABELS } from '../../util/constants';
+import { JOB_STATUS, JOB_STATUS_LABELS, statusAccent } from '../../util/constants';
 import { useDashboardStore } from '../../store/dashboardStore';
 import { useTheme } from '../../hooks/useTheme';
+import { Button } from '@/components/ui/button';
+import { radii, spacing, typography } from '../../theme/designSystem';
 
 const STATUS_FILTERS = [JOB_STATUS.IN_PROGRESS, JOB_STATUS.CREATED, JOB_STATUS.COMPLETED, JOB_STATUS.PAUSED];
 const filters = ['all', ...STATUS_FILTERS];
 
 const FilterButton = React.memo(({ label, isActive, count, accent, colors, onPress }) => (
-  <Pressable
+  <Button
+    variant="outline"
     onPress={onPress}
     accessibilityRole="button"
     accessibilityLabel={`Filter by ${label}, ${count} jobs`}
@@ -18,14 +20,13 @@ const FilterButton = React.memo(({ label, isActive, count, accent, colors, onPre
     style={({ pressed }) => ({
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 7,
-      borderRadius: 20,
-      borderWidth: isActive ? 1.5 : 1,
+      gap: spacing.xs,
+      borderRadius: radii.xl,
       borderColor: isActive ? accent.border : colors.border,
       backgroundColor: isActive ? accent.badge : colors.surface,
-      paddingHorizontal: 14,
-      minHeight: 44,
-      paddingVertical: 9,
+      paddingHorizontal: spacing.md,
+      minHeight: spacing.xl + spacing.sm,
+      paddingVertical: spacing.xs,
       opacity: pressed ? 0.8 : 1,
       transform: [{ scale: pressed ? 0.98 : 1 }],
     })}
@@ -35,7 +36,8 @@ const FilterButton = React.memo(({ label, isActive, count, accent, colors, onPre
     )}
     <Text
       style={{
-        fontSize: 13,
+        fontSize: typography.caption.fontSize,
+        lineHeight: typography.caption.lineHeight,
         fontWeight: isActive ? '700' : '500',
         color: isActive ? accent.text : colors.textSecondary,
       }}
@@ -43,15 +45,14 @@ const FilterButton = React.memo(({ label, isActive, count, accent, colors, onPre
       {label}
     </Text>
     <View
-      className="rounded-[10px] px-[7px] py-0.5"
+      className="rounded-lg px-2 py-0.5"
       style={{
-        backgroundColor: isActive ? accent.border + '33' : colors.background,
+        backgroundColor: isActive ? colors.surfaceAlt : colors.background,
       }}
     >
       <Text
         style={{
-          fontSize: 11,
-          fontWeight: '700',
+          ...typography.micro,
           color: isActive ? accent.text : colors.textMuted,
           fontVariant: ['tabular-nums'],
         }}
@@ -59,7 +60,7 @@ const FilterButton = React.memo(({ label, isActive, count, accent, colors, onPre
         {count}
       </Text>
     </View>
-  </Pressable>
+  </Button>
 ));
 
 const JobFilters = () => {
@@ -75,7 +76,6 @@ const JobFilters = () => {
   }, [jobs]);
 
   const handleFilterPress = useCallback((status) => {
-    Haptics.selectionAsync().catch(() => {});
     setActiveFilter(status);
   }, [setActiveFilter]);
 
@@ -103,7 +103,7 @@ const JobFilters = () => {
               label={isAll ? 'All' : JOB_STATUS_LABELS[status]}
               isActive={activeFilter === status}
               count={isAll ? jobs.length : filterCounts[status]}
-              accent={isAll ? allAccent : JOB_STATUS_ACCENT[status]}
+              accent={isAll ? allAccent : statusAccent(colors, status)}
               colors={colors}
               onPress={() => handleFilterPress(status)}
             />

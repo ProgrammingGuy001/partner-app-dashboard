@@ -4,6 +4,7 @@ import JobCard from './JobCard';
 import EmptyState from '../common/EmptyState';
 import { useDashboardStore } from '../../store/dashboardStore';
 import { useResponsive } from '../../hooks/useResponsive';
+import { spacing } from '../../theme/designSystem';
 
 const EmptyJobs = React.memo(() => (
   <EmptyState
@@ -51,7 +52,7 @@ const JobList = ({ onJobPress, ...props }) => {
         keyExtractor={keyExtractor}
         numColumns={2}
         columnWrapperStyle={{ gap }}
-        contentContainerStyle={{ gap, paddingBottom: 120 }}
+        contentContainerStyle={{ gap, paddingBottom: spacing.xl * 4 }}
         renderItem={renderTabletItem}
         ListEmptyComponent={EmptyJobs}
         contentInsetAdjustmentBehavior="automatic"
@@ -70,7 +71,7 @@ const JobList = ({ onJobPress, ...props }) => {
       data={filteredJobs}
       keyExtractor={keyExtractor}
       renderItem={renderItem}
-      contentContainerStyle={{ gap: 2, paddingBottom: 120 }}
+      contentContainerStyle={{ gap: spacing.xxs, paddingBottom: spacing.xl * 4 }}
       ListEmptyComponent={EmptyJobs}
       contentInsetAdjustmentBehavior="automatic"
       initialNumToRender={6}

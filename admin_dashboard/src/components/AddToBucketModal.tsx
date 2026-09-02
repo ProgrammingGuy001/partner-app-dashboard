@@ -3,9 +3,10 @@ import { ChevronDown, Plus } from 'lucide-react';
 import {
     Dialog,
     DialogContent,
+    DialogDescription,
+    DialogFooter,
     DialogHeader,
     DialogTitle,
-    DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,6 +53,9 @@ const AddToBucketModal: React.FC<Props> = ({ item, onSave, onClose }) => {
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle>Add to Requisite</DialogTitle>
+                    <DialogDescription>
+                        Add this part to the current site requisite with a quantity.
+                    </DialogDescription>
                 </DialogHeader>
 
                 <form onSubmit={handleSubmit} className="space-y-4 py-2">

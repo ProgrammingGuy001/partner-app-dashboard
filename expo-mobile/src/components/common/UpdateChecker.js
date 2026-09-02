@@ -1,9 +1,10 @@
 import React from 'react';
-import { View, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator } from 'react-native';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { Text } from '@/components/ui/text';
 import { useOTAUpdates } from '../../hooks/useOTAUpdates';
 import { useTheme } from '../../hooks/useTheme';
+import { Button } from '@/components/ui/button';
 
 const UpdateChecker = () => {
   const { colors } = useTheme();
@@ -30,7 +31,7 @@ const UpdateChecker = () => {
         <View className="flex-1 flex-row items-center gap-3">
           <View
             className="w-10 h-10 rounded-xl items-center justify-center"
-            style={{ backgroundColor: colors.primary + '15' }}
+            style={{ backgroundColor: colors.primaryLight }}
           >
             <Ionicons name="cloud-download-outline" size={20} color={colors.primary} />
           </View>
@@ -52,17 +53,14 @@ const UpdateChecker = () => {
           </View>
         </View>
 
-        <TouchableOpacity
+        <Button
+          variant={isUpdateAvailable ? 'default' : 'outline'}
+          size="sm"
           onPress={handleCheckUpdate}
           disabled={isChecking || isDownloading}
           accessibilityRole="button"
           accessibilityLabel={isUpdateAvailable ? 'Update app now' : 'Check for app updates'}
           accessibilityState={{ disabled: isChecking || isDownloading, busy: isChecking || isDownloading }}
-          className="px-4 py-2 rounded-lg"
-          style={{
-            backgroundColor: isUpdateAvailable ? colors.success : colors.primary,
-            opacity: isChecking || isDownloading ? 0.6 : 1,
-          }}
         >
           {isChecking || isDownloading ? (
             <ActivityIndicator size="small" color={colors.primaryForeground} />
@@ -71,7 +69,7 @@ const UpdateChecker = () => {
               {isUpdateAvailable ? 'Update Now' : 'Check'}
             </Text>
           )}
-        </TouchableOpacity>
+        </Button>
       </View>
     </View>
   );

@@ -14,7 +14,18 @@ CHECKLIST_WORKBOOK = (
     / "documents"
     / "All Check-list.xlsx"
 )
-WORKBOOK_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+WORKBOOK_MEDIA_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
+CHECKLIST_PDF_FILES = {
+    "ISM Checklist": "ISM checklist.pdf",
+    "Validation Checklist": "validation checklist.pdf",
+    "Site Readiness Checksheet": "Site Readiness checklist.pdf",
+    "LC Carcass Checklist": "LC Carcass.pdf",
+    "Counter Top & Dado Checklist": "Counter_Top_& Dado_Checkist.pdf",
+    "UC & Loft Checklist": "UC & Loft cabinat.pdf",
+    "Handover Checklist": "Handover checklist.pdf",
+}
 
 # name, previous names, sheet, item column, item rows
 CHECKLIST_SPECS = (
@@ -140,6 +151,17 @@ CHECKLIST_SPECS = (
 )
 
 
+def checklist_pdf_template(checklist_name: str) -> Path | None:
+    """Return the supplied printable PDF for a canonical or legacy checklist name."""
+    wanted = (checklist_name or "").strip().casefold()
+    for canonical_name, aliases, *_rest in CHECKLIST_SPECS:
+        if wanted not in {name.casefold() for name in aliases}:
+            continue
+        path = Path(__file__).resolve().parents[2] / CHECKLIST_PDF_FILES[canonical_name]
+        return path if path.is_file() else None
+    return None
+
+
 def _clean_cell(value) -> str:
     return re.sub(r"\s+", " ", str(value or "").replace("_", " ")).strip()
 
@@ -197,11 +219,7 @@ def sync_checklist_templates(
                 db.flush()
 
             checklist.name = canonical_name
-            checklist.description = (
-                "Fill the ISM Checklist tab in the Excel workbook, then upload it back as .xlsx or .pdf."
-                if canonical_name == "ISM Checklist"
-                else None
-            )
+            checklist.description = "Download the printable PDF, complete it on site, then upload the finished checklist."
 
             sheet = workbook[sheet_name]
             texts = [
@@ -217,6 +235,17 @@ def sync_checklist_templates(
             matches = _match_existing_items(existing, texts)
             matched_ids = {item.id for item in matches.values()}
 
+            # Free every final position before reordering. PostgreSQL checks the
+            # unique (checklist_id, position) constraint during each UPDATE.
+            temporary_start = (
+                max(len(texts), max((item.position for item in existing), default=0))
+                + len(existing)
+                + 1
+            )
+            for offset, item in enumerate(existing):
+                item.position = temporary_start + offset
+            db.flush()
+
             for index, text in enumerate(texts):
                 item = matches.get(index)
                 if item is None:
@@ -225,6 +254,7 @@ def sync_checklist_templates(
                 item.text = text
                 item.position = index + 1
 
+            preserved_position = len(texts) + 1
             for item in existing:
                 if item.id in matched_ids:
                     continue
@@ -236,6 +266,9 @@ def sync_checklist_templates(
                 )
                 if not has_history:
                     db.delete(item)
+                else:
+                    item.position = preserved_position
+                    preserved_position += 1
 
         db.commit()
     except Exception:

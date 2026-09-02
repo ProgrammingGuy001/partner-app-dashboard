@@ -173,10 +173,6 @@ export type BodyRecordIndependentAttendanceApiV1DashboardAttendancePost = {
      */
     report_file?: Blob | File | null;
     /**
-     * Report Checklist Id
-     */
-    report_checklist_id?: number | null;
-    /**
      * Progress Photos
      */
     progress_photos?: Array<Blob | File> | null;
@@ -8325,7 +8321,7 @@ export type UpdateRosterSlotAdminRosterSlotsSlotNumberPutResponses = {
     200: unknown;
 };
 
-export type GetMyRosterApiV1DashboardRosterGetData = {
+export type GetMyRosterDashboardRosterGetData = {
     body?: never;
     path?: never;
     query?: {
@@ -8338,19 +8334,19 @@ export type GetMyRosterApiV1DashboardRosterGetData = {
          */
         date_to?: string | null;
     };
-    url: '/api/v1/dashboard/roster';
+    url: '/dashboard/roster';
 };
 
-export type GetMyRosterApiV1DashboardRosterGetErrors = {
+export type GetMyRosterDashboardRosterGetErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type GetMyRosterApiV1DashboardRosterGetError = GetMyRosterApiV1DashboardRosterGetErrors[keyof GetMyRosterApiV1DashboardRosterGetErrors];
+export type GetMyRosterDashboardRosterGetError = GetMyRosterDashboardRosterGetErrors[keyof GetMyRosterDashboardRosterGetErrors];
 
-export type GetMyRosterApiV1DashboardRosterGetResponses = {
+export type GetMyRosterDashboardRosterGetResponses = {
     /**
      * Successful Response
      */

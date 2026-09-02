@@ -188,7 +188,7 @@ const SiteRequisiteBucket: React.FC = () => {
                                                                 variant="ghost"
                                                                 size="icon"
                                                                 onClick={() => handleSaveEdit(item.product_name)}
-                                                                className="h-8 w-8 text-green-600 hover:text-green-600 hover:bg-green-50"
+                                                                className="h-8 w-8 text-success hover:text-success hover:bg-success/10"
                                                                 title="Save"
                                                             >
                                                                 <Check className="w-4 h-4" />
@@ -306,7 +306,7 @@ const BucketMobileCard: React.FC<{
                             variant="ghost"
                             size="icon"
                             onClick={onSave}
-                            className="h-8 w-8 text-green-600 hover:bg-green-50 hover:text-green-600"
+                            className="h-8 w-8 text-success hover:bg-success/10 hover:text-success"
                             title="Save"
                         >
                             <Check className="h-4 w-4" />

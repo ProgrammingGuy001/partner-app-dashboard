@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { Alert, View, TouchableOpacity } from 'react-native';
-import * as Haptics from 'expo-haptics';
+import { Alert, View } from 'react-native';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { Input } from '@/components/ui/input';
 import { Text } from '@/components/ui/text';
+import { Button } from '@/components/ui/button';
 import useRequisiteStore from '../../store/requisiteStore';
 import { useTheme } from '../../hooks/useTheme';
+import { Card, FieldLabel, StatusBadge } from '../common/Primitives';
+import { typography } from '../../theme/designSystem';
 
 export const DEPARTMENTS = [
   { value: 'design', label: 'Design' },
@@ -25,7 +27,6 @@ export const DEPARTMENTS = [
  */
 const BucketItemCard = ({ item, index }) => {
   const { colors } = useTheme();
-  const onPrimary = colors.primaryForeground;
   const removeFromBucket = useRequisiteStore((state) => state.removeFromBucket);
   const updateBucketItem = useRequisiteStore((state) => state.updateBucketItem);
 
@@ -63,7 +64,6 @@ const BucketItemCard = ({ item, index }) => {
   };
 
   const confirmRemove = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     Alert.alert('Remove item?', `Remove "${item.product_name}" from bucket?`, [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -75,7 +75,7 @@ const BucketItemCard = ({ item, index }) => {
   };
 
   return (
-    <View className="bg-surface rounded-2xl p-5 border border-border" style={colors.shadowSm}>
+    <Card>
       <View className="flex-row items-center gap-2.5 mb-3">
         <View className="w-6 h-6 rounded-xl bg-primary-light items-center justify-center">
           <Text className="text-xs font-extrabold text-primary">{index + 1}</Text>
@@ -86,7 +86,7 @@ const BucketItemCard = ({ item, index }) => {
       {isEditing ? (
         <View className="gap-3">
           <View className="gap-1.5">
-            <Text className="text-[11px] font-bold text-muted-foreground uppercase">Quantity</Text>
+            <FieldLabel>Quantity</FieldLabel>
             <Input
               value={editForm.quantity}
               onChangeText={(text) => setEditForm((prev) => ({ ...prev, quantity: text }))}
@@ -97,7 +97,7 @@ const BucketItemCard = ({ item, index }) => {
           </View>
 
           <View className="gap-1.5">
-            <Text className="text-[11px] font-bold text-muted-foreground uppercase">Component Status</Text>
+            <FieldLabel>Component status</FieldLabel>
             <Input
               value={editForm.component_status || ''}
               onChangeText={(text) => setEditForm((prev) => ({ ...prev, component_status: text }))}
@@ -109,13 +109,15 @@ const BucketItemCard = ({ item, index }) => {
           </View>
 
           <View className="gap-1.5">
-            <Text className="text-[11px] font-bold text-muted-foreground uppercase">Department</Text>
+            <FieldLabel>Department</FieldLabel>
             <View className="flex-row flex-wrap gap-2">
               {DEPARTMENTS.map((dept) => {
                 const selected = editForm.responsible_department === dept.value;
                 return (
-                  <TouchableOpacity
+                  <Button
                     key={dept.value}
+                    variant={selected ? 'default' : 'outline'}
+                    size="sm"
                     accessibilityRole="button"
                     accessibilityLabel={`Responsible department ${dept.label}`}
                     accessibilityState={{ selected }}
@@ -125,114 +127,102 @@ const BucketItemCard = ({ item, index }) => {
                         responsible_department: selected ? null : dept.value,
                       }))
                     }
-                    className="px-3 py-1.5 rounded-xl border"
-                    style={{
-                      backgroundColor: selected ? colors.primary : colors.surface,
-                      borderColor: selected ? colors.primary : colors.border,
-                    }}
+                    className="h-auto px-3 py-2"
                   >
-                    <Text
-                      className="text-xs font-bold"
-                      style={{ color: selected ? onPrimary : colors.textSecondary }}
-                    >
-                      {dept.label}
-                    </Text>
-                  </TouchableOpacity>
+                    <Text>{dept.label}</Text>
+                  </Button>
                 );
               })}
             </View>
           </View>
 
           <View className="gap-1.5">
-            <Text className="text-[11px] font-bold text-muted-foreground uppercase">Issue Description</Text>
+            <FieldLabel>Issue description</FieldLabel>
             <Input
               value={editForm.issue_description}
               onChangeText={(text) => setEditForm((prev) => ({ ...prev, issue_description: text }))}
               multiline
               textAlignVertical="top"
               accessibilityLabel={`Issue description for ${item.product_name}`}
-              className="min-h-[80px] rounded-xl bg-background pt-2.5 px-3"
+              className="min-h-20 rounded-xl bg-background pt-2.5 px-3"
             />
           </View>
 
           <View className="flex-row gap-2.5 mt-2">
-            <TouchableOpacity
+            <Button
+              variant="outline"
               onPress={() => setIsEditing(false)}
               accessibilityRole="button"
               accessibilityLabel="Cancel editing"
-              className="flex-1 h-11 rounded-xl items-center justify-center bg-muted"
+              className="flex-1"
             >
-              <Text className="font-bold text-muted-foreground">Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
+              <Text>Cancel</Text>
+            </Button>
+            <Button
               onPress={saveEdit}
               accessibilityRole="button"
               accessibilityLabel="Save changes"
-              className="flex-1 h-11 rounded-xl items-center justify-center bg-primary"
+              className="flex-1"
             >
-              <Text className="font-bold text-primary-foreground">Save Changes</Text>
-            </TouchableOpacity>
+              <Text>Save changes</Text>
+            </Button>
           </View>
         </View>
       ) : (
         <View>
           <View className="flex-row gap-5 mb-3">
             <View>
-              <Text className="text-[10px] font-bold text-muted-foreground uppercase">QTY</Text>
+                <Text style={typography.micro} className="text-muted-foreground uppercase">Qty</Text>
               <Text className="text-sm font-bold text-foreground">{item.quantity || 1}</Text>
             </View>
             {item.responsible_department && (
               <View>
-                <Text className="text-[10px] font-bold text-muted-foreground uppercase">DEPT</Text>
-                <View className="px-2 py-0.5 rounded-lg" style={{ backgroundColor: colors.primary + '20' }}>
-                  <Text className="text-xs font-bold capitalize" style={{ color: colors.primary }}>
-                    {item.responsible_department}
-                  </Text>
-                </View>
+                <Text style={typography.micro} className="text-muted-foreground uppercase">Dept</Text>
+                <StatusBadge label={item.responsible_department} tone="primary" />
               </View>
             )}
             {item.component_status && (
               <View>
-                <Text className="text-[10px] font-bold text-muted-foreground uppercase">STATUS</Text>
+                <Text style={typography.micro} className="text-muted-foreground uppercase">Status</Text>
                 <Text className="text-sm font-bold text-foreground capitalize">{item.component_status}</Text>
               </View>
             )}
           </View>
 
-          <Text className="text-[10px] font-bold text-muted-foreground uppercase mb-1">ISSUE DESCRIPTION</Text>
+          <Text style={typography.micro} className="text-muted-foreground uppercase mb-1">Issue description</Text>
           <Text className="text-sm text-muted-foreground font-medium leading-5 mb-4">
             {item.issue_description || 'Not specified'}
           </Text>
 
           <View className="flex-row gap-2.5">
-            <TouchableOpacity
+            <Button
+              variant="outline"
               onPress={() => {
-                Haptics.selectionAsync().catch(() => {});
                 startEdit();
               }}
               accessible={true}
               accessibilityRole="button"
               accessibilityLabel={`Edit ${item.product_name}`}
-              className="flex-1 h-11 rounded-xl flex-row items-center justify-center gap-1.5 border border-border bg-muted"
+              className="flex-1"
             >
-              <Ionicons name="create-outline" size={16} color={colors.textSecondary} />
-              <Text className="text-[13px] font-bold text-muted-foreground">Edit</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
+              <Ionicons name="create-outline" size={typography.body.fontSize} color={colors.textSecondary} />
+              <Text>Edit</Text>
+            </Button>
+            <Button
+              variant="destructive"
               onPress={confirmRemove}
               accessible={true}
               accessibilityRole="button"
               accessibilityLabel={`Remove ${item.product_name}`}
-              className="flex-1 h-11 rounded-xl flex-row items-center justify-center gap-1.5 border"
-              style={{ backgroundColor: colors.danger + '10', borderColor: colors.danger + '20' }}
+              className="flex-1"
             >
-              <Ionicons name="trash-outline" size={16} color={colors.danger} />
-              <Text className="text-[13px] font-bold text-destructive-muted-foreground">Remove</Text>
-            </TouchableOpacity>
+              <Ionicons name="trash-outline" size={typography.body.fontSize} color={colors.primaryForeground} />
+              <Text>Remove</Text>
+            </Button>
           </View>
         </View>
       )}
-    </View>
+    </Card>
   );
 };
 

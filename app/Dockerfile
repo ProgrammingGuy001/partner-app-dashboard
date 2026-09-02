@@ -24,6 +24,8 @@ RUN playwright install --with-deps chromium
 
 # Copy project resources into 'app' directory to maintain package structure
 COPY app/ /code/app/
+# Checklist templates are maintained in the repository root.
+COPY *.pdf /code/
 
 # Expose port
 EXPOSE 8000

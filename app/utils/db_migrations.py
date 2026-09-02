@@ -71,7 +71,10 @@ def run_migrations(db: Session, *, verbose: bool = False) -> None:
         _create_purchase_order_requests_table,
         _add_admin_name_column,
         _add_job_drawing_document_column,
+        _add_job_site_report_document_column,
         _add_site_grn_job_id_column,
+        _add_roster_notification_columns,
+        _add_roster_notification_status,
         _create_sunday_work_requests_table,
         _add_sunday_work_request_admin_id_column,
         _add_attendance_checkout_source_column,
@@ -82,6 +85,7 @@ def run_migrations(db: Session, *, verbose: bool = False) -> None:
         _add_admin_attendance_geofence_columns,
         _add_job_rate_location_description_columns,
         _drop_legacy_job_columns,
+        _drop_roster_job_ip_date_unique,
         _enforce_business_invariants,
     )
     from app.services.checklist_template_service import sync_checklist_templates
@@ -334,6 +338,77 @@ def _add_job_drawing_document_column(db: Session) -> None:
             logger.error("Migration failed for jobs.drawing_document_link: %s", exc)
     else:
         logger.debug("Migration: jobs.drawing_document_link already exists, skipping.")
+
+
+def _add_job_site_report_document_column(db: Session) -> None:
+    """One report per measurement/readiness/validation job: visit record and closure."""
+    if not _column_exists(db, "jobs", "site_report_document_link"):
+        try:
+            db.execute(text("ALTER TABLE jobs ADD COLUMN site_report_document_link VARCHAR NULL"))
+            db.commit()
+            logger.info("Migration: added column jobs.site_report_document_link")
+        except Exception as exc:
+            db.rollback()
+            logger.error("Migration failed for jobs.site_report_document_link: %s", exc)
+    else:
+        logger.debug("Migration: jobs.site_report_document_link already exists, skipping.")
+
+
+def _add_roster_notification_columns(db: Session) -> None:
+    """Stamps for the two customer WhatsApp notices: assignment, and the hour-before reminder."""
+    for column in ("notified_at", "reminder_sent_at"):
+        if _column_exists(db, "job_roster_entries", column):
+            logger.debug("Migration: job_roster_entries.%s already exists, skipping.", column)
+            continue
+        try:
+            db.execute(
+                text(f"ALTER TABLE job_roster_entries ADD COLUMN {column} TIMESTAMPTZ NULL")
+            )
+            db.commit()
+            logger.info("Migration: added column job_roster_entries.%s", column)
+        except Exception as exc:
+            db.rollback()
+            logger.error("Migration failed for job_roster_entries.%s: %s", column, exc)
+
+
+def _add_roster_notification_status(db: Session) -> None:
+    """Delivery status from Interakt's callback, and the trigger that replaces polling."""
+    for column in ("notified_status", "reminder_status"):
+        if _column_exists(db, "job_roster_entries", column):
+            logger.debug("Migration: job_roster_entries.%s already exists, skipping.", column)
+            continue
+        try:
+            db.execute(
+                text(f"ALTER TABLE job_roster_entries ADD COLUMN {column} VARCHAR(40) NULL")
+            )
+            db.commit()
+            logger.info("Migration: added column job_roster_entries.%s", column)
+        except Exception as exc:
+            db.rollback()
+            logger.error("Migration failed for job_roster_entries.%s: %s", column, exc)
+    # Fires on the write that creates a visit or moves it to another IP. Deliberately not
+    # on attempt/status fields: notification bookkeeping must never schedule another send.
+    # Recreated every run, so an edited definition takes effect.
+    try:
+        db.execute(text("""
+            CREATE OR REPLACE FUNCTION notify_roster_visit() RETURNS trigger AS $$
+            BEGIN
+                PERFORM pg_notify('roster_visit', NEW.id::text);
+                RETURN NULL;
+            END;
+            $$ LANGUAGE plpgsql;
+        """))
+        db.execute(text("DROP TRIGGER IF EXISTS job_roster_entries_notify ON job_roster_entries"))
+        db.execute(text("""
+            CREATE TRIGGER job_roster_entries_notify
+            AFTER INSERT OR UPDATE OF ip_user_id ON job_roster_entries
+            FOR EACH ROW EXECUTE FUNCTION notify_roster_visit()
+        """))
+        db.commit()
+        logger.info("Migration: installed job_roster_entries_notify trigger")
+    except Exception as exc:
+        db.rollback()
+        logger.error("Migration failed for job_roster_entries_notify trigger: %s", exc)
 
 
 def _add_site_grn_job_id_column(db: Session) -> None:
@@ -1159,6 +1234,23 @@ def _create_purchase_order_requests_table(db: Session) -> None:
         db.rollback()
         logger.exception("Migration failed creating purchase_order_requests")
         raise
+
+
+def _drop_roster_job_ip_date_unique(db: Session) -> None:
+    """A job that runs the full day takes both slots for the same IP.
+
+    Per-slot uniqueness still stands, so nobody is double-booked; only the
+    one-row-per-job-per-day rule goes. Attendance stays single because
+    uq_daily_attendance_user_job_date_type keys on (ip, job, date, type).
+    """
+    try:
+        db.execute(text(
+            "ALTER TABLE job_roster_entries DROP CONSTRAINT IF EXISTS uq_roster_job_ip_date"
+        ))
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error("Migration failed dropping uq_roster_job_ip_date: %s", exc)
 
 
 def _enforce_business_invariants(db: Session) -> None:

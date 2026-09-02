@@ -3,6 +3,7 @@ import Ionicons from "@react-native-vector-icons/ionicons";
 import { Button, Text } from "@/components/ui";
 import useChecklistStore from "../../store/checklistStore";
 import { useTheme } from "../../hooks/useTheme";
+import { getApiErrorMessage } from "../../api/apiErrors";
 
 const UnsavedChangesBar = () => {
   const { colors } = useTheme();
@@ -22,7 +23,7 @@ const UnsavedChangesBar = () => {
         );
       }
     } catch (error) {
-      Alert.alert('Could not save checklist', error.message || 'Please try again.');
+      Alert.alert('Could not save checklist', getApiErrorMessage(error));
     }
   };
 
@@ -37,7 +38,7 @@ const UnsavedChangesBar = () => {
         <Text className="text-xs font-bold text-warning-muted-foreground">
           {unsavedCount} unsaved change{unsavedCount > 1 ? "s" : ""}
         </Text>
-        <Text className="text-[11px] text-warning-muted-foreground mt-0.5">
+        <Text className="text-xs text-warning-muted-foreground mt-0.5">
           Save before leaving.
         </Text>
       </View>

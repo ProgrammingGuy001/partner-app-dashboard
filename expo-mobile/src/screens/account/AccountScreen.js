@@ -1,68 +1,33 @@
-import React, { useState, useCallback } from "react";
-import {
-  Alert,
-  RefreshControl,
-  ScrollView,
-  View,
-  TouchableOpacity,
-} from "react-native";
+import React, { useCallback, useState } from "react";
+import { Alert, RefreshControl, ScrollView, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@react-native-vector-icons/ionicons";
-import { Text } from "@/components/ui/text";
-import { useLogout } from "../../hooks/useLogout";
-import { useAuthStore } from "../../store/authStore";
-import { useResponsive } from "../../hooks/useResponsive";
-import { useTheme } from "../../hooks/useTheme";
+import { Button, Text } from "@/components/ui";
+import { getApiErrorMessage } from "../../api/apiErrors";
+import EmptyState from "../../components/common/EmptyState";
+import { Card, Notice, StatusBadge } from "../../components/common/Primitives";
+import ScreenHeader from "../../components/common/ScreenHeader";
 import UpdateChecker from "../../components/common/UpdateChecker";
 import DeleteVerificationDataButton from "../../components/verification/DeleteVerificationDataButton";
-import { useToast } from "../../hooks/useToast";
+import { useLogout } from "../../hooks/useLogout";
+import { useResponsive } from "../../hooks/useResponsive";
+import { useTheme } from "../../hooks/useTheme";
+import { useAuthStore } from "../../store/authStore";
+import { spacing, typography } from "../../theme/designSystem";
 
 const DETAIL_ROWS = [
-  { label: "First Name", key: "first_name", icon: "person-outline" },
-  { label: "Last Name", key: "last_name", icon: "person-outline" },
+  { label: "First name", key: "first_name", icon: "person-outline" },
+  { label: "Last name", key: "last_name", icon: "person-outline" },
   { label: "City", key: "city", icon: "location-outline" },
   { label: "Pincode", key: "pincode", icon: "map-outline" },
 ];
 
-const VERIF_ITEMS = [
-  { label: "PAN", key: "is_pan_verified", icon: "card-outline" },
-  { label: "Bank", key: "is_bank_details_verified", icon: "wallet-outline" },
-  { label: "Documents", key: "is_id_verified", icon: "document-text-outline" },
+const VERIFICATION_ITEMS = [
+  { label: "PAN", key: "is_pan_verified" },
+  { label: "Bank", key: "is_bank_details_verified" },
+  { label: "Documents", key: "is_id_verified" },
 ];
-
-const VerifChip = ({ label, icon, verified, colors }) => (
-  <View
-    className="flex-row items-center gap-1.5 px-3 py-2 rounded-[20px] border"
-    accessible
-    accessibilityRole="text"
-    accessibilityLabel={`${label} ${verified ? "verified" : "pending"}`}
-    style={{
-      backgroundColor: verified ? colors.primaryLight : colors.warning + "10",
-      borderColor: verified ? colors.primary + "22" : colors.warning + "20",
-    }}
-  >
-    <Ionicons
-      name={icon}
-      size={14}
-      color={verified ? colors.primary : colors.warning}
-    />
-    <Text
-      style={{
-        fontSize: 12,
-        fontWeight: "700",
-        color: verified ? colors.primary : colors.warning,
-      }}
-    >
-      {label}
-    </Text>
-    <Ionicons
-      name={verified ? "checkmark-circle" : "time-outline"}
-      size={13}
-      color={verified ? colors.primary : colors.warning}
-    />
-  </View>
-);
 
 const AccountScreen = () => {
   const user = useAuthStore((state) => state.user);
@@ -70,29 +35,28 @@ const AccountScreen = () => {
   const { logout, loggingOut } = useLogout();
   const { px, isTablet, maxCardWidth } = useResponsive();
   const { colors } = useTheme();
-  const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState("");
 
   const handleRefresh = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setRefreshing(true);
+    setRefreshError("");
     try {
       await refreshProfile();
     } catch (error) {
-      toast.error(error.message || "Failed to refresh account");
+      setRefreshError(getApiErrorMessage(error));
     } finally {
       setRefreshing(false);
     }
-  }, [refreshProfile, toast]);
+  }, [refreshProfile]);
 
-  const fullName =
-    [user?.first_name, user?.last_name].filter(Boolean).join(" ") ||
-    "Account User";
+  const fullName = [user?.first_name, user?.last_name].filter(Boolean).join(" ");
   const initials = fullName
     .split(" ")
     .filter(Boolean)
     .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase())
+    .map((part) => part[0]?.toUpperCase())
     .join("");
 
   const onPressLogout = () => {
@@ -102,193 +66,111 @@ const AccountScreen = () => {
     ]);
   };
 
-  const section = (title, children) => (
-    <View
-      className="bg-surface rounded-2xl border border-border mb-5 overflow-hidden"
-      style={colors.shadowSm}
-    >
-      {title ? (
-        <View className="px-5 pt-5 pb-3 border-b border-background">
-          <Text className="text-xs font-extrabold text-muted-foreground uppercase">
-            {title}
-          </Text>
-        </View>
-      ) : null}
-      <View className="p-5">{children}</View>
-    </View>
-  );
-
   return (
     <SafeAreaView className="flex-1 bg-background">
       <ScrollView
         contentContainerStyle={{
           paddingHorizontal: px,
-          paddingTop: 16,
-          paddingBottom: 120,
+          paddingBottom: spacing.xl,
           alignItems: isTablet ? "center" : "stretch",
         }}
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor={colors.primary}
-            colors={[colors.primary]}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} colors={[colors.primary]} />
         }
       >
         <View style={{ width: "100%", maxWidth: maxCardWidth ?? "100%" }}>
-          {/* Premium Hero Card */}
-          <View
-            className="bg-surface rounded-2xl p-6 mb-6 flex-row items-center gap-5 border border-border"
-            style={colors.shadowMd}
-          >
-            {/* Avatar */}
-            <View
-              className="w-20 h-20 rounded-[40px] bg-primary items-center justify-center"
-              style={colors.shadowSm}
-            >
-              <Text className="text-[28px] font-extrabold text-primary-foreground">
-                {initials || "AU"}
-              </Text>
-            </View>
-            {/* Name / phone */}
-            <View className="flex-1">
-              <View className="flex-row items-center gap-2 mb-1">
-                <Text className="text-[22px] font-extrabold text-foreground" numberOfLines={2}>
-                  {fullName}
-                </Text>
-                {user?.is_verified && (
-                  <Ionicons
-                    name="checkmark-circle"
-                    size={20}
-                    color={colors.primary}
-                  />
-                )}
-              </View>
-              <View className="flex-row items-center gap-1.5">
-                <View className="w-6 h-6 rounded-md bg-primary-light items-center justify-center">
-                  <Ionicons
-                    name="call-outline"
-                    size={12}
-                    color={colors.primary}
-                  />
-                </View>
-                <Text className="text-sm text-muted-foreground font-medium">
-                  {user?.phone_number || "—"}
-                </Text>
-              </View>
-            </View>
-          </View>
+          <ScreenHeader eyebrow="Profile" title="Account" subtitle="Your details, verification status and app settings" />
 
-          {/* Account Details */}
-          {section(
-            "Personal Information",
-            <View className="gap-4">
-              {DETAIL_ROWS.map((row) => (
-                <View
-                  key={row.key}
-                  className="flex-row items-center gap-4"
-                >
-                  <View className="w-9 h-9 rounded-[10px] bg-primary-light items-center justify-center">
-                    <Ionicons
-                      name={row.icon}
-                      size={18}
-                      color={colors.primary}
-                    />
+          {refreshError ? (
+            <Notice
+              tone={user ? "warning" : "danger"}
+              title={user ? "Showing saved account details" : "Account unavailable"}
+              message={refreshError}
+              className="mb-5"
+            />
+          ) : null}
+
+          {!user ? (
+            <Card>
+              <EmptyState icon="person-outline" title="Account details unavailable" subtitle="Refresh to load your account details." />
+              <Button onPress={handleRefresh} loading={refreshing} className="mt-4">Refresh account</Button>
+            </Card>
+          ) : (
+            <>
+              <Card elevated className="mb-5">
+                <View className="flex-row items-center gap-4">
+                  <View className="h-16 w-16 rounded-2xl bg-primary items-center justify-center">
+                    <Text style={typography.title2} className="text-primary-foreground">{initials || "AU"}</Text>
                   </View>
                   <View className="flex-1">
-                    <Text className="text-[11px] font-bold text-muted-foreground uppercase">
-                      {row.label}
-                    </Text>
-                    <Text className="text-[15px] font-semibold text-foreground">
-                      {user?.[row.key] || "—"}
-                    </Text>
+                    <View className="flex-row items-center gap-2">
+                      <Text style={typography.title2} className="flex-1 text-foreground" numberOfLines={2}>{fullName || "Account user"}</Text>
+                      {user.is_verified ? <Ionicons name="checkmark-circle" size={typography.title3.fontSize} color={colors.primary} /> : null}
+                    </View>
+                    <Text style={typography.caption} className="mt-1 text-muted-foreground">{user.phone_number || "Phone number unavailable"}</Text>
                   </View>
                 </View>
-              ))}
-            </View>,
-          )}
+              </Card>
 
-          {/* Verification Status */}
-          {section(
-            "Verification Status",
-            <View className="gap-4">
-              <View className="flex-row flex-wrap gap-2.5">
-                {VERIF_ITEMS.map((item) => (
-                  <VerifChip
-                    key={item.key}
-                    label={item.label}
-                    icon={item.icon}
-                    verified={user?.[item.key] === true}
-                    colors={colors}
-                  />
-                ))}
-              </View>
-
-              <View
-                className="flex-row items-center gap-3 rounded-2xl border p-4 mt-1"
-                style={{
-                  backgroundColor: user?.is_verified ? colors.primaryLight : colors.warning + "12",
-                  borderColor: user?.is_verified ? colors.primary + "24" : colors.warning + "30",
-                  ...colors.shadowSm,
-                }}
-              >
-                <View className="w-8 h-8 rounded-2xl bg-surface items-center justify-center">
-                  <Ionicons
-                    name={
-                      user?.is_verified ? "shield-checkmark" : "shield-outline"
-                    }
-                    size={18}
-                    color={user?.is_verified ? colors.primary : colors.warning}
-                  />
+              <Card className="mb-5">
+                <Text style={typography.micro} className="mb-4 text-muted-foreground uppercase">Personal information</Text>
+                <View className="gap-4">
+                  {DETAIL_ROWS.map((row) => (
+                    <View key={row.key} className="flex-row items-center gap-3">
+                      <View className="h-9 w-9 rounded-xl bg-primary-light items-center justify-center">
+                        <Ionicons name={row.icon} size={typography.title3.fontSize} color={colors.primary} />
+                      </View>
+                      <View className="flex-1">
+                        <Text style={typography.micro} className="text-muted-foreground uppercase">{row.label}</Text>
+                        <Text style={typography.callout} className="text-foreground">{user[row.key] || "Not provided"}</Text>
+                      </View>
+                    </View>
+                  ))}
                 </View>
-                <Text
-                  className="text-sm font-bold flex-1"
-                  style={{ color: user?.is_verified ? colors.primary : colors.warning }}
-                >
-                  {user?.is_verified
-                    ? "Account fully verified and active"
-                    : "Verification pending review"}
-                </Text>
-              </View>
-            </View>,
+              </Card>
+
+              <Card className="mb-5">
+                <Text style={typography.micro} className="mb-4 text-muted-foreground uppercase">Verification status</Text>
+                <View className="flex-row flex-wrap gap-2 mb-4">
+                  {VERIFICATION_ITEMS.map((item) => {
+                    const verified = user[item.key] === true;
+                    return (
+                      <StatusBadge
+                        key={item.key}
+                        label={`${item.label}: ${verified ? "verified" : "pending"}`}
+                        tone={verified ? "success" : "warning"}
+                        icon={verified ? "checkmark-circle" : "time-outline"}
+                      />
+                    );
+                  })}
+                </View>
+                <Notice
+                  tone={user.is_verified ? "success" : "warning"}
+                  title={user.is_verified ? "Account verified" : "Verification pending"}
+                  message={user.is_verified ? "Your account is active." : "Your submitted details are still under review."}
+                />
+              </Card>
+
+              <Card className="mb-5">
+                <Text style={typography.micro} className="mb-4 text-muted-foreground uppercase">App updates</Text>
+                <UpdateChecker />
+              </Card>
+
+              <Card className="mb-5">
+                <Text style={typography.micro} className="mb-4 text-muted-foreground uppercase">Privacy</Text>
+                <DeleteVerificationDataButton />
+              </Card>
+
+              <Button variant="destructive" onPress={onPressLogout} loading={loggingOut} accessibilityLabel="Logout account" className="mb-5">
+                <Ionicons name="log-out-outline" size={typography.title3.fontSize} color={colors.primaryForeground} />
+                Logout account
+              </Button>
+            </>
           )}
 
-          {/* App Updates */}
-          {section(
-            "App Updates",
-            <UpdateChecker />,
-          )}
-
-          {section(
-            "Privacy",
-            <DeleteVerificationDataButton />,
-          )}
-
-          {/* Logout Button */}
-          <TouchableOpacity
-            onPress={onPressLogout}
-            disabled={loggingOut}
-            accessibilityRole="button"
-            accessibilityLabel="Logout account"
-            accessibilityState={{ disabled: loggingOut, busy: loggingOut }}
-            className="flex-row items-center justify-center gap-2.5 p-4 rounded-2xl border mb-5"
-            style={{
-              backgroundColor: colors.danger + "10",
-              borderColor: colors.danger + "20",
-            }}
-          >
-            <Ionicons name="log-out-outline" size={20} color={colors.danger} />
-            <Text
-              style={{ fontSize: 16, fontWeight: "700", color: colors.danger }}
-            >
-              Logout Account
-            </Text>
-          </TouchableOpacity>
-
-          <Text className="text-center text-muted-foreground text-xs font-medium">
+          <Text style={typography.caption} className="text-center text-muted-foreground">
             Version {require("../../../app.json").expo.version}
           </Text>
         </View>

@@ -45,31 +45,39 @@ export const JOB_STATUS_COLORS = {
 };
 
 // Raw style values for inline RN styles (used in JobCard left-border accent)
-export const JOB_STATUS_ACCENT = {
-  [JOB_STATUS.CREATED]: {
-    border: "#64748b",
-    badge: "#18202a",
-    text: "#cbd5e1",
-    dot: "#94a3b8",
-  },
-  [JOB_STATUS.IN_PROGRESS]: {
-    border: "#f0b766",
-    badge: "#2a2114",
-    text: "#f6d59b",
-    dot: "#f0b766",
-  },
-  [JOB_STATUS.COMPLETED]: {
-    border: "#65d6a4",
-    badge: "#14251d",
-    text: "#9ce8c4",
-    dot: "#65d6a4",
-  },
-  [JOB_STATUS.PAUSED]: {
-    border: "#d49a76",
-    badge: "#2a1d18",
-    text: "#f0c1a4",
-    dot: "#d49a76",
-  },
+// Status roles, resolved against whichever palette is active — a badge should never
+// carry a hardcoded shade that only works on one background.
+export const JOB_STATUS_ROLE = {
+  [JOB_STATUS.CREATED]: "neutral",
+  [JOB_STATUS.IN_PROGRESS]: "info",
+  [JOB_STATUS.COMPLETED]: "success",
+  [JOB_STATUS.PAUSED]: "warning",
+};
+
+// `colors` is the object from useTheme(); tint is the badge fill behind the label.
+export const statusAccent = (colors, status) => {
+  const role = JOB_STATUS_ROLE[status] || "neutral";
+  const base = role === "neutral" ? colors.textMuted : colors[role];
+  return {
+    border: base,
+    badge: colors.surfaceAlt,
+    text: role === "neutral" ? colors.textSecondary : base,
+    dot: base,
+  };
+};
+
+
+
+// Roster day states, as computed by the backend (app/routes/roster.py::_entry_status).
+export const ROSTER_STATUS_LABEL = {
+  blocked: "Not started",
+  scheduled: "Scheduled",
+  check_in_open: "Check-in open",
+  checked_in: "On site",
+  report_due: "Report due",
+  completed: "Completed",
+  auto_closed: "Auto closed",
+  missed: "Missed",
 };
 
 export const VERIFICATION_STEPS = {
@@ -110,6 +118,7 @@ export const ROUTES = {
   REVIEW: "Review",
   NOT_FOUND: "NotFound",
   SITE_GRN: "SiteGRN",
+  ROSTER: "Roster",
   DAILY_REPORT: "DailyReport",
 };
 

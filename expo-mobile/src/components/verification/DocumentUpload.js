@@ -9,6 +9,9 @@ import { useFileUpload } from "../../hooks/useFileUpload";
 import { useToast } from "../../hooks/useToast";
 import { useTheme } from "../../hooks/useTheme";
 import { useVerificationStore } from "../../store/verificationStore";
+import { Card } from "../common/Primitives";
+import { getApiErrorMessage } from "../../api/apiErrors";
+import { typography } from "../../theme/designSystem";
 
 const DocumentUpload = ({ canProceed, isDocumentUploaded, onDone }) => {
   const toast = useToast();
@@ -31,14 +34,14 @@ const DocumentUpload = ({ canProceed, isDocumentUploaded, onDone }) => {
 
     setUploading(true);
     try {
-      await verificationApi.uploadDocument(file);
-      await onDone?.();
+      const status = await verificationApi.uploadDocument(file);
+      await onDone?.(status);
       setDocumentUploaded(true);
       toast.success("ID document submitted for approval");
       setUploaded(true);
       clearFile();
     } catch (err) {
-      toast.error(err.message || "Document upload failed");
+      toast.error(getApiErrorMessage(err));
     } finally {
       setUploading(false);
     }
@@ -46,8 +49,8 @@ const DocumentUpload = ({ canProceed, isDocumentUploaded, onDone }) => {
 
   if (!canProceed) {
     return (
-      <View className="bg-surface rounded-2xl p-8 items-center opacity-60 border border-border border-dashed">
-        <View className="w-16 h-16 rounded-[32px] bg-background items-center justify-center mb-4">
+      <Card className="items-center border-dashed p-8 opacity-60">
+        <View className="w-16 h-16 rounded-full bg-background items-center justify-center mb-4">
           <Ionicons name="lock-closed" size={28} color={colors.textMuted} />
         </View>
         <Text className="text-lg font-bold text-foreground mb-2">
@@ -56,18 +59,15 @@ const DocumentUpload = ({ canProceed, isDocumentUploaded, onDone }) => {
         <Text className="text-sm text-muted-foreground text-center leading-5">
           Please complete the PAN and bank details verification first.
         </Text>
-      </View>
+      </Card>
     );
   }
 
   if (uploaded) {
     return (
-      <View
-        className="bg-surface rounded-2xl p-8 items-center border border-border"
-        style={colors.shadowSm}
-      >
+      <Card className="items-center p-8">
         <View
-          className="w-20 h-20 rounded-[40px] items-center justify-center mb-5"
+          className="w-20 h-20 rounded-full items-center justify-center mb-5"
           style={{ backgroundColor: colors.primaryLight }}
         >
           <Ionicons name="checkmark-circle" size={40} color={colors.primary} />
@@ -78,25 +78,22 @@ const DocumentUpload = ({ canProceed, isDocumentUploaded, onDone }) => {
         <Text className="text-sm text-muted-foreground text-center leading-5 mb-6">
           Your ID document is waiting for admin approval.
         </Text>
-        <Button className="w-full h-14 rounded-2xl bg-primary" onPress={onDone}>
+        <Button className="w-full" size="lg" onPress={onDone}>
           <Text className="text-primary-foreground text-base font-bold">
             Refresh Status
           </Text>
         </Button>
-      </View>
+      </Card>
     );
   }
 
   return (
-    <View
-      className="bg-surface rounded-2xl p-6 border border-border"
-      style={colors.shadowSm}
-    >
+    <Card className="p-6">
       <View className="mb-5">
         <Text className="text-lg font-extrabold text-foreground mb-1.5">
           Upload ID Document
         </Text>
-        <Text className="text-[13px] text-muted-foreground leading-[18px]">
+        <Text className="text-muted-foreground" style={typography.caption}>
           Submit a government-issued ID as JPEG, PNG, or PDF. Admin approval is required before dashboard access.
         </Text>
       </View>
@@ -113,17 +110,18 @@ const DocumentUpload = ({ canProceed, isDocumentUploaded, onDone }) => {
 
       <View>
         <Button
-          className="w-full h-14 rounded-2xl bg-primary"
+          className="w-full"
+          size="lg"
           loading={uploading}
           disabled={!file}
           onPress={handleUpload}
         >
-          <Text className="text-primary-foreground font-bold text-[15px]">
+          <Text className="text-primary-foreground font-bold" style={{ fontSize: typography.callout.fontSize, lineHeight: typography.callout.lineHeight }}>
             Submit for Approval
           </Text>
         </Button>
       </View>
-    </View>
+    </Card>
   );
 };
 

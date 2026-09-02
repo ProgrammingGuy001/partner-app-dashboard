@@ -65,6 +65,25 @@ class GRNResponse(BaseModel):
         from_attributes = True
 
 
+class RepairOrderInfo(BaseModel):
+    id: Optional[int] = None
+    name: str
+
+
+class JobGRNPaperwork(BaseModel):
+    """Everything a GRN job's receipt work hangs off: its SO, the ROs Odoo links to
+    that SO, and the GRNs raised against it. Both the supervisor and the assigned IP
+    see the same payload and can close the same GRNs."""
+
+    job_id: int
+    sales_order: Optional[str] = None
+    repair_orders: List[RepairOrderInfo] = []
+    # Set when the SO could not be resolved - Odoo unreachable, or a job carrying an SO
+    # number the order does not exist under yet. The GRNs below are still usable.
+    lookup_error: Optional[str] = None
+    grns: List[GRNResponse] = []
+
+
 class GRNCreate(BaseModel):
     source_document: str = Field(..., min_length=1, max_length=128)
     ip_user_id: Optional[int] = Field(None, gt=0)

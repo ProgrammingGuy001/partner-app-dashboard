@@ -315,7 +315,7 @@ const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange, onAddr
             urlStatus.kind === 'error'
               ? 'text-xs text-destructive'
               : urlStatus.kind === 'ok'
-                ? 'text-xs text-green-600'
+                ? 'text-xs text-success'
                 : 'text-xs text-muted-foreground'
           }
         >
@@ -355,7 +355,7 @@ const LocationPicker: React.FC<LocationPickerProps> = ({ value, onChange, onAddr
                 <button
                   type="button"
                   onClick={() => handleSelectResult(f)}
-                  className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-100"
+                  className="block w-full px-3 py-2 text-left text-sm hover:bg-muted/90"
                 >
                   {describeFeature(f)}
                 </button>

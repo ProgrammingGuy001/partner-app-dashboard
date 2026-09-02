@@ -3,6 +3,7 @@ import { Image, View } from "react-native";
 import * as Updates from "expo-updates";
 import Loader from "../components/common/Loader";
 import { logger } from "../util/helpers";
+import { radii, spacing } from "../theme/designSystem";
 
 const SplashScreen = () => {
   const [updateMessage, setUpdateMessage] = useState("Checking for updates...");
@@ -52,7 +53,7 @@ const SplashScreen = () => {
     <View className="flex-1 items-center justify-center bg-background px-5">
       <Image
         source={require("../../assets/icon.png")}
-        style={{ width: 52, height: 52, borderRadius: 14, marginBottom: 28 }}
+        style={{ width: spacing.xl + radii.xl, height: spacing.xl + radii.xl, borderRadius: (radii.md + radii.lg) / 2, marginBottom: spacing.lg + spacing.xxs }}
         resizeMode="contain"
       />
       <Loader text={updateMessage} />

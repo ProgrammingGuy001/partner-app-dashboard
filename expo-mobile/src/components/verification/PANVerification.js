@@ -10,6 +10,9 @@ import { useTheme } from "../../hooks/useTheme";
 import { formatters } from "../../util/formatters";
 import { validators } from "../../util/validators";
 import KYCConsentModal from "./KYCConsentModal";
+import { Card } from "../common/Primitives";
+import { getApiErrorMessage, getApiFieldErrors } from "../../api/apiErrors";
+import { typography } from "../../theme/designSystem";
 
 const PANVerification = ({ onSuccess, isPanVerified }) => {
   const toast = useToast();
@@ -32,11 +35,11 @@ const PANVerification = ({ onSuccess, isPanVerified }) => {
     setLoading(true);
     setError("");
     try {
-      await verificationApi.verifyPan(value);
+      const status = await verificationApi.verifyPan(value);
       toast.success("PAN verified successfully!");
-      onSuccess?.();
+      onSuccess?.(status);
     } catch (err) {
-      const message = err.message || "PAN verification failed";
+      const message = getApiFieldErrors(err).pan || getApiErrorMessage(err);
       setError(message);
       toast.error(message);
     } finally {
@@ -46,12 +49,9 @@ const PANVerification = ({ onSuccess, isPanVerified }) => {
 
   if (isPanVerified) {
     return (
-      <View
-        className="bg-surface rounded-2xl p-8 items-center border border-border"
-        style={colors.shadowSm}
-      >
+      <Card className="items-center p-8">
         <View
-          className="w-20 h-20 rounded-[40px] items-center justify-center mb-5"
+          className="w-20 h-20 rounded-full items-center justify-center mb-5"
           style={{ backgroundColor: colors.primaryLight }}
         >
           <Ionicons name="checkmark-shield" size={40} color={colors.primary} />
@@ -62,7 +62,7 @@ const PANVerification = ({ onSuccess, isPanVerified }) => {
         <Text className="text-sm text-muted-foreground text-center leading-5">
           Your Permanent Account Number has been successfully verified.
         </Text>
-      </View>
+      </Card>
     );
   }
 
@@ -77,15 +77,12 @@ const PANVerification = ({ onSuccess, isPanVerified }) => {
         }}
         onDecline={() => setShowConsent(false)}
       />
-      <View
-        className="bg-surface rounded-2xl p-6 border border-border"
-        style={colors.shadowSm}
-      >
+      <Card className="p-6">
         <View className="mb-5">
           <Text className="text-lg font-extrabold text-foreground mb-1.5">
             PAN Verification
           </Text>
-          <Text className="text-[13px] text-muted-foreground leading-[18px]">
+          <Text className="text-muted-foreground" style={typography.caption}>
             Enter your 10-digit PAN exactly as it appears on your card.
           </Text>
         </View>
@@ -104,7 +101,7 @@ const PANVerification = ({ onSuccess, isPanVerified }) => {
             maxLength={10}
             autoCapitalize="characters"
             accessibilityLabel="PAN number"
-            className="h-[52px] rounded-xl bg-background border px-4 text-base font-semibold text-foreground"
+            className="h-14 rounded-xl bg-background border px-4 text-base font-semibold text-foreground"
             style={{
               borderColor: error ? colors.danger : colors.border,
             }}
@@ -121,7 +118,9 @@ const PANVerification = ({ onSuccess, isPanVerified }) => {
 
         {!consentGiven ? (
           <Button
-            className="w-full h-14 rounded-2xl bg-primary"
+            className="w-full"
+            size="lg"
+            disabled={pan.length !== 10}
             onPress={() => setShowConsent(true)}
           >
             <Text className="text-primary-foreground text-base font-bold">
@@ -130,7 +129,8 @@ const PANVerification = ({ onSuccess, isPanVerified }) => {
           </Button>
         ) : (
           <Button
-            className="w-full h-14 rounded-2xl bg-primary"
+            className="w-full"
+            size="lg"
             loading={loading}
             disabled={pan.length !== 10}
             onPress={handleSubmit}
@@ -151,7 +151,7 @@ const PANVerification = ({ onSuccess, isPanVerified }) => {
             Secure verification
           </Text>
         </View>
-      </View>
+      </Card>
     </>
   );
 };

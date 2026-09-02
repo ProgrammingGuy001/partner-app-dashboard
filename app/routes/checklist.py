@@ -25,6 +25,8 @@ from app.schemas.checklist import (
     JobChecklistItemStatusUpdate,
     ChecklistWithItemsResponse,
     ChecklistWithItemsAndStatusResponse,
+    JobTypeChecklistMapping,
+    JobTypeChecklistUpdate,
 )
 from app.crud.checklist import (
     create_checklist,
@@ -38,6 +40,7 @@ from app.crud.checklist import (
     get_checklist_item,
     get_checklist_items_by_checklist,
     get_checklists,
+    get_job_type_checklist_mappings,
     get_ism_job_checklist,
     get_job_checklist_item_status,
     is_ism_checklist,
@@ -45,6 +48,7 @@ from app.crud.checklist import (
     update_checklist_item,
     update_job_checklist_item_status,
     get_job_checklists_status,
+    replace_job_type_checklist_mapping,
 )
 from app.crud.job import get_job_by_id
 
@@ -75,6 +79,23 @@ def read_all_checklists(
     skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user = Depends(get_current_user)
 ):
     return get_checklists(db, skip=skip, limit=limit)
+
+
+@router.get("/job-types", response_model=List[JobTypeChecklistMapping])
+def read_job_type_checklist_mappings(
+    db: Session = Depends(get_db), current_user = Depends(get_current_user)
+):
+    return get_job_type_checklist_mappings(db)
+
+
+@router.put("/job-types/{job_type}", response_model=JobTypeChecklistMapping)
+def update_job_type_checklist_mapping(
+    job_type: Annotated[str, Path(min_length=1, max_length=100)],
+    payload: JobTypeChecklistUpdate,
+    db: Session = Depends(get_db),
+    current_user = Depends(_require_superadmin),
+):
+    return replace_job_type_checklist_mapping(db, job_type, payload.checklist_ids)
 
 
 @router.get("/jobs/{job_id}/status", response_model=List[ChecklistWithItemsAndStatusResponse])

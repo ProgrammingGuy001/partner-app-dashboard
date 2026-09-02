@@ -1,6 +1,7 @@
 import React from 'react';
 import { View } from 'react-native';
 import { Text } from '@/components/ui';
+import { typography } from '../../theme/designSystem';
 
 /**
  * Shared screen header — keeps title/subtitle typography and spacing
@@ -16,7 +17,7 @@ const ScreenHeader = ({ eyebrow, title, subtitle, right, className = '' }) => (
   <View className={`flex-row items-end justify-between pt-5 mb-6 ${className}`}>
     <View className="flex-1 mr-3">
       {eyebrow ? (
-        <Text className="text-[13px] font-semibold text-muted-foreground uppercase mb-1">
+        <Text className="font-semibold text-muted-foreground uppercase mb-1" style={{ fontSize: typography.caption.fontSize, lineHeight: typography.caption.lineHeight }}>
           {eyebrow}
         </Text>
       ) : null}
@@ -28,7 +29,7 @@ const ScreenHeader = ({ eyebrow, title, subtitle, right, className = '' }) => (
         title
       )}
       {subtitle ? (
-        <Text className="mt-1 text-[13px] font-medium text-muted-foreground">
+        <Text className="mt-1 font-medium text-muted-foreground" style={{ fontSize: typography.caption.fontSize, lineHeight: typography.caption.lineHeight }}>
           {subtitle}
         </Text>
       ) : null}

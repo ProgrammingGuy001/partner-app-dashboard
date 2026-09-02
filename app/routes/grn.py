@@ -13,8 +13,10 @@ from app.schemas.site_grn import (
     GRNCreate,
     GRNResponse,
     GRNSubmit,
+    JobGRNPaperwork,
     OdooPickingInfo,
     OdooPackageInfo,
+    RepairOrderInfo,
 )
 from app.services.odoo_service import OdooService
 
@@ -54,6 +56,45 @@ def _load_grn(db: Session, grn_id: int) -> SiteGRN:
     if not grn:
         raise HTTPException(status_code=404, detail="GRN not found")
     return grn
+
+
+def _job_paperwork(db: Session, job) -> JobGRNPaperwork:
+    """The SO, its repair orders and the GRNs raised against one GRN job.
+
+    Odoo being unreachable, or the SO not existing yet, degrades to an empty RO list
+    with a note: the GRNs are what the visit actually needs, and they are local.
+    """
+    repair_orders: list[RepairOrderInfo] = []
+    lookup_error = None
+    if job.sales_order:
+        try:
+            repair_orders = [
+                RepairOrderInfo(id=order.get("id"), name=order["name"])
+                for order in OdooService.get_repair_orders_for_sales_order(job.sales_order)
+                if order.get("name")
+            ]
+        except Exception as exc:
+            logger.warning("Repair order lookup failed for SO %s", job.sales_order, exc_info=True)
+            lookup_error = sync_error_summary(exc)
+    grns = (
+        db.query(SiteGRN)
+        .options(
+            selectinload(SiteGRN.packages),
+            selectinload(SiteGRN.ip_user),
+            selectinload(SiteGRN.created_by),
+            selectinload(SiteGRN.job),
+        )
+        .filter(SiteGRN.job_id == job.id)
+        .order_by(SiteGRN.created_at.desc())
+        .all()
+    )
+    return JobGRNPaperwork(
+        job_id=job.id,
+        sales_order=job.sales_order,
+        repair_orders=repair_orders,
+        lookup_error=lookup_error,
+        grns=grns,
+    )
 
 
 def _sync_grn_to_odoo(grn: SiteGRN) -> None:
@@ -120,7 +161,7 @@ def lookup_source_document(
 ):
     pickings = OdooService.get_pickings_by_source_doc(source_doc)
     if not pickings:
-        raise HTTPException(status_code=404, detail=f"No picking found for '{source_doc}'")
+        raise HTTPException(status_code=404, detail=f"No open GRN found for '{source_doc}'")
 
     result = []
     for picking in pickings:
@@ -150,15 +191,18 @@ def create_grn(
 
     if data.job_id is not None:
         from app.model.job import Job
-        if not db.query(Job.id).filter(Job.id == data.job_id).first():
+        job = db.query(Job).filter(Job.id == data.job_id).first()
+        if not job:
             raise HTTPException(status_code=404, detail="Job not found")
+        if job.type != "grn":
+            raise HTTPException(status_code=409, detail="Site GRNs can only be linked to a GRN job")
 
     # Lookup pickings in Odoo — one source document can map to multiple
     pickings = OdooService.get_pickings_by_source_doc(data.source_document)
     if not pickings:
         raise HTTPException(
             status_code=404,
-            detail=f"No delivery order found for source document '{data.source_document}'"
+            detail=f"No open GRN found for source document '{data.source_document}'"
         )
 
     selected_picking_ids = set(data.picking_ids or [])
@@ -251,6 +295,19 @@ def list_grns(
     return query.order_by(SiteGRN.created_at.desc()).offset(offset).limit(limit).all()
 
 
+@admin_router.get("/job/{job_id}", response_model=JobGRNPaperwork)
+def get_job_paperwork_as_supervisor(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_admin),
+):
+    """The SO, RO and GRNs behind a GRN job, as its supervisor sees them."""
+    from app.crud.job import get_job_by_id
+
+    job = get_job_by_id(db, job_id, user_id=None if current_user.is_superadmin else current_user.id)
+    return _job_paperwork(db, job)
+
+
 # ─── Admin: get single GRN ────────────────────────────────────────────────────
 
 @admin_router.get("/{grn_id}", response_model=GRNResponse)
@@ -320,6 +377,19 @@ def get_assigned_grns(
         .all()
     )
     return grns
+
+
+@ip_router.get("/job/{job_id}", response_model=JobGRNPaperwork)
+def get_job_paperwork(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(_require_ip),
+):
+    """Same paperwork the supervisor sees, for a job this IP is on."""
+    from app.crud.job import get_ip_job_by_id
+
+    job = get_ip_job_by_id(db, job_id, current_user.id)
+    return _job_paperwork(db, job)
 
 
 # ─── IP: submit GRN ───────────────────────────────────────────────────────────

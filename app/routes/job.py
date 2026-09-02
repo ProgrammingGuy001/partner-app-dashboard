@@ -59,6 +59,10 @@ from app.crud.job import (
 )
 from app.crud.checklist import update_job_checklist_item_status
 from app.core.security import get_current_user
+from app.utils.job_documents import (
+    INSTALLATION_CLOSURE_DOCUMENTS,
+    SITE_REPORT_SLOTS,
+)
 from app.services.customer_otp_service import CustomerOTPService
 from app.services.s3_service import upload_file_to_s3
 from app.services.upload_service import read_validated_upload
@@ -77,6 +81,11 @@ from app.services.document_automation_service import (
 import app.model as models
 from app.model.job_approval_request import JobApprovalRequest
 from app.model.media_document import MediaDocument
+
+# Every slot an admin may upload a completion document into.
+COMPLETION_DOCUMENT_SLOTS = frozenset(
+    (*INSTALLATION_CLOSURE_DOCUMENTS, *SITE_REPORT_SLOTS.values())
+)
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
@@ -297,7 +306,9 @@ def download_monthly_projects(
         user_id=_scoped_admin_id(current_user),
     )
     jobs_by_id = {job.id: job for job in jobs}
-    requested_ids = {project.job_id for project in request.projects if project.job_id is not None}
+    requested_ids = {
+        project.job_id for project in request.projects if project.job_id is not None
+    }
     unavailable = sorted(requested_ids - jobs_by_id.keys())
     if unavailable:
         raise HTTPException(
@@ -420,7 +431,7 @@ def update_existing_job(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Update a job. Handles IP reassignment and validates is_assigned=False for new IPs."""
+    """Update a job; roster sync validates the IP's dates and slots."""
     get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
     is_superadmin = getattr(current_user, "is_superadmin", False)
     return update_job(
@@ -544,6 +555,7 @@ def verify_end_otp_and_finish(
             handover_document_link=otp_data.handover_document_link,
             ncr_document_link=otp_data.ncr_document_link,
             project_report_document_link=otp_data.project_report_document_link,
+            site_report_document_link=otp_data.site_report_document_link,
         )
         if not CustomerOTPService.verify_end_otp(db, job_id, otp_data.otp):
             raise HTTPException(status_code=400, detail="Invalid or expired OTP")
@@ -558,15 +570,20 @@ def verify_end_otp_and_finish(
         handover_document_link=otp_data.handover_document_link,
         ncr_document_link=otp_data.ncr_document_link,
         project_report_document_link=otp_data.project_report_document_link,
+        site_report_document_link=otp_data.site_report_document_link,
     )
 
 
 # ============ Superadmin Approval Flow (fallback when the customer OTP can't be used) ============
 
 
-def _require_superadmin(current_user: models.User = Depends(get_current_user)) -> models.User:
+def _require_superadmin(
+    current_user: models.User = Depends(get_current_user),
+) -> models.User:
     if not getattr(current_user, "is_superadmin", False):
-        raise HTTPException(status_code=403, detail="Only superadmins can review job approval requests")
+        raise HTTPException(
+            status_code=403, detail="Only superadmins can review job approval requests"
+        )
     return current_user
 
 
@@ -592,7 +609,9 @@ def _execute_approved_request(
     requester = request.requested_by_name or "a supervisor"
     notes = f"Approved by superadmin (requested by {requester}): {request.reason}"
     if request.action == "start":
-        start_job(db, request.job_id, admin_id=approver.id, is_superadmin=True, notes=notes)
+        start_job(
+            db, request.job_id, admin_id=approver.id, is_superadmin=True, notes=notes
+        )
     else:
         finish_job(
             db,
@@ -606,7 +625,9 @@ def _execute_approved_request(
         )
 
 
-@router.get("/approval-requests/pending", response_model=List[JobApprovalRequestResponse])
+@router.get(
+    "/approval-requests/pending", response_model=List[JobApprovalRequestResponse]
+)
 def list_pending_job_approval_requests(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(_require_superadmin),
@@ -650,6 +671,7 @@ def create_job_approval_request(
             handover_document_link=data.handover_document_link,
             ncr_document_link=data.ncr_document_link,
             project_report_document_link=data.project_report_document_link,
+            site_report_document_link=data.site_report_document_link,
         )
 
     existing = (
@@ -690,7 +712,9 @@ def create_job_approval_request(
     return _load_approval_request(db, request.id)
 
 
-@router.get("/{job_id}/approval-requests", response_model=List[JobApprovalRequestResponse])
+@router.get(
+    "/{job_id}/approval-requests", response_model=List[JobApprovalRequestResponse]
+)
 def list_job_approval_requests(
     job_id: Annotated[int, Path(gt=0)],
     db: Session = Depends(get_db),
@@ -710,7 +734,9 @@ def list_job_approval_requests(
     )
 
 
-@router.put("/approval-requests/{request_id}/approve", response_model=JobApprovalRequestResponse)
+@router.put(
+    "/approval-requests/{request_id}/approve", response_model=JobApprovalRequestResponse
+)
 def approve_job_approval_request(
     request_id: Annotated[int, Path(gt=0)],
     db: Session = Depends(get_db),
@@ -719,7 +745,9 @@ def approve_job_approval_request(
     """Approve the request and perform the start/finish it was raised for."""
     request = _load_approval_request(db, request_id)
     if request.status != "pending":
-        raise HTTPException(status_code=400, detail=f"Request is already {request.status}")
+        raise HTTPException(
+            status_code=400, detail=f"Request is already {request.status}"
+        )
 
     # start_job/finish_job re-check the job status, so a job started via OTP in the
     # meantime raises here and the request stays pending for the superadmin to reject.
@@ -732,7 +760,9 @@ def approve_job_approval_request(
     return _load_approval_request(db, request_id)
 
 
-@router.put("/approval-requests/{request_id}/reject", response_model=JobApprovalRequestResponse)
+@router.put(
+    "/approval-requests/{request_id}/reject", response_model=JobApprovalRequestResponse
+)
 def reject_job_approval_request(
     request_id: Annotated[int, Path(gt=0)],
     reason: str = Query("", max_length=1000),
@@ -742,7 +772,9 @@ def reject_job_approval_request(
     """Reject the request, leaving the job untouched."""
     request = _load_approval_request(db, request_id)
     if request.status != "pending":
-        raise HTTPException(status_code=400, detail=f"Request is already {request.status}")
+        raise HTTPException(
+            status_code=400, detail=f"Request is already {request.status}"
+        )
 
     request.status = "rejected"
     request.review_notes = reason or "Rejected by superadmin"
@@ -824,6 +856,7 @@ def finish_existing_job(
         handover_document_link=job_finish.handover_document_link,
         ncr_document_link=job_finish.ncr_document_link,
         project_report_document_link=job_finish.project_report_document_link,
+        site_report_document_link=job_finish.site_report_document_link,
     )
 
 
@@ -1122,7 +1155,7 @@ async def upload_job_file(
         raise HTTPException(
             status_code=400, detail="job_id and document_type must be supplied together"
         )
-    if document_type and document_type not in {"handover", "ncr", "project_report"}:
+    if document_type and document_type not in COMPLETION_DOCUMENT_SLOTS:
         raise HTTPException(status_code=422, detail="Invalid completion document type")
     job = (
         get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
@@ -1155,7 +1188,14 @@ async def upload_job_file(
         )
     )
     if document_type:
-        setattr(job, f"{document_type}_document_link", file_url)
+        # The three installation slots each own a column; the single-visit reports
+        # share one, since a job only ever files one of them.
+        column = (
+            "site_report_document_link"
+            if document_type in SITE_REPORT_SLOTS.values()
+            else f"{document_type}_document_link"
+        )
+        setattr(job, column, file_url)
     db.commit()
 
     return {"url": file_url}

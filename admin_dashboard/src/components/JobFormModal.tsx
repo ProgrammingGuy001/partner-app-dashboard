@@ -6,6 +6,7 @@ import {
   type SOLookupResult,
   adminAPI,
   jobAPI,
+  rosterAPI,
 } from "@/api/services";
 import {
   useCreateJob,
@@ -14,7 +15,6 @@ import {
   useUpdateJob,
 } from "@/hooks/useJobs";
 import { useApprovedIPUsers } from "@/hooks/useIPUsers";
-import { useChecklists } from "@/hooks/useChecklists";
 import { useCustomers } from "@/hooks/useCustomers";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -22,9 +22,10 @@ import * as z from "zod";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,27 +33,17 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
-  ChevronDown,
   Trash2,
   Search,
   Loader2,
   CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
 import LocationPicker, {
   type ResolvedAddress,
@@ -60,6 +51,8 @@ import LocationPicker, {
 import { getApiErrorMessage } from "@/lib/apiError";
 
 const DRAWING_REQUIRED_TYPES = new Set(["site_validation", "installation"]);
+// Mirrors app/schemas/job.py SLOT_EXCLUDED_JOB_TYPES: every other type must name a slot.
+const SLOTLESS_TYPES = new Set(["installation", "grn"]);
 
 const jobSchema = z
   .object({
@@ -68,8 +61,10 @@ const jobSchema = z
     customer_phone: z
       .string()
       .optional()
-      .refine((val) => !val || (val.length >= 10 && /^\d+$/.test(val)), {
-        message: "Phone must be at least 10 digits and contain only numbers",
+      // Odoo and older customer rows carry "+91 98408 17991"; count digits only, and
+      // strip the rest on submit.
+      .refine((val) => !val || val.replace(/\D/g, "").length >= 10, {
+        message: "Phone must be at least 10 digits",
       }),
     address_line_1: z.string().min(1, "Address Line 1 is required"),
     address_line_2: z.string().optional(),
@@ -85,11 +80,15 @@ const jobSchema = z
     geofence_radius: z.number().nullable().optional(),
     // Empty means "no rate card, type the type and rate by hand".
     job_rate_id: z.string().optional(),
+    // Jobs raised from the CRM webhook arrive without one, so it stays editable after creation.
+    sales_order: z.string().optional(),
     type: z.string().min(1, "Type is required"),
+    // Superadmin-only, like incentive: admins never see the field, and a superadmin can
+    // price the job later by editing it.
     rate: z
       .string()
-      .min(1, "Rate is required")
-      .refine((val) => !isNaN(Number(val)) && Number(val) >= 0, {
+      .optional()
+      .refine((val) => !val || (!isNaN(Number(val)) && Number(val) >= 0), {
         message: "Rate must be a positive number",
       }),
     // Superadmin-only; the server discards it from anyone else.
@@ -105,9 +104,9 @@ const jobSchema = z
       .refine((val) => !val || (!isNaN(Number(val)) && Number(val) >= 0), {
         message: "Size must be a positive number",
       }),
-    // One picker for both worker kinds: "ip:<id>" or "admin:<id>". Some jobs are run by
-    // a supervisor with no IP on site.
+    // Regular admins choose their mapped IP here; superadmins choose the supervisor.
     assignee: z.string().optional(),
+    ip_assignee: z.string().optional(),
     start_date: z.string().min(1, "Start Date is required"),
     delivery_date: z.string().min(1, "Delivery Date is required"),
     drawing_document_link: z.string().optional(),
@@ -116,7 +115,14 @@ const jobSchema = z
   })
   .superRefine((values, ctx) => {
     // Ahead of the date guard below, which returns early.
-    if (Boolean(values.slot_start) !== Boolean(values.slot_end)) {
+    const slotless = SLOTLESS_TYPES.has((values.type || "").trim().toLowerCase());
+    if (!slotless && !values.slot_start && !values.slot_end) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "An attendance slot is required for this job type",
+        path: ["slot_start"],
+      });
+    } else if (Boolean(values.slot_start) !== Boolean(values.slot_end)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Set both a slot start and a slot end, or neither",
@@ -169,16 +175,13 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
   onSuccess,
   isSuperadmin = false,
 }) => {
-  const [selectedChecklistIds, setSelectedChecklistIds] = useState<number[]>(
-    [],
-  );
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
   const [submitError, setSubmitError] = useState("");
   const [isUploadingDrawing, setIsUploadingDrawing] = useState(false);
-  const [soNumber, setSoNumber] = useState("");
   const [soLoading, setSoLoading] = useState(false);
   const [soError, setSoError] = useState("");
   const [soResult, setSoResult] = useState<SOLookupResult | null>(null);
+  const [soLookup, setSoLookup] = useState("");
 
   const [showNewRate, setShowNewRate] = useState(false);
   const [newRate, setNewRate] = useState({
@@ -195,16 +198,21 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
 
   // Use React Query hooks instead of direct API calls - enables caching and deduplication
   const { data: ipUsers = [] } = useApprovedIPUsers();
-  const { data: checklists = [] } = useChecklists();
   const { data: customers = [] } = useCustomers();
-  const { data: admins = [] } = useQuery({
+  const { data: admins } = useQuery({
     queryKey: ["admin-users"],
     queryFn: () => adminAPI.getAdminUsers(),
     staleTime: 1000 * 60 * 5,
   });
+  const rosterDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const { data: roster } = useQuery({
+    queryKey: ["roster", "slot-settings"],
+    queryFn: () => rosterAPI.get({ date_from: rosterDate, date_to: rosterDate }),
+    staleTime: 1000 * 60 * 5,
+  });
   // Superadmins never run a site, so they aren't offerable as the assignee.
   const supervisors = useMemo(
-    () => admins.filter((a) => !a.is_superadmin),
+    () => (admins ?? []).filter((a) => !a.is_superadmin),
     [admins],
   );
 
@@ -231,11 +239,13 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
       longitude: null,
       geofence_radius: 100,
       job_rate_id: "",
+      sales_order: "",
       type: "",
       rate: "",
       incentive: "",
       size: "",
       assignee: "",
+      ip_assignee: "",
       start_date: "",
       delivery_date: "",
       drawing_document_link: "",
@@ -245,7 +255,18 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
   });
 
   const assignee = watch("assignee");
+  const ipAssignee = watch("ip_assignee");
+  const selectedSupervisorId = (assignee || "").startsWith("admin:")
+    ? Number(assignee?.slice(6))
+    : null;
+  const mappedIpUsers = selectedSupervisorId
+    ? ipUsers.filter((ipUser) =>
+        ipUser.assigned_admin_ids?.includes(selectedSupervisorId),
+      )
+    : [];
   const jobType = watch("type");
+  const slotStart = watch("slot_start");
+  const slotEnd = watch("slot_end");
   const latitude = watch("latitude");
   const longitude = watch("longitude");
   const geofenceRadius = watch("geofence_radius");
@@ -255,6 +276,21 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
     () => jobRates.find((r) => r.id.toString() === jobRateId),
     [jobRates, jobRateId],
   );
+  const isOutsideGlobalSlot = Boolean(
+    normalizedJobType !== "installation" &&
+      slotStart &&
+      slotEnd &&
+      slotEnd > slotStart &&
+      roster?.slots?.length &&
+      !roster.slots.some(
+        (slot) =>
+          slotStart >= slot.start_time.slice(0, 5) &&
+          slotEnd <= slot.end_time.slice(0, 5),
+      ),
+  );
+  const globalSlotSummary = roster?.slots
+    ?.map((slot) => `${slot.start_time.slice(0, 5)}-${slot.end_time.slice(0, 5)}`)
+    .join(", ");
 
   // A picked card is the source of truth for type and rate; mirror it into the
   // inputs so what's submitted matches what the server will stamp on.
@@ -273,8 +309,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
     if (!DRAWING_REQUIRED_TYPES.has(normalizedJobType)) {
       setValue("drawing_document_link", "", { shouldValidate: true });
     }
-    // Installation jobs keep the 10:30 cutoff, so they can't carry a slot.
-    if (normalizedJobType === "installation") {
+    // Installation keeps the 10:30 cutoff and GRN is not a site visit: neither is slotted.
+    if (SLOTLESS_TYPES.has(normalizedJobType)) {
       setValue("slot_start", "", { shouldValidate: true });
       setValue("slot_end", "", { shouldValidate: true });
     }
@@ -296,15 +332,19 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
         longitude: job.longitude ?? null,
         geofence_radius: job.geofence_radius ?? 100,
         job_rate_id: job.job_rate_id?.toString() || "",
+        sales_order: job.sales_order || "",
         type: job.type || "",
         rate: (job.rate ?? "").toString(),
         incentive: (job.incentive ?? "").toString(),
         size: job.size?.toString() || "",
-        assignee: job.assigned_ip_id
+        assignee: isSuperadmin
+          ? (job.user_id && supervisors.some((admin) => admin.id === job.user_id)
+              ? `admin:${job.user_id}`
+              : "")
+          : (job.assigned_ip_id ? `ip:${job.assigned_ip_id}` : ""),
+        ip_assignee: isSuperadmin && job.assigned_ip_id
           ? `ip:${job.assigned_ip_id}`
-          : job.user_id
-            ? `admin:${job.user_id}`
-            : "",
+          : "",
         start_date: job.start_date || "",
         delivery_date: job.delivery_date || "",
         drawing_document_link: job.drawing_document_link || "",
@@ -313,20 +353,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
         slot_end: job.slot_end?.slice(0, 5) || "",
       });
       setSelectedCustomerId(editCustomerId);
-
-      const ids: number[] = [];
-      if (job.job_checklists && Array.isArray(job.job_checklists)) {
-        ids.push(...job.job_checklists.map((jc) => jc.checklist_id));
-      }
-      setSelectedChecklistIds(ids);
     }
-  }, [job, reset]);
-
-  const handleChecklistToggle = (id: number) => {
-    setSelectedChecklistIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
-    );
-  };
+  }, [isSuperadmin, job, reset, supervisors]);
 
   const handleCustomerChange = (value: string) => {
     if (value === "__new__") {
@@ -341,7 +369,6 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
       setValue("pincode", "", { shouldValidate: true });
       setSoResult(null);
       setSoError("");
-      setSoNumber("");
       return;
     }
 
@@ -374,13 +401,15 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
   };
 
   const handleSOLookup = async () => {
-    if (!soNumber.trim()) return;
+    const soNumber = soLookup.trim();
+    if (!soNumber) return;
     setSoLoading(true);
     setSoError("");
     setSoResult(null);
     try {
-      const result = await jobAPI.lookupSalesOrder(soNumber.trim());
+      const result = await jobAPI.lookupSalesOrder(soNumber);
       setSoResult(result);
+      setValue("sales_order", soNumber, { shouldValidate: true });
       // Auto-fill form fields from Odoo data
       setSelectedCustomerId("");
       setValue("customer_id", "");
@@ -445,28 +474,36 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
 
   const onSubmit = async (data: JobFormValues) => {
     setSubmitError("");
-
+    if (!data.assignee) {
+      setSubmitError(`Select ${isSuperadmin ? "a supervisor" : "an Installation Partner"}`);
+      return;
+    }
     try {
       const payload: JobUpdate = {
         customer_id: data.customer_id
           ? parseInt(data.customer_id, 10)
           : undefined,
         customer_name: data.customer_name,
-        customer_phone: data.customer_phone || undefined,
+        customer_phone: data.customer_phone?.replace(/\D/g, "") || undefined,
         address_line_1: data.address_line_1,
         address_line_2: data.address_line_2 || undefined,
         city: data.city,
         state: data.state,
         pincode: parseInt(data.pincode, 10),
         type: data.type,
-        rate: parseFloat(data.rate),
-        size: data.size ? parseInt(data.size, 10) : 0,
-        // Exactly one side of the pair is set; the other stays null so an edit that
-        // switches from IP to supervisor actually clears the old assignment.
-        assigned_ip_id: data.assignee?.startsWith("ip:")
-          ? parseInt(data.assignee.slice(3), 10)
-          : null,
-        admin_assigned: data.assignee?.startsWith("admin:")
+        // Explicit null, not undefined: clearing the SO has to reach the server.
+        sales_order: data.sales_order?.trim() || null,
+        // Left unset when blank so an unpriced job stays unpriced instead of becoming 0.
+        rate: data.rate ? parseFloat(data.rate) : undefined,
+        size: data.size ? parseInt(data.size, 10) : undefined,
+        assigned_ip_id: isSuperadmin
+          ? (data.ip_assignee?.startsWith("ip:")
+              ? parseInt(data.ip_assignee.slice(3), 10)
+              : null)
+          : (data.assignee.startsWith("ip:")
+              ? parseInt(data.assignee.slice(3), 10)
+              : undefined),
+        admin_assigned: isSuperadmin && data.assignee.startsWith("admin:")
           ? parseInt(data.assignee.slice(6), 10)
           : undefined,
         start_date: data.start_date,
@@ -474,7 +511,6 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
         latitude: data.latitude ?? undefined,
         longitude: data.longitude ?? undefined,
         geofence_radius: data.geofence_radius ?? undefined,
-        checklist_ids: selectedChecklistIds,
         // Explicit null, not undefined: clearing the slot has to reach the server.
         slot_start: data.slot_start || null,
         slot_end: data.slot_end || null,
@@ -513,6 +549,11 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
       <DialogContent className="flex max-h-[calc(100svh-1rem)] flex-col overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="shrink-0 border-b p-4 sm:p-6">
           <DialogTitle>{job ? "Edit Job" : "Create New Job"}</DialogTitle>
+          <DialogDescription>
+            {job
+              ? "Update the customer, schedule and assignment for this job."
+              : "Set up a customer, schedule and assignment for a new job."}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
@@ -527,17 +568,31 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
               </Alert>
             )}
 
-            {/* SO Lookup Section — only for new jobs */}
-            {!job && (
-              <div className="rounded-lg border border-dashed border-blue-300 bg-blue-50/50 p-4 space-y-3">
-                <Label className="text-sm font-semibold text-blue-700">
-                  Auto-fill from Odoo Sales Order
+            {/* Saved on the job: GRN creation prefills its source document from it, and
+                jobs raised by the CRM webhook arrive without one. */}
+            <div className="space-y-2">
+              <Label htmlFor="sales_order" className="text-sm font-semibold">
+                Sales Order (SO) number
+              </Label>
+              <Input
+                id="sales_order"
+                placeholder="e.g. S00311"
+                {...register("sales_order")}
+              />
+            </div>
+
+            {/* Its own box and its own state: this one searches Odoo, it is not the
+                field above. A hit fills the field above along with the customer. */}
+            <div className="rounded-lg border border-dashed border-info/30 bg-info/10 p-4 space-y-3">
+                <Label htmlFor="so_lookup" className="text-sm font-semibold text-info">
+                  Look up a Sales Order in Odoo
                 </Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Input
+                    id="so_lookup"
                     placeholder="e.g. S00311"
-                    value={soNumber}
-                    onChange={(e) => setSoNumber(e.target.value)}
+                    value={soLookup}
+                    onChange={(e) => setSoLookup(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
@@ -550,7 +605,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                     type="button"
                     variant="outline"
                     onClick={handleSOLookup}
-                    disabled={soLoading || !soNumber.trim()}
+                    disabled={soLoading || !soLookup.trim()}
                     className="w-full shrink-0 sm:w-auto"
                   >
                     {soLoading ? (
@@ -565,13 +620,12 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                   <p className="text-xs text-destructive">{soError}</p>
                 )}
                 {soResult && (
-                  <div className="flex items-center gap-2 text-sm text-green-700">
+                  <div className="flex items-center gap-2 text-sm text-success">
                     <CheckCircle2 className="h-4 w-4" />
                     Found: {soResult.customer_name} — fields auto-filled below
                   </div>
                 )}
               </div>
-            )}
 
             {!job && !isSuperadmin && (
               <Alert>
@@ -617,7 +671,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                   id="customer_name"
                   {...register("customer_name")}
                   readOnly={isExistingCustomerSelected}
-                  className={isExistingCustomerSelected ? "bg-gray-100" : ""}
+                  className={isExistingCustomerSelected ? "bg-muted" : ""}
                   aria-invalid={!!errors.customer_name}
                 />
                 {errors.customer_name && (
@@ -635,7 +689,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                   placeholder="10-digit phone number"
                   {...register("customer_phone")}
                   readOnly={isExistingCustomerSelected}
-                  className={isExistingCustomerSelected ? "bg-gray-100" : ""}
+                  className={isExistingCustomerSelected ? "bg-muted" : ""}
                   aria-invalid={!!errors.customer_phone}
                 />
                 {errors.customer_phone && (
@@ -643,11 +697,13 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                     {errors.customer_phone.message}
                   </p>
                 )}
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-muted-foreground">
                   OTP will be sent to this number for job start/complete
                 </p>
               </div>
 
+              {/* Commercials are superadmin-only: the card writes both type and rate. */}
+              {isSuperadmin && (
               <div className="space-y-2 md:col-span-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="job_rate_id">Rate Card</Label>
@@ -759,6 +815,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                   </div>
                 )}
               </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="type">Type *</Label>
@@ -782,6 +839,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                     <SelectItem value="site_readiness">
                       Site Readiness
                     </SelectItem>
+                    <SelectItem value="grn">GRN</SelectItem>
                     <SelectItem value="installation">Installation</SelectItem>
                   </SelectContent>
                 </Select>
@@ -790,15 +848,16 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                     {errors.type.message}
                   </p>
                 )}
+                <p className="text-xs text-muted-foreground">
+                  Checklists are assigned automatically from this job type.
+                </p>
               </div>
 
-              {normalizedJobType && normalizedJobType !== "installation" && (
+              {normalizedJobType && !SLOTLESS_TYPES.has(normalizedJobType) && (
                 <div className="space-y-2 md:col-span-2">
                   <Label>
                     Service slot
-                    <span className="font-normal text-xs text-muted-foreground">
-                      (optional)
-                    </span>
+                    <span className="font-normal text-xs text-destructive"> *</span>
                   </Label>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <Input
@@ -817,14 +876,29 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                       {...register("slot_end")}
                     />
                   </div>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-muted-foreground">
                     Check-in opens at the slot start and closes 30 minutes
-                    later. Leave blank to use the 10:30 AM cutoff.
+                    later. Installation and GRN jobs use the 10:30 AM cutoff
+                    instead.
                   </p>
                   {(errors.slot_start || errors.slot_end) && (
                     <p className="text-xs text-destructive">
                       {errors.slot_start?.message || errors.slot_end?.message}
                     </p>
+                  )}
+                  {isOutsideGlobalSlot && (
+                    <div
+                      role="status"
+                      className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
+                    >
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                      <p>
+                        This service time is outside the global roster shifts
+                        {globalSlotSummary ? ` (${globalSlotSummary})` : ""}. Attendance
+                        will use this job time; the roster will place it in the nearest
+                        global slot.
+                      </p>
+                    </div>
                   )}
                 </div>
               )}
@@ -864,7 +938,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                         href={watch("drawing_document_link")}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-sm text-blue-500 hover:underline truncate max-w-full sm:max-w-[300px]"
+                        className="text-sm text-info hover:underline truncate max-w-full sm:max-w-[300px]"
                       >
                         View Drawing
                       </a>
@@ -891,29 +965,31 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                 </div>
               )}
 
-              <div className="space-y-2">
-                <Label htmlFor="rate">Rate per Unit *</Label>
-                <Input
-                  id="rate"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  readOnly={!!selectedRateCard}
-                  placeholder="Enter agreed job rate"
-                  {...register("rate")}
-                  aria-invalid={!!errors.rate}
-                />
-                {selectedRateCard && (
-                  <p className="text-xs text-muted-foreground">
-                    Set by the rate card. Clear it to type a rate.
-                  </p>
-                )}
-                {errors.rate && (
-                  <p className="text-xs text-destructive">
-                    {errors.rate.message}
-                  </p>
-                )}
-              </div>
+              {isSuperadmin && (
+                <div className="space-y-2">
+                  <Label htmlFor="rate">Rate per Unit</Label>
+                  <Input
+                    id="rate"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    readOnly={!!selectedRateCard}
+                    placeholder="Enter agreed job rate"
+                    {...register("rate")}
+                    aria-invalid={!!errors.rate}
+                  />
+                  {selectedRateCard && (
+                    <p className="text-xs text-muted-foreground">
+                      Set by the rate card. Clear it to type a rate.
+                    </p>
+                  )}
+                  {errors.rate && (
+                    <p className="text-xs text-destructive">
+                      {errors.rate.message}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {isSuperadmin && (
                 <div className="space-y-2">
@@ -941,7 +1017,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                   id="address_line_1"
                   {...register("address_line_1")}
                   readOnly={isExistingCustomerSelected}
-                  className={isExistingCustomerSelected ? "bg-gray-100" : ""}
+                  className={isExistingCustomerSelected ? "bg-muted" : ""}
                   aria-invalid={!!errors.address_line_1}
                   placeholder="Street, Building, Apartment"
                 />
@@ -958,7 +1034,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                   id="address_line_2"
                   {...register("address_line_2")}
                   readOnly={isExistingCustomerSelected}
-                  className={isExistingCustomerSelected ? "bg-gray-100" : ""}
+                  className={isExistingCustomerSelected ? "bg-muted" : ""}
                   aria-invalid={!!errors.address_line_2}
                   placeholder="Landmark, Area (Optional)"
                 />
@@ -995,7 +1071,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                   id="city"
                   {...register("city")}
                   readOnly={isExistingCustomerSelected}
-                  className={isExistingCustomerSelected ? "bg-gray-100" : ""}
+                  className={isExistingCustomerSelected ? "bg-muted" : ""}
                   aria-invalid={!!errors.city}
                 />
                 {errors.city && (
@@ -1011,7 +1087,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                   id="state"
                   {...register("state")}
                   readOnly={isExistingCustomerSelected}
-                  className={isExistingCustomerSelected ? "bg-gray-100" : ""}
+                  className={isExistingCustomerSelected ? "bg-muted" : ""}
                   aria-invalid={!!errors.state}
                   placeholder="State"
                 />
@@ -1029,7 +1105,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                   type="number"
                   {...register("pincode")}
                   readOnly={isExistingCustomerSelected}
-                  className={isExistingCustomerSelected ? "bg-gray-100" : ""}
+                  className={isExistingCustomerSelected ? "bg-muted" : ""}
                   aria-invalid={!!errors.pincode}
                 />
                 {errors.pincode && (
@@ -1039,75 +1115,107 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="size">
-                  Size{" "}
-                  {normalizedJobType === "installation"
-                    ? ""
-                    : "(Auto-set to 1 for non-installation jobs)"}
-                </Label>
-                <Input
-                  id="size"
-                  type="number"
-                  {...register("size")}
-                  disabled={normalizedJobType !== "installation"}
-                  className={
-                    normalizedJobType !== "installation"
-                      ? "bg-gray-100 cursor-not-allowed"
-                      : ""
-                  }
-                  aria-invalid={!!errors.size}
-                />
-                {errors.size && (
-                  <p className="text-xs text-destructive">
-                    {errors.size.message}
-                  </p>
-                )}
-              </div>
+              {isSuperadmin && (
+                <div className="space-y-2">
+                  <Label htmlFor="size">
+                    Size{" "}
+                    {normalizedJobType === "installation"
+                      ? ""
+                      : "(Auto-set to 1 for non-installation jobs)"}
+                  </Label>
+                  <Input
+                    id="size"
+                    type="number"
+                    {...register("size")}
+                    disabled={normalizedJobType !== "installation"}
+                    className={
+                      normalizedJobType !== "installation"
+                        ? "bg-muted cursor-not-allowed"
+                        : ""
+                    }
+                    aria-invalid={!!errors.size}
+                  />
+                  {errors.size && (
+                    <p className="text-xs text-destructive">
+                      {errors.size.message}
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="space-y-2">
-                <Label htmlFor="assignee">Assigned To</Label>
+                <Label htmlFor="assignee">
+                  {isSuperadmin ? "Supervisor" : "Installation Partner"} *
+                </Label>
                 <Select
                   value={assignee}
-                  onValueChange={(value) => setValue("assignee", value)}
+                  onValueChange={(value) => {
+                    setValue("assignee", value);
+                    if (isSuperadmin) setValue("ip_assignee", "");
+                  }}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select an IP or supervisor" />
+                    <SelectValue placeholder={`Select ${isSuperadmin ? "a supervisor" : "a mapped IP"}`} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectGroup>
-                      <SelectLabel>Independent Partners</SelectLabel>
-                      {ipUsers.map((ipUser) => (
+                    {isSuperadmin
+                      ? supervisors.map((admin) => (
+                          <SelectItem
+                            key={`admin:${admin.id}`}
+                            value={`admin:${admin.id}`}
+                          >
+                            {admin.name || admin.email}
+                          </SelectItem>
+                        ))
+                      : ipUsers.map((ipUser) => (
+                          <SelectItem
+                            key={`ip:${ipUser.id}`}
+                            value={`ip:${ipUser.id}`}
+                          >
+                            {ipUser.first_name} {ipUser.last_name}
+                          </SelectItem>
+                        ))}
+                  </SelectContent>
+                </Select>
+                {!isSuperadmin && !ipUsers.length && (
+                  <p className="text-xs text-warning">No IP is mapped to you. Ask a superadmin to add the mapping.</p>
+                )}
+                {!isSuperadmin && ipUsers.length ? (
+                  <p className="text-xs text-muted-foreground">Date and slot availability is checked when you save.</p>
+                ) : null}
+              </div>
+
+              {isSuperadmin && (
+                <div className="space-y-2">
+                  <Label htmlFor="ip-assignee">Installation Partner <span className="font-normal text-muted-foreground">(optional)</span></Label>
+                  <Select
+                    value={ipAssignee || ""}
+                    onValueChange={(value) => setValue("ip_assignee", value)}
+                    disabled={!(assignee || "").startsWith("admin:")}
+                  >
+                    <SelectTrigger id="ip-assignee">
+                      <SelectValue placeholder={assignee ? "Select a mapped IP" : "Choose a supervisor first"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unassigned">No IP assigned</SelectItem>
+                      {!mappedIpUsers.length ? (
+                        <SelectItem value="no-mapped-ip" disabled>
+                          No mapped IP available
+                        </SelectItem>
+                      ) : null}
+                      {mappedIpUsers.map((ipUser) => (
                         <SelectItem
                           key={`ip:${ipUser.id}`}
                           value={`ip:${ipUser.id}`}
-                          disabled={
-                            ipUser.is_assigned &&
-                            ipUser.id !== job?.assigned_ip_id
-                          }
                         >
-                          {ipUser.first_name} {ipUser.last_name}{" "}
-                          {ipUser.is_assigned &&
-                          ipUser.id !== job?.assigned_ip_id
-                            ? "(Assigned)"
-                            : ""}
+                          {ipUser.first_name} {ipUser.last_name}
                         </SelectItem>
                       ))}
-                    </SelectGroup>
-                    <SelectGroup>
-                      <SelectLabel>Supervisors</SelectLabel>
-                      {supervisors.map((admin) => (
-                        <SelectItem
-                          key={`admin:${admin.id}`}
-                          value={`admin:${admin.id}`}
-                        >
-                          {admin.name || admin.email}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </div>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">Only verified, mapped IPs are shown. Date and slot availability is checked when you save.</p>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="delivery_date">Delivery Date *</Label>
@@ -1139,48 +1247,6 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                 )}
               </div>
 
-              <div className="col-span-1 md:col-span-2 space-y-3">
-                <Label>Checklists</Label>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-between font-normal"
-                    >
-                      <span>
-                        {selectedChecklistIds.length > 0
-                          ? `${selectedChecklistIds.length} selected`
-                          : "Select Checklists"}
-                      </span>
-                      <ChevronDown className="h-4 w-4 opacity-50" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    className="w-[var(--radix-dropdown-menu-trigger-width)] max-w-[calc(100vw-1rem)] max-h-[300px] overflow-y-auto"
-                    align="start"
-                  >
-                    <DropdownMenuLabel>Available Checklists</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {checklists.length === 0 ? (
-                      <div className="p-2 text-sm text-gray-500">
-                        No checklists available
-                      </div>
-                    ) : (
-                      checklists.map((checklist) => (
-                        <DropdownMenuCheckboxItem
-                          key={checklist.id}
-                          checked={selectedChecklistIds.includes(checklist.id)}
-                          onCheckedChange={() =>
-                            handleChecklistToggle(checklist.id)
-                          }
-                        >
-                          {checklist.name}
-                        </DropdownMenuCheckboxItem>
-                      ))
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
             </div>
           </form>
         </div>

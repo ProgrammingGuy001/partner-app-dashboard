@@ -123,7 +123,14 @@ class Job(Base):
     ncr_document_link: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     project_report_document_link: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     drawing_document_link: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Measurement, readiness and validation jobs file one report that serves as both
+    # the visit record and the closure document. See app/utils/job_documents.py.
+    site_report_document_link: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     sales_order: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    # Odoo crm.lead this job came from. The (lead, stage) pair is unique, so a lead that
+    # moves through stages spawns one job per stage and a replayed webhook creates none.
+    crm_lead_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    crm_stage_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     # Backward-compat aliases used throughout existing code.
     user_id = synonym("admin_assigned")
@@ -215,6 +222,19 @@ class Checklist(Base):
     )
     job_checklists: Mapped[List["JobChecklist"]] = relationship(
         "JobChecklist", back_populates="checklist"
+    )
+
+
+class JobTypeChecklist(Base):
+    __tablename__ = "job_type_checklists"
+    __table_args__ = (
+        UniqueConstraint("job_type", "checklist_id", name="uq_job_type_checklist"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    checklist_id: Mapped[int] = mapped_column(
+        ForeignKey("checklists.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
 

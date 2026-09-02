@@ -115,3 +115,13 @@ class ChecklistWithItemsAndStatusResponse(ChecklistResponse):
     document_link: Optional[str] = None
     template_available: bool = False
     items: List[ChecklistItemWithStatusResponse] = Field(default_factory=list)
+
+
+class JobTypeChecklistMapping(BaseModel):
+    job_type: str
+    checklist_ids: List[int]
+    updated_jobs: int = 0
+
+
+class JobTypeChecklistUpdate(BaseModel):
+    checklist_ids: List[int] = Field(min_length=1)

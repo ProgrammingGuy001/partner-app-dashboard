@@ -3,13 +3,17 @@ import { jobAPI, jobRateAPI, type CompletionDocumentLinks, type Job, type JobRat
 import { toast } from 'sonner';
 import { getApiErrorMessage as getJobErrorMessage } from '@/lib/apiError';
 
-export const useJobs = (filters?: {
-  status?: string;
-  type?: string;
-  search?: string;
-  page?: number;
-  limit?: number;
-}) => {
+export const useJobs = (
+  filters?: {
+    status?: string;
+    type?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  },
+  // Kept out of `filters` so it never reaches the query key or the request params.
+  options?: { enabled?: boolean },
+) => {
   return useQuery({
     queryKey: ['jobs', filters],
     queryFn: async () => {
@@ -30,6 +34,7 @@ export const useJobs = (filters?: {
     // previous page on screen instead of flashing an empty table between fetches.
     placeholderData: keepPreviousData,
     staleTime: 1000 * 60 * 5, // 5 minutes
+    enabled: options?.enabled ?? true,
   });
 };
 

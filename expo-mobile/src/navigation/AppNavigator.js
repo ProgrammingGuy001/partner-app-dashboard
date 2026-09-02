@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, TouchableOpacity } from 'react-native';
-import * as Haptics from 'expo-haptics';
+import { View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Ionicons from '@react-native-vector-icons/ionicons';
@@ -23,6 +22,7 @@ import SubmitScreen from '../screens/requisite/SubmitScreen';
 import HistoryScreen from '../screens/requisite/HistoryScreen';
 import AccountScreen from '../screens/account/AccountScreen';
 import SiteGRNScreen from '../screens/grn/SiteGRNScreen';
+import RosterScreen from '../screens/roster/RosterScreen';
 import SplashScreen from '../screens/SplashScreen';
 import NotFoundScreen from '../screens/NotFoundScreen';
 import { useAuthStore } from '../store/authStore';
@@ -31,6 +31,8 @@ import { useTheme } from '../hooks/useTheme';
 import { ROUTES, STORAGE_KEYS } from '../util/constants';
 import { logger } from '../util/helpers';
 import * as SecureStore from '../util/secureStore';
+import { Button } from '@/components/ui/button';
+import { radii, spacing, typography } from '../theme/designSystem';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -40,13 +42,14 @@ const TAB_CONFIG = {
   [ROUTES.DASHBOARD]: { inactive: 'home-outline', active: 'home', label: 'Dashboard' },
   [ROUTES.SITE_REQUISITE]: { inactive: 'construct-outline', active: 'construct', label: 'Requisites' },
   [ROUTES.SITE_GRN]: { inactive: 'cube-outline', active: 'cube', label: 'Site GRN' },
+  [ROUTES.ROSTER]: { inactive: 'calendar-outline', active: 'calendar', label: 'Roster' },
   [ROUTES.ACCOUNT]: { inactive: 'person-circle-outline', active: 'person-circle', label: 'Account' },
 };
 
 const MainTabs = () => {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const tabBottom = Math.max(insets.bottom, 12);
+  const tabBottom = Math.max(insets.bottom, spacing.sm);
 
   return (
     <Tab.Navigator
@@ -56,11 +59,12 @@ const MainTabs = () => {
         tabBarInactiveTintColor: colors.textMuted,
         tabBarShowLabel: true,
         tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '700',
+          fontSize: typography.micro.fontSize,
+          lineHeight: typography.micro.lineHeight,
+          fontWeight: typography.micro.fontWeight,
           letterSpacing: 0,
-          marginTop: -4,
-          marginBottom: 8,
+          marginTop: 0,
+          marginBottom: 0,
         },
         tabBarStyle: {
           position: 'absolute',
@@ -68,23 +72,20 @@ const MainTabs = () => {
           left: 16,
           right: 16,
           backgroundColor: colors.surface,
-          borderRadius: 22,
-          height: 68,
-          paddingTop: 12,
-          paddingBottom: 8,
+          borderRadius: (radii.xl + radii.xxl) / 2,
+          height: spacing.xl * 2 + spacing.xxs,
+          paddingTop: spacing.sm,
+          paddingBottom: spacing.xs,
           borderTopWidth: 0,
           ...colors.shadowMd,
           borderWidth: 1,
           borderColor: colors.border,
         },
         tabBarButton: (props) => (
-          <TouchableOpacity
+          <Button
             {...props}
-            activeOpacity={0.78}
-            onPress={(event) => {
-              Haptics.selectionAsync().catch(() => {});
-              props.onPress?.(event);
-            }}
+            variant="ghost"
+            className="h-auto flex-1 rounded-none"
           />
         ),
         tabBarIcon: ({ color, focused }) => {
@@ -95,17 +96,17 @@ const MainTabs = () => {
             <View style={{
               alignItems: 'center',
               justifyContent: 'center',
-              height: 40,
-              width: 40,
+              height: spacing.xl + spacing.xs,
+              width: spacing.xl + spacing.xs,
             }}>
               {focused && (
                 <View style={{
                   position: 'absolute',
-                  top: -8,
-                  width: 16,
-                  height: 3,
+                  top: -spacing.xs,
+                  width: spacing.md,
+                  height: spacing.xxs,
                   backgroundColor: colors.primary,
-                  borderRadius: 2,
+                  borderRadius: radii.pill,
                 }} />
               )}
               <Ionicons
@@ -129,6 +130,11 @@ const MainTabs = () => {
         options={{ title: TAB_CONFIG[ROUTES.SITE_REQUISITE].label }}
       />
       <Tab.Screen
+        name={ROUTES.ROSTER}
+        component={RosterScreen}
+        options={{ title: TAB_CONFIG[ROUTES.ROSTER].label }}
+      />
+      <Tab.Screen
         name={ROUTES.SITE_GRN}
         component={SiteGRNScreen}
         options={{ title: TAB_CONFIG[ROUTES.SITE_GRN].label }}
@@ -136,7 +142,10 @@ const MainTabs = () => {
       <Tab.Screen
         name={ROUTES.ACCOUNT}
         component={AccountScreen}
-        options={{ title: TAB_CONFIG[ROUTES.ACCOUNT].label }}
+        options={{
+          title: TAB_CONFIG[ROUTES.ACCOUNT].label,
+          tabBarItemStyle: { display: 'none' },
+        }}
       />
     </Tab.Navigator>
   );
@@ -286,8 +295,8 @@ const AppNavigator = () => {
     },
     headerTitleStyle: {
       color: colors.text,
-      fontSize: 17,
-      fontWeight: '700',
+      fontSize: (typography.body.fontSize + typography.title3.fontSize) / 2,
+      fontWeight: typography.title3.fontWeight,
       letterSpacing: 0,
     },
     headerTintColor: colors.primary,

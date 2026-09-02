@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, View, ScrollView, TouchableOpacity, Linking } from 'react-native';
+import { Modal, View, ScrollView, Linking } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,7 @@ const DataPoint = ({ icon, label, colors }) => (
   <View className="flex-row items-center gap-3 py-2">
     <View
       className="w-8 h-8 rounded-full items-center justify-center"
-      style={{ backgroundColor: colors.primary + '15' }}
+      style={{ backgroundColor: colors.primaryLight }}
     >
       <Ionicons name={icon} size={16} color={colors.primary} />
     </View>
@@ -41,7 +41,7 @@ const KYCConsentModal = ({ visible, onAccept, onDecline, type = 'pan' }) => {
           <View className="flex-row items-center gap-3 mb-4">
             <View
               className="w-12 h-12 rounded-2xl items-center justify-center"
-              style={{ backgroundColor: colors.primary + '15' }}
+              style={{ backgroundColor: colors.primaryLight }}
             >
               <Ionicons name="shield-checkmark" size={24} color={colors.primary} />
             </View>
@@ -89,17 +89,19 @@ const KYCConsentModal = ({ visible, onAccept, onDecline, type = 'pan' }) => {
               is transmitted securely over encrypted channels and is not sold or shared for marketing.
             </Text>
 
-            <TouchableOpacity
+            <Button
+              variant="link"
+              size="sm"
               onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}
               accessibilityRole="link"
               accessibilityLabel="Read our privacy policy"
-              className="flex-row items-center gap-1.5"
+              className="h-auto self-start px-0"
             >
               <Ionicons name="open-outline" size={14} color={colors.primary} />
               <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
                 Read our Privacy Policy
               </Text>
-            </TouchableOpacity>
+            </Button>
           </ScrollView>
 
           <Button
@@ -109,14 +111,15 @@ const KYCConsentModal = ({ visible, onAccept, onDecline, type = 'pan' }) => {
             <Text className="text-primary-foreground text-base font-bold">I Understand &amp; Agree</Text>
           </Button>
 
-          <TouchableOpacity
+          <Button
+            variant="ghost"
             onPress={onDecline}
             accessibilityRole="button"
             accessibilityLabel="Cancel data collection notice"
-            className="items-center py-2"
+            className="w-full"
           >
             <Text className="text-sm text-muted-foreground font-medium">Cancel</Text>
-          </TouchableOpacity>
+          </Button>
         </View>
       </View>
     </Modal>

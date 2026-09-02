@@ -5,13 +5,10 @@ import {
   ScrollView,
   TextInput,
   View,
-  TouchableOpacity,
   StatusBar,
-  ActivityIndicator,
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { Button, Text } from "@/components/ui";
 import { useAuth } from "../../hooks/useAuth";
 import { useAuthStore } from "../../store/authStore";
@@ -19,6 +16,8 @@ import { useResponsive } from "../../hooks/useResponsive";
 import { useTheme } from "../../hooks/useTheme";
 import { validators } from "../../util/validators";
 import Ionicons from "@react-native-vector-icons/ionicons";
+import { IconButton, Notice, StatusBadge } from '../../components/common/Primitives';
+import { radii, spacing, typography } from '../../theme/designSystem';
 
 const OTP_LENGTH = 6;
 
@@ -98,8 +97,12 @@ const OTPScreen = ({ navigation }) => {
 
   const handleResend = async () => {
     setResendLoading(true);
-    await resendOtp();
+    const result = await resendOtp();
     setResendLoading(false);
+    if (!result.success) {
+      setError(result.error);
+      return;
+    }
     setTimer(60);
     setOtp(Array(OTP_LENGTH).fill(""));
     setError("");
@@ -110,9 +113,9 @@ const OTPScreen = ({ navigation }) => {
 
   // Calculate OTP box size - constrain to maxCardWidth on tablets
   const containerWidth = isTablet
-    ? Math.min(maxCardWidth || 500, width - 48)
-    : width - 48;
-  const BOX_SIZE = Math.min(56, Math.floor((containerWidth - 40) / 6));
+    ? Math.min(maxCardWidth || width, width - spacing.lg * 2)
+    : width - spacing.lg * 2;
+  const BOX_SIZE = Math.min(spacing.xl + spacing.lg, Math.floor((containerWidth - spacing.xl - spacing.xs) / OTP_LENGTH));
 
   return (
     <View className="flex-1 bg-background">
@@ -138,15 +141,11 @@ const OTPScreen = ({ navigation }) => {
         >
           {/* Back button */}
           <View className="px-6 mb-2">
-            <TouchableOpacity
+            <IconButton
+              icon="chevron-back"
+              label="Back to login"
               onPress={() => navigation.navigate("Login")}
-              accessibilityRole="button"
-              accessibilityLabel="Back to login"
-              className="w-11 h-11 rounded-[14px] bg-surface items-center justify-center border border-border"
-              style={colors.shadowSm}
-            >
-              <Ionicons name="chevron-back" size={22} color={colors.text} />
-            </TouchableOpacity>
+            />
           </View>
 
           <View
@@ -159,11 +158,11 @@ const OTPScreen = ({ navigation }) => {
             >
               {/* Shield badge */}
               <View className="self-center mb-8">
-                <View className="w-[88px] h-[88px] rounded-[44px] bg-primary-light justify-center items-center">
-                  <View className="w-[60px] h-[60px] rounded-[30px] bg-primary justify-center items-center">
+                <View className="w-20 h-20 rounded-full bg-primary-light justify-center items-center">
+                  <View className="w-16 h-16 rounded-full bg-primary justify-center items-center">
                     <Ionicons
                       name="shield-checkmark"
-                      size={30}
+                      size={typography.title1.fontSize}
                       color={colors.primaryForeground}
                     />
                   </View>
@@ -171,10 +170,10 @@ const OTPScreen = ({ navigation }) => {
               </View>
 
               {/* Title */}
-              <Text className="text-[30px] font-black text-foreground text-center mb-2.5">
+              <Text style={typography.title1} className="text-foreground text-center mb-2.5">
                 Verify it's you
               </Text>
-              <Text className="text-[15px] text-muted-foreground text-center leading-[22px] mb-10">
+              <Text style={typography.callout} className="text-muted-foreground text-center mb-10">
                 We sent a 6-digit code to{"\n"}
                 <Text className="font-extrabold text-foreground">
                   {maskedPhone}
@@ -215,15 +214,14 @@ const OTPScreen = ({ navigation }) => {
                           : digit
                             ? colors.primary
                             : colors.border,
-                      borderRadius: 16,
+                      borderRadius: radii.lg,
                       backgroundColor: digit
                         ? colors.primaryLight
                         : focused === index
                           ? colors.surface
                           : colors.surface,
                       textAlign: "center",
-                      fontSize: 24,
-                      fontWeight: "800",
+                      ...typography.title2,
                       color: digit ? colors.primary : colors.text,
                     }}
                   />
@@ -231,58 +229,26 @@ const OTPScreen = ({ navigation }) => {
               </View>
 
               {error ? (
-                <View className="flex-row items-center justify-center gap-1.5 mb-6 mt-2">
-                  <Ionicons
-                    name="alert-circle"
-                    size={15}
-                    color={colors.danger}
-                  />
-                  <Text className="text-destructive-muted-foreground text-[13px] font-semibold">
-                    {error}
-                  </Text>
-                </View>
+                <Notice tone="danger" message={error} className="mb-6 mt-2" />
               ) : (
                 <View className="h-10" />
               )}
 
               {/* Verify CTA */}
-              <TouchableOpacity
+              <Button
                 onPress={handleSubmit}
                 disabled={!otpComplete || loading}
-                activeOpacity={0.82}
+                loading={loading}
                 accessibilityRole="button"
                 accessibilityLabel="Verify and continue"
                 accessibilityState={{
                   disabled: !otpComplete || loading,
                   busy: loading,
                 }}
+                size="lg"
               >
-                <LinearGradient
-                  colors={
-                    otpComplete
-                      ? [colors.primary, colors.primaryDark]
-                      : [colors.border, colors.borderStrong || "#d1d5db"]
-                  }
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  className="h-[62px] rounded-[18px] items-center justify-center"
-                  style={colors.shadowMd}
-                >
-                  {loading ? (
-                    <ActivityIndicator
-                      size="small"
-                      color={colors.primaryForeground}
-                    />
-                  ) : (
-                    <Text
-                      className="text-[17px] font-extrabold"
-                      style={{ color: colors.primaryForeground }}
-                    >
-                      Verify & Continue
-                    </Text>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
+                <Text>Verify &amp; Continue</Text>
+              </Button>
 
               {/* Resend / timer */}
               <View className="items-center mt-7">
@@ -291,29 +257,22 @@ const OTPScreen = ({ navigation }) => {
                     <Text className="text-sm text-muted-foreground">
                       Resend code in
                     </Text>
-                    <View className="px-2.5 py-1 bg-primary-light rounded-lg">
-                      <Text className="text-sm text-primary font-extrabold">
-                        {String(Math.floor(timer / 60)).padStart(2, "0")}:
-                        {String(timer % 60).padStart(2, "0")}
-                      </Text>
-                    </View>
+                    <StatusBadge label={`${String(Math.floor(timer / 60)).padStart(2, "0")}:${String(timer % 60).padStart(2, "0")}`} tone="primary" />
                   </View>
                 ) : (
-                  <TouchableOpacity
+                  <Button
+                    variant="ghost"
                     onPress={handleResend}
-                    disabled={resendLoading}
+                    loading={resendLoading}
                     accessibilityRole="button"
                     accessibilityLabel="Resend verification code"
                     accessibilityState={{
                       disabled: resendLoading,
                       busy: resendLoading,
                     }}
-                    className="py-2.5 px-5 bg-primary-light rounded-xl"
                   >
-                    <Text className="text-sm font-extrabold text-primary">
-                      {resendLoading ? "Sending…" : "Resend Code"}
-                    </Text>
-                  </TouchableOpacity>
+                    <Text>Resend code</Text>
+                  </Button>
                 )}
               </View>
             </View>

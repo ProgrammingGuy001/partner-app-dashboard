@@ -1,19 +1,21 @@
 import React, { useMemo } from "react";
-import { Linking, Pressable, View } from "react-native";
+import { Linking, View } from "react-native";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { Text } from "@/components/ui";
 import { useAuthStore } from "../../store/authStore";
 import { JOB_STATUS_LABELS } from "../../util/constants";
 import { formatters } from "../../util/formatters";
 import { useTheme } from "../../hooks/useTheme";
-import { StatusBadge } from "../common/Primitives";
+import { Card, StatusBadge } from "../common/Primitives";
+import { Button } from "@/components/ui/button";
+import { spacing, typography } from "../../theme/designSystem";
 
 const Row = ({ icon, label, value, pressable, colors, isLast }) => {
   const content = (
     <View
       className="flex-row items-center gap-3 px-4 py-3.5"
       style={{
-        minHeight: 58,
+        minHeight: spacing.xl * 2,
         borderBottomWidth: isLast ? 0 : 1,
         borderBottomColor: colors.border,
       }}
@@ -22,11 +24,12 @@ const Row = ({ icon, label, value, pressable, colors, isLast }) => {
         <Ionicons name={icon} size={16} color={colors.primary} />
       </View>
       <View className="flex-1">
-        <Text className="text-[11px] font-bold text-muted-foreground uppercase">
+        <Text style={typography.micro} className="text-muted-foreground uppercase">
           {label}
         </Text>
         <Text
-          className={`text-[15px] font-semibold mt-0.5 ${
+          style={{ fontSize: typography.callout.fontSize, lineHeight: typography.callout.lineHeight }}
+          className={`font-semibold mt-0.5 ${
             pressable ? "text-primary" : "text-foreground"
           }`}
         >
@@ -41,7 +44,9 @@ const Row = ({ icon, label, value, pressable, colors, isLast }) => {
 
   if (!pressable) return content;
   return (
-    <Pressable
+    <Button
+      variant="ghost"
+      className="h-auto w-full rounded-none p-0"
       onPress={pressable}
       accessibilityRole="link"
       accessibilityLabel={`${label}: ${value}`}
@@ -50,7 +55,7 @@ const Row = ({ icon, label, value, pressable, colors, isLast }) => {
       })}
     >
       {content}
-    </Pressable>
+    </Button>
   );
 };
 
@@ -134,12 +139,9 @@ const JobDetails = ({ job }) => {
 
   return (
     <View className="gap-4">
-      <View
-        className="bg-surface p-5 rounded-2xl border border-border"
-        style={colors.shadowSm}
-      >
+      <Card>
         <View className="flex-row justify-between items-start gap-3">
-          <Text className="flex-1 text-[22px] font-extrabold text-foreground leading-[28px]">
+          <Text style={{ fontSize: typography.title2.fontSize, lineHeight: typography.title2.lineHeight }} className="flex-1 font-extrabold text-foreground">
             {job.name}
           </Text>
           <StatusBadge
@@ -149,16 +151,13 @@ const JobDetails = ({ job }) => {
         </View>
 
         {job.description ? (
-          <Text className="text-sm text-muted-foreground leading-[22px] mt-3">
+          <Text className="text-sm text-muted-foreground mt-3" style={{ lineHeight: (typography.callout.lineHeight + typography.body.lineHeight) / 2 }}>
             {job.description}
           </Text>
         ) : null}
-      </View>
+      </Card>
 
-      <View
-        className="rounded-2xl border border-border bg-surface overflow-hidden"
-        style={colors.shadowSm}
-      >
+      <Card padded={false} className="overflow-hidden bg-surface">
         <View className="px-4 pt-4 pb-3 border-b border-border">
           <Text className="text-xs font-extrabold uppercase text-muted-foreground">
             Job Information
@@ -175,7 +174,7 @@ const JobDetails = ({ job }) => {
             isLast={index === rows.length - 1}
           />
         ))}
-      </View>
+      </Card>
     </View>
   );
 };

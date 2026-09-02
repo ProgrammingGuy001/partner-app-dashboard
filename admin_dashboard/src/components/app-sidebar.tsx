@@ -7,6 +7,7 @@ import {
   IconBox,
   IconClipboardList,
   IconCalendarCheck,
+  IconCalendarWeek,
   IconPackage,
   IconShoppingCart,
   IconFileSpreadsheet,
@@ -66,9 +67,19 @@ const navGroups = [
         icon: IconUsers,
       },
       {
+        title: "Mappings",
+        url: "/dashboard/mappings",
+        icon: IconListDetails,
+      },
+      {
         title: "Attendance",
         url: "/dashboard/attendance",
         icon: IconCalendarCheck,
+      },
+      {
+        title: "Roster",
+        url: "/dashboard/roster",
+        icon: IconCalendarWeek,
       },
     ],
   },

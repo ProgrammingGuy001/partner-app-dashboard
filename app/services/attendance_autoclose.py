@@ -31,9 +31,10 @@ def auto_close_open_checkins(db: Session) -> int:
         return 0
 
     closed_keys = {
-        (ip_user_id, job_id, attendance_date)
-        for ip_user_id, job_id, attendance_date in db.query(
+        (ip_user_id, roster_entry_id, job_id, attendance_date)
+        for ip_user_id, roster_entry_id, job_id, attendance_date in db.query(
             DailyAttendance.ip_user_id,
+            DailyAttendance.roster_entry_id,
             DailyAttendance.job_id,
             DailyAttendance.attendance_date,
         ).filter(
@@ -44,13 +45,19 @@ def auto_close_open_checkins(db: Session) -> int:
 
     created = 0
     for check_in in open_check_ins:
-        key = (check_in.ip_user_id, check_in.job_id, check_in.attendance_date)
+        key = (
+            check_in.ip_user_id,
+            check_in.roster_entry_id,
+            check_in.job_id,
+            check_in.attendance_date,
+        )
         if key in closed_keys:
             continue
         closed_keys.add(key)
         db.add(
             DailyAttendance(
                 job_id=check_in.job_id,
+                roster_entry_id=check_in.roster_entry_id,
                 ip_user_id=check_in.ip_user_id,
                 attendance_date=check_in.attendance_date,
                 phone=check_in.phone,

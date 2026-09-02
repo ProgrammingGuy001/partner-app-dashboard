@@ -3,7 +3,8 @@ import { ActivityIndicator, Platform, type PressableProps } from "react-native";
 import * as Haptics from "expo-haptics";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
-import { TextClassContext } from "@/components/ui/text";
+import { useTheme } from "../../hooks/useTheme";
+import { Text, TextClassContext } from "@/components/ui/text";
 import { PrimitivePressable, PrimitiveView } from "@/components/ui/primitives";
 
 const buttonVariants = cva(
@@ -100,14 +101,15 @@ const buttonTextVariants = cva(
   },
 );
 
-const loaderColor: Record<string, string> = {
-  default: "#1c1515",
-  destructive: "#1c1515",
-  outline: "#af7c71",
-  secondary: "#f1e6dd",
-  ghost: "#f1e6dd",
-  link: "#af7c71",
-};
+// Spinner tint per variant, read from the active palette rather than fixed hexes.
+const loaderColorFor = (colors: Record<string, any>): Record<string, string> => ({
+  default: colors.primaryForeground,
+  destructive: colors.primaryForeground,
+  outline: colors.primary,
+  secondary: colors.text,
+  ghost: colors.text,
+  link: colors.primary,
+});
 
 export type ButtonProps = Omit<PressableProps, "children"> &
   VariantProps<typeof buttonVariants> & {
@@ -128,6 +130,11 @@ export function Button({
   accessibilityState,
   ...props
 }: ButtonProps) {
+  const { colors } = useTheme();
+  // ponytail: RN throws on bare string children — wrap here, not at 20 call sites
+  const content = typeof children === "string" ? <Text>{children}</Text> : children;
+  const loaderColor = React.useMemo(() => loaderColorFor(colors), [colors]);
+
   const handlePress = React.useCallback<NonNullable<PressableProps["onPress"]>>(
     (event) => {
       Haptics.selectionAsync().catch(() => {});
@@ -158,12 +165,12 @@ export function Button({
           <PrimitiveView className="flex-row items-center gap-2">
             <ActivityIndicator
               size="small"
-              color={loaderColor[variant ?? "default"] ?? "#1c1515"}
+              color={loaderColor[variant ?? "default"] ?? colors.text}
             />
-            {children}
+            {content}
           </PrimitiveView>
         ) : (
-          children
+          content
         )}
       </PrimitivePressable>
     </TextClassContext.Provider>

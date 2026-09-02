@@ -14,7 +14,12 @@ import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from '@/components/ui/card';
 import {
-  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from '@/components/ui/dialog';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -325,6 +330,7 @@ const EditAccountDialog: React.FC<{
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Edit {target?.email}</DialogTitle>
+          <DialogDescription>Change this admin&apos;s details and access.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
@@ -341,7 +347,7 @@ const EditAccountDialog: React.FC<{
               onChange={(e) => setEmail(e.target.value)} placeholder="admin@modula.in"
             />
             {emailChanged && (
-              <p className="text-xs text-amber-600 dark:text-amber-500">
+              <p className="text-xs text-warning">
                 Changing the email is changing the login. It signs the account out everywhere.
               </p>
             )}
@@ -383,6 +389,7 @@ const ResetPasswordDialog: React.FC<{
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Reset password for {target?.email}</DialogTitle>
+          <DialogDescription>Set a new password for this admin account.</DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
           <Label htmlFor="dev-reset-password">New password</Label>
@@ -534,6 +541,7 @@ const EditIPDialog: React.FC<{
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Edit IP {target?.phone_number}</DialogTitle>
+          <DialogDescription>Change this IP user&apos;s profile and verification state.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">

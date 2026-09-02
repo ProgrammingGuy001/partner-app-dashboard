@@ -122,6 +122,9 @@ export interface Job {
   handover_document_link?: string | null;
   ncr_document_link?: string | null;
   project_report_document_link?: string | null;
+  // Measurement, readiness and validation jobs file one report that is both the visit
+  // record and the closure document. See src/lib/jobDocuments.ts.
+  site_report_document_link?: string | null;
   drawing_document_link?: string | null;
   sales_order?: string | null;
   // Optional attendance slot as "HH:MM:SS". When set, check-in opens at slot_start and
@@ -137,6 +140,58 @@ export interface Job {
 }
 
 export type JobUpdate = Partial<Omit<Job, 'id'>>;
+
+export interface RosterSlot {
+  slot_number: 1 | 2;
+  start_time: string;
+  end_time: string;
+}
+
+export interface RosterJob {
+  id: number;
+  name: string;
+  type: string | null;
+  status: string;
+  customer_city: string | null;
+  start_date: string | null;
+  delivery_date: string | null;
+  slot_start: string | null;
+  slot_end: string | null;
+  assigned_ip_id: number | null;
+  assigned_ip_name: string | null;
+}
+
+export interface RosterIP {
+  id: number;
+  name: string;
+  phone_number: string;
+  city: string | null;
+}
+
+export interface RosterEntry {
+  id: number;
+  job_id: number;
+  ip_user_id: number;
+  work_date: string;
+  slot_number: 1 | 2;
+  slot_start: string;
+  slot_end: string;
+  is_job_default: boolean;
+  status: 'scheduled' | 'blocked' | 'check_in_open' | 'checked_in' | 'report_due' | 'completed' | 'missed' | 'auto_closed';
+  job: RosterJob;
+  ip: RosterIP;
+}
+
+export interface AdminRoster {
+  date_from: string;
+  date_to: string;
+  admins: Array<{ id: number; name: string; email: string }>;
+  selected_admin_id: number | null;
+  slots: RosterSlot[];
+  jobs: RosterJob[];
+  ips: RosterIP[];
+  entries: RosterEntry[];
+}
 
 // A rate card. Superadmins create them; any admin picks one on a job, which
 // stamps the card's type and rate onto that job.
@@ -157,10 +212,21 @@ export interface ResolvedMapUrl {
   place_name: string | null;
 }
 
+// The union of completion slots; which ones a job needs depends on its type and is
+// enforced by the backend (app/crud/job.py::validate_job_completion).
+export type CompletionDocumentSlot =
+  | 'handover'
+  | 'ncr'
+  | 'project_report'
+  | 'measurement_report'
+  | 'readiness_report'
+  | 'validation_report';
+
 export interface CompletionDocumentLinks {
-  handover_document_link: string;
-  ncr_document_link: string;
-  project_report_document_link: string;
+  handover_document_link?: string;
+  ncr_document_link?: string;
+  project_report_document_link?: string;
+  site_report_document_link?: string;
 }
 
 export interface NcrDocumentRow {
@@ -407,6 +473,12 @@ export interface ChecklistWithStatus {
   items: ChecklistItem[];
 }
 
+export interface JobTypeChecklistMapping {
+  job_type: string;
+  checklist_ids: number[];
+  updated_jobs: number;
+}
+
 // ============ API Response Helpers ============
 const handleResponse = <T>(response: AxiosResponse<T> | T): T => {
   // Check if response has data property (consistent API structure)
@@ -632,7 +704,7 @@ export const jobAPI = {
   getHistory: (id: number): Promise<JobStatusLog[]> =>
     axiosInstance.get(`/jobs/${id}/history`).then(res => handleResponse(res)),
 
-  uploadFile: (file: File, completion?: { jobId: number; documentType: 'handover' | 'ncr' | 'project_report' }): Promise<{ url: string }> => {
+  uploadFile: (file: File, completion?: { jobId: number; documentType: CompletionDocumentSlot }): Promise<{ url: string }> => {
     const formData = new FormData();
     formData.append("file", file);
     if (completion) {
@@ -737,8 +809,29 @@ export const adminAPI = {
   assignAdminsToIP: (ipId: number, adminIds: number[]): Promise<ApiResponse> =>
     axiosInstance.post(`/admin/ips/${ipId}/assign-admins`, { admin_ids: adminIds }).then(res => handleResponse(res)),
 
+  assignIPsToAdmin: (adminId: number, ipIds: number[]): Promise<ApiResponse> =>
+    axiosInstance.put(`/admin/admin-users/${adminId}/ips`, { ip_ids: ipIds }).then(res => handleResponse(res)),
+
   getIPAdmins: (ipId: number): Promise<AdminUser[]> =>
     axiosInstance.get(`/admin/ips/${ipId}/admins`).then(res => handleResponse(res)),
+
+};
+
+export const rosterAPI = {
+  get: (params: { admin_id?: number; date_from: string; date_to: string }): Promise<AdminRoster> =>
+    axiosInstance.get('/admin/roster', { params }).then(res => handleResponse(res)),
+
+  create: (data: { job_id: number; ip_user_id: number; work_date: string; slot_number: 1 | 2 }): Promise<RosterEntry> =>
+    axiosInstance.post('/admin/roster/entries', data).then(res => handleResponse(res)),
+
+  replace: (id: number, ipUserId: number): Promise<RosterEntry> =>
+    axiosInstance.put(`/admin/roster/entries/${id}`, { ip_user_id: ipUserId }).then(res => handleResponse(res)),
+
+  remove: (id: number): Promise<void> =>
+    axiosInstance.delete(`/admin/roster/entries/${id}`).then(() => undefined),
+
+  updateSlot: (slotNumber: 1 | 2, data: { start_time: string; end_time: string }): Promise<RosterSlot> =>
+    axiosInstance.put(`/admin/roster/slots/${slotNumber}`, data).then(res => handleResponse(res)),
 };
 
 export const purchaseOrderAPI = {
@@ -982,6 +1075,12 @@ export const checklistAPI = {
   getAll: (): Promise<Checklist[]> =>
     axiosInstance.get('/checklists').then(res => handleResponse(res)),
 
+  getJobTypeMappings: (): Promise<JobTypeChecklistMapping[]> =>
+    axiosInstance.get('/checklists/job-types').then(res => handleResponse(res)),
+
+  updateJobTypeMapping: (jobType: string, checklistIds: number[]): Promise<JobTypeChecklistMapping> =>
+    axiosInstance.put(`/checklists/job-types/${encodeURIComponent(jobType)}`, { checklist_ids: checklistIds }).then(res => handleResponse(res)),
+
   create: (data: { name: string; description?: string }): Promise<Checklist> =>
     axiosInstance.post('/checklists', data).then(res => handleResponse(res)),
 
@@ -1009,7 +1108,8 @@ export const checklistAPI = {
   updateJobChecklistItemStatus: (
     jobId: number,
     itemId: number,
-    data: { checked?: boolean; is_approved?: boolean; review_status?: 'pending' | 'approved' | 'rejected'; admin_comment?: string | null; document_link?: string | null }
+    // `comment` is the IP's site note; a supervisor may fill it in on their behalf.
+    data: { checked?: boolean; is_approved?: boolean; review_status?: 'pending' | 'approved' | 'rejected'; comment?: string | null; admin_comment?: string | null; document_link?: string | null }
   ): Promise<ApiResponse> =>
     axiosInstance.put(`/checklists/jobs/${jobId}/items/${itemId}/status`, data).then(res => handleResponse(res)),
 
@@ -1095,6 +1195,20 @@ export interface OdooPickingInfo {
 
 // ─── Site GRN API ─────────────────────────────────────────────────────────────
 
+export interface RepairOrderInfo {
+  id: number | null;
+  name: string;
+}
+
+export interface JobGRNPaperwork {
+  job_id: number;
+  sales_order: string | null;
+  repair_orders: RepairOrderInfo[];
+  /** Set when the SO could not be resolved in Odoo; the GRNs below are still usable. */
+  lookup_error: string | null;
+  grns: GRN[];
+}
+
 export const grnAPI = {
   lookup: (sourceDoc: string): Promise<OdooPickingInfo[]> =>
     axiosInstance.get(`/admin/grn/lookup/${encodeURIComponent(sourceDoc)}`).then(res => handleResponse(res)),
@@ -1107,6 +1221,9 @@ export const grnAPI = {
 
   get: (id: number): Promise<GRN> =>
     axiosInstance.get(`/admin/grn/${id}`).then(res => handleResponse(res)),
+
+  jobPaperwork: (jobId: number): Promise<JobGRNPaperwork> =>
+    axiosInstance.get(`/admin/grn/job/${jobId}`).then(res => handleResponse(res)),
 
   retrySync: (id: number): Promise<GRN> =>
     axiosInstance.post(`/admin/grn/${id}/retry-sync`).then(res => handleResponse(res)),

@@ -9,82 +9,82 @@
     --radius-xl: 1.25rem;
     --radius-2xl: 1.5rem;
 
-    /* Core */
-    --background: 0 14% 10%;
-    --foreground: 27 41% 91%;
+    /* Core — a light, high-contrast shell: readable on site, in daylight. */
+    --background: 0 0% 100%;
+    --foreground: 20 13% 9%;
 
     /* Surfaces */
-    --card: 0 15% 17%;
-    --card-foreground: 27 41% 91%;
-    --surface: 0 14% 15%;
-    --surface-alt: 0 15% 17%;
-    --surface-elevated: 0 15% 17%;
-    --popover: 0 15% 17%;
-    --popover-foreground: 27 41% 91%;
+    --card: 0 0% 100%;
+    --card-foreground: 20 13% 9%;
+    --surface: 40 16% 96%;
+    --surface-alt: 30 18% 93%;
+    --surface-elevated: 0 0% 100%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 20 13% 9%;
 
-    /* Primary brand */
-    --primary: 11 28% 56%;
-    --primary-foreground: 0 14% 10%;
-    --primary-light: 12 21% 19%;
+    /* Primary brand — the same warm brown the web apps use */
+    --primary: 14 24% 34%;
+    --primary-foreground: 0 0% 100%;
+    --primary-light: 18 29% 93%;
 
     /* Secondary / neutral */
-    --secondary: 0 15% 17%;
-    --secondary-foreground: 27 41% 91%;
+    --secondary: 30 18% 93%;
+    --secondary-foreground: 20 13% 9%;
 
     /* Muted */
-    --muted: 0 15% 17%;
-    --muted-foreground: 36 36% 75%;
+    --muted: 30 18% 93%;
+    --muted-foreground: 26 6% 45%;
 
     /* Accent */
-    --accent: 12 18% 20%;
-    --accent-foreground: 27 41% 91%;
+    --accent: 32 39% 94%;
+    --accent-foreground: 20 13% 9%;
 
     /* Semantic — success */
-    --success: 154 58% 62%;
+    --success: 142 55% 34%;
     --success-foreground: 0 0% 100%;
-    --success-muted: 152 28% 18%;
-    --success-muted-foreground: 152 50% 72%;
+    --success-muted: 143 37% 93%;
+    --success-muted-foreground: 144 58% 25%;
 
     /* Semantic — warning */
-    --warning: 38 82% 67%;
+    --warning: 38 93% 32%;
     --warning-foreground: 0 0% 100%;
-    --warning-muted: 38 35% 18%;
-    --warning-muted-foreground: 38 82% 74%;
+    --warning-muted: 38 77% 93%;
+    --warning-muted-foreground: 38 93% 26%;
 
     /* Semantic — info */
-    --info: 216 100% 77%;
+    --info: 206 54% 40%;
     --info-foreground: 0 0% 100%;
-    --info-muted: 204 35% 18%;
-    --info-muted-foreground: 204 72% 74%;
+    --info-muted: 206 53% 94%;
+    --info-muted-foreground: 207 56% 31%;
 
     /* Destructive */
-    --destructive: 354 100% 74%;
-    --destructive-foreground: 0 14% 10%;
-    --destructive-muted: 346 35% 18%;
-    --destructive-muted-foreground: 346 62% 74%;
+    --destructive: 6 63% 46%;
+    --destructive-foreground: 0 0% 100%;
+    --destructive-muted: 7 69% 95%;
+    --destructive-muted-foreground: 6 68% 35%;
 
     /* Borders & inputs */
-    --border: 15 26% 25%;
-    --border-strong: 14 25% 34%;
-    --input: 15 26% 25%;
-    --ring: 11 28% 56%;
+    --border: 30 15% 89%;
+    --border-strong: 30 13% 82%;
+    --input: 30 15% 89%;
+    --ring: 14 24% 34%;
 
     /* Charts */
-    --chart-1: 11 28% 56%;
-    --chart-2: 36 36% 75%;
-    --chart-3: 154 58% 62%;
-    --chart-4: 38 82% 67%;
-    --chart-5: 216 100% 77%;
+    --chart-1: 14 24% 34%;
+    --chart-2: 32 30% 60%;
+    --chart-3: 142 55% 34%;
+    --chart-4: 38 93% 32%;
+    --chart-5: 206 54% 40%;
 
     /* Sidebar */
-    --sidebar: 0 14% 10%;
-    --sidebar-foreground: 27 41% 91%;
-    --sidebar-primary: 11 28% 56%;
-    --sidebar-primary-foreground: 0 14% 10%;
-    --sidebar-accent: 0 15% 17%;
-    --sidebar-accent-foreground: 27 41% 91%;
-    --sidebar-border: 15 26% 25%;
-    --sidebar-ring: 11 28% 56%;
+    --sidebar: 0 0% 100%;
+    --sidebar-foreground: 20 13% 9%;
+    --sidebar-primary: 14 24% 34%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 30 18% 93%;
+    --sidebar-accent-foreground: 20 13% 9%;
+    --sidebar-border: 30 15% 89%;
+    --sidebar-ring: 14 24% 34%;
   }
 
   .dark {

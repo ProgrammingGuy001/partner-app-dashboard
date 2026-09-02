@@ -11,6 +11,7 @@ from app.database import get_db
 from app.model.ip import ip
 from app.model.user import User
 
+#!this is a dependency that will be used in the routes to get the current authenticated user (IP or Admin)
 def get_current_user(
     token: str = Depends(cookie_bearer),
     db: Session = Depends(get_db)

@@ -8,8 +8,15 @@ const isISODate = (value) => {
     && parsed.getUTCDate() === day;
 };
 
-module.exports = { isISODate };
+// Local date, not toISOString() — that is UTC and rolls the day over early in IST.
+const todayISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+module.exports = { isISODate, todayISO };
 
 if (require.main === module) {
   console.assert(isISODate('2026-08-02') && !isISODate('2026-02-30'));
+  console.assert(isISODate(todayISO()));
 }

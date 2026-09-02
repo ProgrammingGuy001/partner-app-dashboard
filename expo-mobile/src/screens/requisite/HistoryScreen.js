@@ -5,24 +5,26 @@ import React, {
   useState,
 } from "react";
 import {
-  Pressable,
   RefreshControl,
   TextInput,
   View,
-  TouchableOpacity,
   ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import * as Haptics from "expo-haptics";
 import { Text } from "@/components/ui/text";
+import { Button } from "@/components/ui/button";
 import EmptyState, { SkeletonList } from "../../components/common/EmptyState";
-import { Notice } from "../../components/common/Primitives";
+import { Card, IconButton, Notice, StatusBadge } from "../../components/common/Primitives";
 import { bomAPI } from "../../api/bomApi";
 import { useToast } from "../../hooks/useToast";
 import { useResponsive } from "../../hooks/useResponsive";
 import { useTheme } from "../../hooks/useTheme";
 import { formatters } from "../../util/formatters";
+import ScreenHeader from '../../components/common/ScreenHeader';
+import { getApiErrorMessage } from '../../api/apiErrors';
+import { spacing, typography } from '../../theme/designSystem';
 
 const HistoryScreen = ({ navigation }) => {
   const toast = useToast();
@@ -45,7 +47,7 @@ const HistoryScreen = ({ navigation }) => {
     try {
       await bomAPI.downloadRepairOrder(id, salesOrder);
     } catch (err) {
-      toast.error(err?.message || 'Failed to download repair order');
+      toast.error(getApiErrorMessage(err));
     } finally {
       setDownloadingId(null);
     }
@@ -58,7 +60,7 @@ const HistoryScreen = ({ navigation }) => {
       await fetchHistory(true);
       toast.success(successMessage);
     } catch (err) {
-      toast.error(err?.message || 'Could not update requisite');
+      toast.error(getApiErrorMessage(err));
     } finally {
       setUpdatingId(null);
     }
@@ -71,7 +73,7 @@ const HistoryScreen = ({ navigation }) => {
       const data = await bomAPI.getHistory(historyLimit, 0);
       setHistory(data);
     } catch (err) {
-      setError(err.message || "Failed to fetch history");
+      setError(getApiErrorMessage(err));
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -138,7 +140,7 @@ const HistoryScreen = ({ navigation }) => {
   return (
     <SafeAreaView className="flex-1 bg-background">
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: px, paddingBottom: 120 }}
+        contentContainerStyle={{ paddingHorizontal: px, paddingBottom: spacing.xl * 4 }}
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -151,31 +153,11 @@ const HistoryScreen = ({ navigation }) => {
         }
       >
         {/* Header */}
-        <View className="flex-row items-center gap-3 pt-4 mb-6">
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-            className="w-10 h-10 rounded-full bg-surface items-center justify-center border border-border"
-            style={colors.shadowSm}
-          >
-            <Ionicons name="arrow-back" size={20} color={colors.text} />
-          </TouchableOpacity>
-          <View className="flex-1">
-            <Text className="text-xs font-bold text-muted-foreground uppercase">
-              REQUISITE
-            </Text>
-            <Text className="text-xl font-extrabold text-foreground">
-              History
-            </Text>
-          </View>
-        </View>
+        <ScreenHeader eyebrow="Requisite" title="History" subtitle="Submitted site requisites" />
+        <IconButton icon="arrow-back" label="Go back" onPress={() => navigation.goBack()} className="mb-4" />
 
         {/* Filters Card */}
-        <View
-          className="bg-surface rounded-2xl p-5 mb-6 border border-border"
-          style={colors.shadowMd}
-        >
+        <Card elevated className="mb-6">
           <View className="gap-2 mb-5">
             <Text className="text-xs font-bold text-muted-foreground uppercase">
               Search
@@ -198,50 +180,41 @@ const HistoryScreen = ({ navigation }) => {
               {statusOptions.map((option) => {
                 const active = statusFilter === option.value;
                 return (
-                  <TouchableOpacity
+                  <Button
+                    variant={active ? "default" : "outline"}
+                    size="sm"
                     key={option.value}
                     onPress={() => setStatusFilter(option.value)}
                     accessibilityRole="button"
                     accessibilityLabel={`Filter by ${option.label}`}
                     accessibilityState={{ selected: active }}
-                    className={`px-4 py-2.5 rounded-xl border ${
-                      active
-                        ? "bg-primary border-primary"
-                        : "bg-background border-border"
-                    }`}
                   >
-                    <Text
-                      className={`text-[13px] font-bold ${
-                        active ? "text-primary-foreground" : "text-muted-foreground"
-                      }`}
-                    >
-                      {option.label}
-                    </Text>
-                  </TouchableOpacity>
+                    <Text>{option.label}</Text>
+                  </Button>
                 );
               })}
             </View>
           </View>
-        </View>
+        </Card>
 
         {error ? (
           <View className="mb-4 gap-2">
-            <Notice tone="danger" message={error} />
-            <TouchableOpacity
+            <Notice tone={history.length ? "warning" : "danger"} title={history.length ? "Showing saved history" : "History unavailable"} message={error} />
+            <Button
+              variant="outline"
               onPress={handleRefresh}
-              disabled={refreshing}
+              loading={refreshing}
               accessibilityRole="button"
               accessibilityLabel="Retry loading requisite history"
               accessibilityState={{ disabled: refreshing, busy: refreshing }}
-              className="min-h-11 items-center justify-center rounded-xl border border-border bg-surface px-4"
             >
-              <Text className="text-sm font-bold text-primary">{refreshing ? "Retrying…" : "Retry"}</Text>
-            </TouchableOpacity>
+              <Text>Retry</Text>
+            </Button>
           </View>
         ) : null}
 
         {!filteredHistory.length ? (
-          <View className="py-[60px]">
+          <View className="py-16">
             <EmptyState
               icon={
                 searchTerm || statusFilter !== "all"
@@ -266,16 +239,12 @@ const HistoryScreen = ({ navigation }) => {
               const expanded = expandedItems.has(item.id);
               const repairOrderName = getRepairOrderName(item);
               return (
-                <View
+                <Card
+                  padded={false}
                   key={item.id}
-                  className="bg-surface rounded-2xl border border-border overflow-hidden"
-                  style={colors.shadowSm}
+                  className="overflow-hidden"
                 >
-                  <Pressable
-                    onPress={() => toggleExpand(item.id)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Toggle requisite ${repairOrderName}`}
-                    accessibilityState={{ expanded }}
+                  <View
                     className="p-4 flex-row items-center justify-between"
                   >
                     <View className="flex-1 gap-1">
@@ -300,7 +269,9 @@ const HistoryScreen = ({ navigation }) => {
                       </Text>
                     </View>
                     <View className="flex-row items-center gap-2">
-                      <TouchableOpacity
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onPress={(event) => {
                           event.stopPropagation();
                           handleDownload(item.id, item.sales_order);
@@ -309,85 +280,59 @@ const HistoryScreen = ({ navigation }) => {
                         accessibilityRole="button"
                         accessibilityLabel={`Download repair order for ${repairOrderName}`}
                         accessibilityState={{ disabled: downloadingId === item.id, busy: downloadingId === item.id }}
-                        className="h-8 px-3 rounded-xl flex-row items-center gap-1 border border-border bg-background"
-                        style={{ opacity: downloadingId === item.id ? 0.5 : 1 }}
                       >
                         <Ionicons
                           name={downloadingId === item.id ? "hourglass-outline" : "download-outline"}
-                          size={14}
+                          size={typography.caption.fontSize}
                           color={colors.primary}
                         />
-                        <Text className="text-xs font-bold" style={{ color: colors.primary }}>
-                          RO
-                        </Text>
-                      </TouchableOpacity>
-                      <View className="w-8 h-8 rounded-2xl bg-background items-center justify-center">
-                        <Ionicons
-                          name={expanded ? "chevron-up" : "chevron-down"}
-                          size={16}
-                          color={colors.primary}
-                        />
-                      </View>
+                        <Text>RO</Text>
+                      </Button>
+                      <IconButton
+                        icon={expanded ? "chevron-up" : "chevron-down"}
+                        label={`${expanded ? "Collapse" : "Expand"} requisite ${repairOrderName}`}
+                        onPress={() => toggleExpand(item.id)}
+                      />
                     </View>
-                  </Pressable>
+                  </View>
 
                   <View className="p-4 border-t border-background gap-3">
                     <View className="flex-row items-center gap-1.5">
-                      <Text className="text-[12px] font-bold text-muted-foreground">
+                      <Text style={typography.captionStrong} className="text-muted-foreground">
                         STATUS
                       </Text>
-                      <View
-                        className="px-2 py-1 rounded-lg"
-                        style={{
-                          backgroundColor:
-                            item.status === "completed"
-                              ? colors.success + "15"
-                              : colors.warning + "15",
-                        }}
-                      >
-                        <Text
-                          className="text-[10px] font-extrabold uppercase"
-                          style={{
-                            color:
-                              item.status === "completed"
-                                ? colors.success
-                                : colors.warning,
-                          }}
-                        >
-                          {item.status}
-                        </Text>
-                      </View>
+                      <StatusBadge label={item.status} tone={item.status === "completed" ? "success" : "warning"} />
                     </View>
                     <View className="gap-2 rounded-xl border border-border bg-background p-3">
-                      <Text className="text-[11px] font-bold uppercase text-muted-foreground">Odoo sync</Text>
+                      <Text style={typography.micro} className="uppercase text-muted-foreground">Odoo sync</Text>
                       <Text className={`text-sm font-bold ${item.odoo_sync_status === 'failed' ? 'text-destructive' : 'text-foreground'}`}>
                         {item.odoo_sync_status}
                       </Text>
                       {item.odoo_sync_error ? <Text className="text-xs text-destructive">{item.odoo_sync_error}</Text> : null}
                       <View className="flex-row flex-wrap gap-2">
                         {item.odoo_sync_status === 'failed' ? (
-                          <TouchableOpacity
+                          <Button
+                            variant="outline"
+                            size="sm"
                             disabled={updatingId === item.id}
                             onPress={() => runAction(item.id, () => bomAPI.retrySync(item.id), 'Odoo sync retried')}
-                            className="min-h-11 flex-row items-center justify-center gap-1 rounded-xl border border-border px-3"
-                            style={{ opacity: updatingId === item.id ? 0.5 : 1 }}
                           >
                             <Ionicons name="refresh" size={15} color={colors.primary} />
-                            <Text className="text-xs font-bold text-primary">Retry sync</Text>
-                          </TouchableOpacity>
+                            <Text>Retry sync</Text>
+                          </Button>
                         ) : null}
-                        <TouchableOpacity
+                        <Button
+                          variant="outline"
+                          size="sm"
                           disabled={updatingId === item.id}
                           onPress={() => runAction(
                             item.id,
                             () => bomAPI.updateStatus(item.id, item.status === 'completed' ? 'pending' : 'completed'),
                             item.status === 'completed' ? 'Requisite reopened' : 'Requisite completed',
                           )}
-                          className="min-h-11 items-center justify-center rounded-xl border border-border px-3"
-                          style={{ opacity: updatingId === item.id ? 0.5 : 1 }}
                         >
-                          <Text className="text-xs font-bold text-primary">{item.status === 'completed' ? 'Reopen' : 'Mark completed'}</Text>
-                        </TouchableOpacity>
+                          <Text>{item.status === 'completed' ? 'Reopen' : 'Mark completed'}</Text>
+                        </Button>
                       </View>
                     </View>
                   </View>
@@ -407,8 +352,8 @@ const HistoryScreen = ({ navigation }) => {
                           ["Closed", formatters.dateTime(item.closed_date)],
                           ["Delivery Address", item.delivery_address],
                         ].map(([label, value]) => (
-                          <View key={label} className="min-w-[47%] flex-1 rounded-xl border border-border bg-surface p-3">
-                            <Text className="text-[10px] font-bold uppercase text-muted-foreground">{label}</Text>
+                          <View key={label} className="basis-2/5 flex-1 rounded-xl border border-border bg-surface p-3">
+                            <Text style={typography.micro} className="uppercase text-muted-foreground">{label}</Text>
                             <Text className="mt-1 text-xs font-semibold text-foreground">{value || "N/A"}</Text>
                           </View>
                         ))}
@@ -433,24 +378,10 @@ const HistoryScreen = ({ navigation }) => {
                                   {req.quantity}
                                 </Text>
                                 {req.responsible_department && (
-                                  <View
-                                    className="px-2 py-0.5 rounded-lg"
-                                    style={{ backgroundColor: colors.primary + '20' }}
-                                  >
-                                    <Text
-                                      className="text-[10px] font-bold capitalize"
-                                      style={{ color: colors.primary }}
-                                    >
-                                      {req.responsible_department}
-                                    </Text>
-                                  </View>
+                                  <StatusBadge label={req.responsible_department} tone="primary" />
                                 )}
                                 {req.component_status ? (
-                                  <View className="px-2 py-0.5 rounded-lg bg-muted">
-                                    <Text className="text-[10px] font-bold capitalize text-foreground">
-                                      {req.component_status}
-                                    </Text>
-                                  </View>
+                                  <StatusBadge label={req.component_status} />
                                 ) : null}
                               </View>
                               <Text className="text-xs text-muted-foreground">
@@ -461,32 +392,29 @@ const HistoryScreen = ({ navigation }) => {
                           </View>
                         ))
                       ) : (
-                        <Text className="text-center text-muted-foreground text-[13px] py-2.5">
+                        <Text style={typography.caption} className="text-center text-muted-foreground py-2.5">
                           No line items found.
                         </Text>
                       )}
                     </View>
                   )}
-                </View>
+                </Card>
               );
             })}
             {history.length === historyLimit ? (
-              <TouchableOpacity
+              <Button
+                variant="outline"
                 onPress={() => {
                   setLoadingMore(true);
                   setHistoryLimit((current) => current + 100);
                 }}
-                disabled={loadingMore}
+                loading={loadingMore}
                 accessibilityRole="button"
                 accessibilityLabel="Load more requisite history"
                 accessibilityState={{ disabled: loadingMore, busy: loadingMore }}
-                className="min-h-12 items-center justify-center rounded-xl border border-border bg-surface px-4"
-                style={{ opacity: loadingMore ? 0.6 : 1 }}
               >
-                <Text className="text-sm font-bold text-primary">
-                  {loadingMore ? "Loading…" : "Load 100 more"}
-                </Text>
-              </TouchableOpacity>
+                <Text>Load 100 more</Text>
+              </Button>
             ) : null}
           </View>
         )}

@@ -1,51 +1,29 @@
-import apiClient from './axiosConfig';
 import { toRNFile } from '../util/helpers';
+import {
+  deleteVerificationData,
+  getPanelAccess,
+  getVerificationStatus,
+  uploadDocument,
+  verifyBank,
+  verifyPan,
+} from './verificationGeneratedApi';
 
 export const verificationApi = {
-  getVerificationStatus: async () => {
-    const response = await apiClient.get('/verification/status');
-    return response.data;
-  },
+  getVerificationStatus,
 
-  verifyPan: async (pan) => {
-    const response = await apiClient.post('/verification/pan', {
-      pan: pan.toUpperCase(),
-    });
-    return response.data;
-  },
+  verifyPan,
 
-  verifyBank: async (accountNumber, ifsc) => {
-    const response = await apiClient.post('/verification/bank', {
-      account_number: accountNumber,
-      ifsc: ifsc.toUpperCase(),
-      fetch_ifsc: false,
-    });
-    return response.data;
-  },
+  verifyBank,
 
   uploadDocument: async (file) => {
-    const formData = new FormData();
     const rnFile = toRNFile(file);
     if (!rnFile) {
       throw new Error('Invalid file selected');
     }
-    formData.append('file', rnFile);
-
-    const response = await apiClient.post('/verification/verify_document', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    return response.data;
+    return uploadDocument(rnFile);
   },
 
-  getPanelAccess: async () => {
-    const response = await apiClient.get('/verification/panel-access');
-    return response.data;
-  },
+  getPanelAccess,
 
-  deleteVerificationData: async () => {
-    const response = await apiClient.delete('/verification/data');
-    return response.data;
-  },
+  deleteVerificationData,
 };

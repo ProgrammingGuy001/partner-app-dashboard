@@ -1,20 +1,11 @@
-import apiClient from './axiosConfig';
+import { getAssignedGrns, getJobGrnPaperwork, submitGrn } from './grnGeneratedApi';
 
 export const grnApi = {
-  getAssigned: async () => {
-    const grns = [];
-    const limit = 50;
-    while (true) {
-      const res = await apiClient.get('/dashboard/grn/assigned', {
-        params: { offset: grns.length, limit },
-      });
-      grns.push(...res.data);
-      if (res.data.length < limit) return grns;
-    }
-  },
+  getAssigned: getAssignedGrns,
 
-  submit: async (grnId, packages) => {
-    const res = await apiClient.post(`/dashboard/grn/${grnId}/submit`, { packages });
-    return res.data;
-  },
+  // The SO, the repair orders Odoo links to it, and this job's GRNs - the same
+  // payload the supervisor sees.
+  getJobPaperwork: getJobGrnPaperwork,
+
+  submit: submitGrn,
 };

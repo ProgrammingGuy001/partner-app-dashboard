@@ -5,6 +5,7 @@ import Animated, { FadeInDown, FadeOutUp } from 'react-native-reanimated';
 import { Text } from '@/components/ui';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { useTheme } from '../../hooks/useTheme';
+import { typography } from '../../theme/designSystem';
 
 const OfflineBanner = () => {
   const { isOnline, isChecking } = useNetworkStatus();
@@ -19,7 +20,7 @@ const OfflineBanner = () => {
       className="flex-row items-center justify-center gap-2 bg-warning px-4 py-2.5"
     >
       <Ionicons name="cloud-offline-outline" size={18} color={colors.primaryForeground} />
-      <Text className="text-[13px] font-semibold" style={{ color: colors.primaryForeground }}>
+      <Text className="font-semibold" style={{ fontSize: typography.caption.fontSize, lineHeight: typography.caption.lineHeight, color: colors.primaryForeground }}>
         You're offline. Some features may be unavailable.
       </Text>
     </Animated.View>

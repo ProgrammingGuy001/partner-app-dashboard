@@ -1,113 +1,59 @@
-import { fetch as expoFetch } from 'expo/fetch';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import apiClient from './axiosConfig';
-import { STORAGE_KEYS } from '../util/constants';
-import * as SecureStore from '../util/secureStore';
+import {
+  downloadRepairOrder,
+  getBomItems,
+  getRequisiteHistory,
+  getRequisitesBySalesOrder,
+  lookupSalesOrder,
+  retryRequisiteSync,
+  submitSiteRequisite,
+  updateRequisiteStatus,
+} from './bomGeneratedApi';
 
-const encodePathSegment = (value) => encodeURIComponent(String(value ?? '').trim());
 const assertNonEmpty = (value, label) => {
   const normalized = String(value ?? '').trim();
   if (!normalized) throw new Error(`${label} is required`);
   return normalized;
 };
+
 const assertPositiveId = (value, label) => {
-  const numericId = Number(value);
-  if (!Number.isInteger(numericId) || numericId <= 0) {
-    throw new Error(`Invalid ${label}`);
-  }
-  return numericId;
+  const id = Number(value);
+  if (!Number.isInteger(id) || id <= 0) throw new Error(`Invalid ${label}`);
+  return id;
 };
-const BOM_FETCH_TIMEOUT_MS = 120000;
 
 export const bomAPI = {
-  fetchBOM: async (salesOrder, cabinetPosition, search) => {
-    const so = assertNonEmpty(salesOrder, 'Sales order');
-    const position = assertNonEmpty(cabinetPosition, 'Cabinet position');
-    const response = await apiClient.get(
-      `/dashboard/bom/${encodePathSegment(so)}/${encodePathSegment(position)}`,
-      { params: { search }, timeout: BOM_FETCH_TIMEOUT_MS }
-    );
-    return response.data;
-  },
-
-  submitRequisite: async (data) => {
-    const response = await apiClient.post('/dashboard/bom/submit', data);
-    return response.data;
-  },
+  fetchBOM: (salesOrder, cabinetPosition, search) => getBomItems(
+    assertNonEmpty(salesOrder, 'Sales order'),
+    assertNonEmpty(cabinetPosition, 'Cabinet position'),
+    search,
+  ),
+  submitRequisite: submitSiteRequisite,
 
   getHistory: async (limit = 50, offset = 0) => {
     const history = [];
     while (history.length < limit) {
       const pageLimit = Math.min(50, limit - history.length);
-      const response = await apiClient.get('/dashboard/bom/history', {
-        params: { limit: pageLimit, offset: offset + history.length },
-      });
-      history.push(...response.data);
-      if (response.data.length < pageLimit) break;
+      const page = await getRequisiteHistory(pageLimit, offset + history.length);
+      history.push(...page);
+      if (page.length < pageLimit) break;
     }
     return history;
   },
 
-  getHistoryBySalesOrder: async (salesOrder) => {
-    const so = assertNonEmpty(salesOrder, 'Sales order');
-    const response = await apiClient.get(`/dashboard/bom/history/by-sales-order/${encodePathSegment(so)}`);
-    return response.data;
-  },
-
-  updateStatus: async (soId, status) => {
-    const id = assertPositiveId(soId, 'SO id');
-    const response = await apiClient.patch(`/dashboard/bom/history/${id}/status`, null, {
-      params: { status },
-    });
-    return response.data;
-  },
-
-  retrySync: async (soId) => {
-    const response = await apiClient.post(`/dashboard/bom/history/${soId}/retry-sync`);
-    return response.data;
-  },
-
-  lookupSO: async (salesOrder) => {
-    const so = assertNonEmpty(salesOrder, 'Sales order');
-    const response = await apiClient.get(`/dashboard/bom/so-lookup/${encodePathSegment(so)}`);
-    return response.data;
-  },
+  getHistoryBySalesOrder: (salesOrder) => getRequisitesBySalesOrder(assertNonEmpty(salesOrder, 'Sales order')),
+  updateStatus: (soId, status) => updateRequisiteStatus(assertPositiveId(soId, 'SO id'), status),
+  retrySync: (soId) => retryRequisiteSync(assertPositiveId(soId, 'SO id')),
+  lookupSO: (salesOrder) => lookupSalesOrder(assertNonEmpty(salesOrder, 'Sales order')),
 
   downloadRepairOrder: async (soId, salesOrder) => {
     const id = assertPositiveId(soId, 'SO id');
     const so = assertNonEmpty(salesOrder, 'Sales order');
-    const baseURL = apiClient.defaults.baseURL || '';
-    const url = `${baseURL}/dashboard/bom/history/${encodeURIComponent(String(id))}/download`;
-
-    const token = await SecureStore.getItemAsync(STORAGE_KEYS.AUTH_TOKEN);
-    if (!token) {
-      throw new Error('You need to log in again before downloading the repair order.');
-    }
-
     const file = new File(Paths.cache, `repair_order_${so}.xlsx`);
-    const response = await expoFetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-    });
-
-    if (!response.ok) {
-      let detail = '';
-      try {
-        detail = (await response.text()).trim();
-      } catch {
-        detail = '';
-      }
-      throw new Error(detail || `Download failed with status ${response.status}`);
-    }
-
     file.create({ overwrite: true, intermediates: true });
-    file.write(await response.bytes());
-
-    const canShare = await Sharing.isAvailableAsync();
-    if (canShare) {
+    file.write(new Uint8Array(await downloadRepairOrder(id)));
+    if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(file.uri, {
         mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         dialogTitle: `Repair Order - ${so}`,

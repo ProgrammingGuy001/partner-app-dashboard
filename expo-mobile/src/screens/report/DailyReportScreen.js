@@ -1,73 +1,37 @@
-// Generate the Daily Installation Report on its own, without marking attendance.
-// Nothing is stored: the PDF goes straight to the share sheet. Check-out still
-// generates and files its own copy against that day's attendance record.
+// Generate the Daily Installation Report without marking attendance.
 import React, { useCallback, useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  ScrollView,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
-import DailyReportForm, {
-  ReportInput,
-} from "../../components/dashboard/DailyReportForm";
+import DailyReportForm, { ReportInput } from "../../components/dashboard/DailyReportForm";
+import ScreenHeader from "../../components/common/ScreenHeader";
+import Loader from "../../components/common/Loader";
+import { Card, Notice } from "../../components/common/Primitives";
 import { useProgressPhotos } from "../../hooks/useProgressPhotos";
 import { useToast } from "../../hooks/useToast";
 import { useTheme } from "../../hooks/useTheme";
 import { dashboardApi } from "../../api/dashboardApi";
+import { getApiErrorMessage, getApiFieldErrors } from "../../api/apiErrors";
 import { useDashboardStore } from "../../store/dashboardStore";
-import {
-  emptyReport,
-  hasAccomplishment,
-  normalizeReport,
-  reportDate,
-} from "../../util/dailyReport";
-
-// The API takes an ISO date; the report rows use DD/MM/YYYY.
-const toISO = (ddmmyyyy) => {
-  const match = new RegExp(/^(\d{2})\/(\d{2})\/(\d{4})$/).exec(
-    String(ddmmyyyy || ""),
-  );
-  if (!match) return "";
-  const [, d, m, y] = match;
-  const candidate = new Date(Number(y), Number(m) - 1, Number(d));
-  const today = new Date();
-  today.setHours(23, 59, 59, 999);
-  if (
-    candidate.getFullYear() !== Number(y) ||
-    candidate.getMonth() !== Number(m) - 1 ||
-    candidate.getDate() !== Number(d) ||
-    candidate > today
-  )
-    return "";
-  return `${y}-${m}-${d}`;
-};
+import { spacing } from "../../theme/designSystem";
+import { emptyReport, hasAccomplishment, normalizeReport, reportDate } from "../../util/dailyReport";
+import { reportDateToISO } from "../../util/dailyReportDate";
 
 const DailyReportScreen = () => {
   const toast = useToast();
-  const { colors, isDark } = useTheme();
-  const onPrimary = isDark ? colors.background : "#fff";
-  // Any of the partner's jobs, not just in-progress ones: a report can be needed
-  // for a job that has since been completed or paused.
+  const { colors } = useTheme();
   const jobs = useDashboardStore((state) => state.jobs);
   const setJobs = useDashboardStore((state) => state.setJobs);
-
   const [jobId, setJobId] = useState("manual");
-  const [manualJob, setManualJob] = useState({
-    projectName: "",
-    salesOrder: "",
-    projectSupervisor: "",
-    siteAddress: "",
-  });
+  const [manualJob, setManualJob] = useState({ projectName: "", salesOrder: "", projectSupervisor: "", siteAddress: "" });
   const [date, setDate] = useState(reportDate(0));
   const [reportData, setReportData] = useState(emptyReport);
   const [generating, setGenerating] = useState(false);
   const [jobsLoading, setJobsLoading] = useState(jobs.length === 0);
   const [jobsError, setJobsError] = useState("");
+  const [serverErrors, setServerErrors] = useState({});
   const progressPhotos = useProgressPhotos();
 
   const fetchJobs = useCallback(async () => {
@@ -77,7 +41,7 @@ const DailyReportScreen = () => {
       const response = await dashboardApi.getJobs();
       setJobs(response.jobs || response.data || []);
     } catch (error) {
-      setJobsError(error.message || "Could not load your jobs");
+      setJobsError(getApiErrorMessage(error));
     } finally {
       setJobsLoading(false);
     }
@@ -88,28 +52,19 @@ const DailyReportScreen = () => {
     else setJobsLoading(false);
   }, [fetchJobs, jobs.length]);
 
+  const setManualField = (field, apiField) => (value) => {
+    setManualJob((current) => ({ ...current, [field]: value }));
+    setServerErrors((current) => ({ ...current, [apiField]: "" }));
+  };
+
   const handleGenerate = async () => {
-    if (!jobId) {
-      toast.error("Select the job this report is for");
-      return;
-    }
-    if (jobId === "manual" && !manualJob.projectName.trim()) {
-      toast.error("Enter the project name for the manual job");
-      return;
-    }
-    const iso = toISO(date);
-    if (!iso) {
-      toast.error(
-        "Enter a valid report date in DD/MM/YYYY that is not in the future",
-      );
-      return;
-    }
-    if (!hasAccomplishment(reportData)) {
-      toast.error("Add at least one key accomplishment to the daily report");
-      return;
-    }
+    if (jobId === "manual" && !manualJob.projectName.trim()) return toast.error("Enter the project name for the manual job");
+    const iso = reportDateToISO(date);
+    if (!iso) return toast.error("Enter a valid DD/MM/YYYY report date that is not in the future");
+    if (!hasAccomplishment(reportData)) return toast.error("Add at least one key accomplishment to the daily report");
 
     setGenerating(true);
+    setServerErrors({});
     try {
       await dashboardApi.generateDailyReport({
         jobId,
@@ -119,8 +74,9 @@ const DailyReportScreen = () => {
         progressPhotos: progressPhotos.photos,
       });
       toast.success("Daily Installation Report generated");
-    } catch (err) {
-      toast.error(err?.message || "Could not generate the report");
+    } catch (error) {
+      setServerErrors(getApiFieldErrors(error));
+      toast.error(getApiErrorMessage(error));
     } finally {
       setGenerating(false);
     }
@@ -130,176 +86,61 @@ const DailyReportScreen = () => {
     <SafeAreaView className="flex-1 bg-background" edges={["bottom"]}>
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{
-          paddingHorizontal: 20,
-          paddingVertical: 16,
-          gap: 12,
-        }}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.sm }}
         showsVerticalScrollIndicator={false}
       >
-        <Text className="text-xs font-semibold uppercase text-muted-foreground">
-          Job <Text className="text-destructive">*</Text>
-        </Text>
+        <ScreenHeader eyebrow="Field operations" title="Daily report" subtitle="Generate and share an installation report" className="pt-0" />
+
+        <Text className="text-xs font-semibold uppercase text-muted-foreground">Job <Text className="text-destructive">*</Text></Text>
         <View className="gap-2">
-          {jobsLoading ? (
-            <ActivityIndicator
-              color={colors.primary}
-              accessibilityLabel="Loading jobs"
-            />
-          ) : jobsError ? (
-            <View className="items-start gap-2">
-              <Text className="text-sm text-destructive">{jobsError}</Text>
-              <Button variant="outline" size="sm" onPress={fetchJobs}>
-                <Text>Try again</Text>
-              </Button>
-            </View>
-          ) : jobs.length === 0 ? (
-            <Text className="text-sm text-muted-foreground">
-              No jobs assigned yet.
-            </Text>
-          ) : (
-            jobs.map((job) => (
-              <TouchableOpacity
-                key={job.id}
-                onPress={() => setJobId(job.id)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: jobId === job.id }}
-                className={`min-h-11 flex-row items-center justify-between rounded-xl border px-3 py-2 ${
-                  jobId === job.id
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-background"
-                }`}
-              >
-                <Text
-                  className="flex-1 text-sm text-foreground"
-                  numberOfLines={1}
-                >
-                  {job.name || `Job ${job.id}`} · ID {job.id}
-                </Text>
-                {jobId === job.id ? (
-                  <Ionicons
-                    name="checkmark-circle"
-                    size={18}
-                    color={colors.primary}
-                  />
-                ) : null}
-              </TouchableOpacity>
-            ))
-          )}
-          <TouchableOpacity
-            onPress={() => setJobId("manual")}
-            accessibilityRole="button"
+          {jobsLoading && jobs.length === 0 ? <Loader text="Loading jobs" /> : null}
+          {jobsError ? <Notice tone={jobs.length ? "warning" : "danger"} title={jobs.length ? "Showing saved jobs" : "Jobs unavailable"} message={jobsError} /> : null}
+          {jobsError ? <Button variant="outline" size="sm" onPress={fetchJobs}><Text>Try again</Text></Button> : null}
+          {!jobsLoading && jobs.length === 0 ? <Text className="text-sm text-muted-foreground">No jobs assigned yet. Use the manual option below.</Text> : null}
+          {jobs.map((job) => (
+            <Button
+              key={job.id}
+              variant={jobId === job.id ? "secondary" : "outline"}
+              onPress={() => { setJobId(job.id); setServerErrors((current) => ({ ...current, job_id: "" })); }}
+              accessibilityState={{ selected: jobId === job.id }}
+              className="w-full justify-between"
+            >
+              <Text className="flex-1" numberOfLines={1}>{job.name || `Job ${job.id}`} · ID {job.id}</Text>
+              {jobId === job.id ? <Ionicons name="checkmark-circle" size={18} color={colors.primary} /> : null}
+            </Button>
+          ))}
+          <Button
+            variant={jobId === "manual" ? "secondary" : "outline"}
+            onPress={() => { setJobId("manual"); setServerErrors((current) => ({ ...current, job_id: "" })); }}
             accessibilityState={{ selected: jobId === "manual" }}
-            className={`min-h-11 flex-row items-center justify-between rounded-xl border px-3 py-2 ${
-              jobId === "manual"
-                ? "border-primary bg-primary/10"
-                : "border-border bg-background"
-            }`}
+            className="w-full justify-between"
           >
-            <Text className="flex-1 text-sm font-semibold text-foreground">
-              Job not listed — enter details manually
-            </Text>
-            {jobId === "manual" ? (
-              <Ionicons
-                name="checkmark-circle"
-                size={18}
-                color={colors.primary}
-              />
-            ) : null}
-          </TouchableOpacity>
+            <Text className="flex-1">Job not listed — enter details manually</Text>
+            {jobId === "manual" ? <Ionicons name="checkmark-circle" size={18} color={colors.primary} /> : null}
+          </Button>
+          {serverErrors.job_id ? <Text accessibilityRole="alert" className="text-xs text-destructive">{serverErrors.job_id}</Text> : null}
         </View>
 
         {jobId === "manual" ? (
-          <View className="gap-3 rounded-xl border border-border p-3">
+          <Card className="gap-3 p-3">
             <View className="gap-1">
-              <Text className="text-sm font-semibold text-foreground">
-                Manual job details
-              </Text>
-              <Text className="text-xs text-muted-foreground">
-                Used only in this PDF; this does not create a dashboard job.
-              </Text>
+              <Text className="text-sm font-semibold text-foreground">Manual job details</Text>
+              <Text className="text-xs text-muted-foreground">Used only in this PDF; this does not create a dashboard job.</Text>
             </View>
-            <ReportInput
-              label="Project name (required)"
-              value={manualJob.projectName}
-              placeholder="Project or site name"
-              maxLength={255}
-              colors={colors}
-              onChangeText={(projectName) =>
-                setManualJob((current) => ({ ...current, projectName }))
-              }
-            />
-            <ReportInput
-              label="Sales order"
-              value={manualJob.salesOrder}
-              placeholder="Sales order number"
-              maxLength={100}
-              colors={colors}
-              onChangeText={(salesOrder) =>
-                setManualJob((current) => ({ ...current, salesOrder }))
-              }
-            />
-            <ReportInput
-              label="Project supervisor"
-              value={manualJob.projectSupervisor}
-              placeholder="Defaults to your profile"
-              maxLength={255}
-              colors={colors}
-              onChangeText={(projectSupervisor) =>
-                setManualJob((current) => ({ ...current, projectSupervisor }))
-              }
-            />
-            <ReportInput
-              label="Site address"
-              value={manualJob.siteAddress}
-              placeholder="Installation site address"
-              maxLength={1000}
-              multiline
-              colors={colors}
-              onChangeText={(siteAddress) =>
-                setManualJob((current) => ({ ...current, siteAddress }))
-              }
-            />
-          </View>
+            <ReportInput label="Project name (required)" value={manualJob.projectName} placeholder="Project or site name" maxLength={255} colors={colors} error={serverErrors.project_name} onChangeText={setManualField("projectName", "project_name")} />
+            <ReportInput label="Sales order" value={manualJob.salesOrder} placeholder="Sales order number" maxLength={100} colors={colors} error={serverErrors.sales_order} onChangeText={setManualField("salesOrder", "sales_order")} />
+            <ReportInput label="Project supervisor" value={manualJob.projectSupervisor} placeholder="Defaults to your profile" maxLength={255} colors={colors} error={serverErrors.project_supervisor} onChangeText={setManualField("projectSupervisor", "project_supervisor")} />
+            <ReportInput label="Site address" value={manualJob.siteAddress} placeholder="Installation site address" maxLength={1000} multiline colors={colors} error={serverErrors.site_address} onChangeText={setManualField("siteAddress", "site_address")} />
+          </Card>
         ) : null}
 
-        <ReportInput
-          label="Report date"
-          value={date}
-          placeholder="DD/MM/YYYY"
-          maxLength={10}
-          keyboardType="numbers-and-punctuation"
-          colors={colors}
-          onChangeText={setDate}
-        />
+        <ReportInput label="Report date" value={date} placeholder="DD/MM/YYYY" maxLength={10} keyboardType="numbers-and-punctuation" colors={colors} error={serverErrors.report_date} onChangeText={(value) => { setDate(value); setServerErrors((current) => ({ ...current, report_date: "" })); }} />
 
-        <DailyReportForm
-          reportData={reportData}
-          setReportData={setReportData}
-          colors={colors}
-          progressPhotos={progressPhotos.photos}
-          onPickPhotos={progressPhotos.pick}
-          onRemovePhoto={progressPhotos.remove}
-        />
+        <DailyReportForm reportData={reportData} setReportData={setReportData} colors={colors} progressPhotos={progressPhotos.photos} onPickPhotos={progressPhotos.pick} onRemovePhoto={progressPhotos.remove} />
+        {serverErrors.report_data ? <Text accessibilityRole="alert" className="text-sm text-destructive">{serverErrors.report_data}</Text> : null}
+        {serverErrors.progress_photos ? <Text accessibilityRole="alert" className="text-sm text-destructive">{serverErrors.progress_photos}</Text> : null}
 
-        <Button
-          className="w-full h-12 rounded-xl"
-          disabled={generating}
-          onPress={handleGenerate}
-        >
-          {generating ? (
-            <View className="flex-row items-center gap-2">
-              <ActivityIndicator color={onPrimary} size="small" />
-              <Text className="text-sm font-bold" style={{ color: onPrimary }}>
-                Generating…
-              </Text>
-            </View>
-          ) : (
-            <Text className="text-sm font-bold" style={{ color: onPrimary }}>
-              Generate and share PDF
-            </Text>
-          )}
-        </Button>
+        <Button className="w-full" loading={generating} onPress={handleGenerate}><Text>Generate and share PDF</Text></Button>
       </ScrollView>
     </SafeAreaView>
   );

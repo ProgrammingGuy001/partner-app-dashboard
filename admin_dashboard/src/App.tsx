@@ -17,13 +17,16 @@ import './App.css';
 const Login = React.lazy(() => import('@/pages/Login'));
 const Dashboard = React.lazy(() => import('@/pages/Dashboard'));
 const Jobs = React.lazy(() => import('@/pages/Jobs'));
+const JobWorkspace = React.lazy(() => import('@/pages/JobWorkspace'));
 const Workers = React.lazy(() => import('@/pages/Workers'));
+const Mappings = React.lazy(() => import('@/pages/Mappings'));
 const JobHistory = React.lazy(() => import('@/pages/JobHistory'));
 const Checklists = React.lazy(() => import('@/pages/Checklist'));
 const BOMHistory = React.lazy(() => import('@/pages/BOMHistory'));
 const SiteRequisite = React.lazy(() => import('@/pages/SiteRequisite'));
 const SiteRequisiteReview = React.lazy(() => import('@/pages/SiteRequisiteReview'));
 const Attendance = React.lazy(() => import('@/pages/Attendance'));
+const Roster = React.lazy(() => import('@/pages/Roster'));
 const SiteGRN = React.lazy(() => import('@/pages/SiteGRN'));
 const PurchaseOrders = React.lazy(() => import('@/pages/PurchaseOrders'));
 const DocumentAutomation = React.lazy(() => import('@/pages/DocumentAutomation'));
@@ -100,7 +103,9 @@ function App() {
             <Route path="/dashboard" element={<DashboardLayout />}>
               <Route index element={<Dashboard />} />
               <Route path="jobs" element={<Jobs />} />
+              <Route path="jobs/:jobId" element={<JobWorkspace />} />
               <Route path="workers" element={<Workers />} />
+              <Route path="mappings" element={<Mappings />} />
               <Route path="jobs/:jobId/history" element={<JobHistory />} />
               <Route path="checklists" element={<Checklists />} />
               <Route path="bom" element={<BOMHistory />} />
@@ -113,6 +118,7 @@ function App() {
                 <Route path="review" element={<SiteRequisiteReview />} />
               </Route>
               <Route path="attendance" element={<Attendance />} />
+              <Route path="roster" element={<Roster />} />
               <Route path="site-grn" element={<SiteGRN />} />
               <Route path="purchase-orders" element={<PurchaseOrders />} />
               <Route path="document-automation" element={<DocumentAutomation />} />

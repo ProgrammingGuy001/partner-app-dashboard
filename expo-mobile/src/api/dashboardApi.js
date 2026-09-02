@@ -1,5 +1,11 @@
-import apiClient from './axiosConfig';
-import { toRNFile, logger } from '../util/helpers';
+import { File, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+
+import { logger, toRNFile } from '../util/helpers';
+import { generateDailyReport as generateDailyReportRequest } from './dailyReportGeneratedApi';
+import { getJobsPage } from './jobsGeneratedApi';
+import { getRoster as getRosterRequest } from './rosterApi';
+import * as generated from './dashboardGeneratedApi';
 
 const extractJob = (payload) => payload?.job || payload?.data || payload || null;
 const assertPositiveId = (value, label) => {
@@ -16,10 +22,7 @@ export const dashboardApi = {
     const limit = 100;
     let result;
     for (let page = 0; page < 100; page += 1) {
-      const response = await apiClient.get('/dashboard/jobs', {
-        params: { skip: jobs.length, limit },
-      });
-      result = response.data;
+      result = await getJobsPage(jobs.length, limit);
       const nextJobs = result.jobs || [];
       jobs.push(...nextJobs);
       if (nextJobs.length < limit) {
@@ -39,110 +42,88 @@ export const dashboardApi = {
     }
 
     const [jobResponse, checklistsResponse] = await Promise.all([
-      apiClient.get(`/dashboard/jobs/${id}`),
-      apiClient.get(`/dashboard/jobs/${id}/checklists`).catch((err) => {
+      generated.getJob(id),
+      generated.getJobChecklists(id).catch((err) => {
         logger.warn('dashboardApi', `Failed to fetch checklists for job ${id}: ${err?.message}`);
-        return { data: { checklists: [] } };
+        return { checklists: [], _error: err };
       }),
     ]);
 
-    const job = extractJob(jobResponse.data);
-    const checklists = checklistsResponse?.data?.checklists || [];
+    const job = extractJob(jobResponse);
+    const checklists = checklistsResponse?.checklists || [];
 
     return {
-      ...jobResponse.data,
+      ...jobResponse,
       job: {
         ...job,
         checklists,
       },
+      checklistsError: checklistsResponse?._error || null,
     };
   },
 
-  getJobHistory: async (jobId) => {
+  requestStartOtp: async (jobId) => {
     const id = assertPositiveId(jobId, 'job id');
-    const response = await apiClient.get(`/dashboard/jobs/${id}/history`);
-    return response.data;
+    return generated.requestStartOtp(id);
   },
 
-  addJobNote: async (jobId, notes) => {
+  // otp omitted for jobs with no customer phone on file — the backend has no OTP for them.
+  startJob: async (jobId, { otp, notes } = {}) => {
     const id = assertPositiveId(jobId, 'job id');
-    const response = await apiClient.post(`/dashboard/jobs/${id}/notes`, { notes: notes.trim() });
-    return response.data;
+    const response = otp
+      ? await generated.verifyStartOtp(id, { otp, notes })
+      : await generated.startJob(id, { notes });
+    return extractJob(response);
   },
 
-  recordAttendance: async ({ jobId, latitude, longitude, manualLocation, photoUri, attendanceType, reportFile, sundayReason }) => {
-    const formData = new FormData();
-    if (jobId) formData.append('job_id', String(assertPositiveId(jobId, 'job id')));
-    formData.append('latitude', String(latitude));
-    formData.append('longitude', String(longitude));
-    formData.append('manual_location', manualLocation?.trim() || '');
-    formData.append('attendance_type', attendanceType || 'check_in');
+  requestEndOtp: async (jobId) => {
+    const id = assertPositiveId(jobId, 'job id');
+    return generated.requestEndOtp(id);
+  },
 
+  // Same shape as startJob: no otp means the job has no customer phone on file.
+  finishJob: async (jobId, { otp, notes, ...documents } = {}) => {
+    const id = assertPositiveId(jobId, 'job id');
+    const response = otp
+      ? await generated.verifyEndOtp(id, { otp, notes, ...documents })
+      : await generated.finishJob(id, { notes, ...documents });
+    return extractJob(response);
+  },
+
+  uploadCompletionDocument: async (jobId, documentType, file) => {
+    const id = assertPositiveId(jobId, 'job id');
+    const rnFile = toRNFile(file);
+    if (!rnFile) throw new Error('Invalid file selected');
+    return generated.uploadCompletionDocument(id, documentType, rnFile);
+  },
+
+  recordAttendance: async ({ jobId, rosterEntryId, latitude, longitude, manualLocation, photoUri, attendanceType, reportFile, sundayReason }) => {
     const filename = photoUri.split('/').pop();
     const ext = filename?.split('.').pop()?.toLowerCase() ?? 'jpg';
     const mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
-    formData.append('photo', { uri: photoUri, name: filename || 'photo.jpg', type: mimeType });
-    if (reportFile) formData.append('report_file', toRNFile(reportFile));
-    // Only read when the day turns out to need superadmin approval.
-    if (sundayReason) formData.append('sunday_reason', sundayReason);
-
-    const response = await apiClient.post('/dashboard/attendance', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+    return generated.recordAttendance({
+      job_id: jobId ? assertPositiveId(jobId, 'job id') : null,
+      roster_entry_id: rosterEntryId ? assertPositiveId(rosterEntryId, 'roster entry id') : null,
+      latitude,
+      longitude,
+      manual_location: manualLocation?.trim() || '',
+      attendance_type: attendanceType || 'check_in',
+      photo: { uri: photoUri, name: filename || 'photo.jpg', type: mimeType },
+      report_file: reportFile ? toRNFile(reportFile) : null,
+      sunday_reason: sundayReason || null,
     });
-    return response.data;
   },
 
-  // Standalone report generation: returns the PDF, writes nothing. Uses expoFetch
-  // rather than apiClient because the response is binary, not JSON.
+  // Standalone report generation: returns the PDF, writes nothing.
   generateDailyReport: async ({ jobId, manualJob, reportDate, reportData, progressPhotos = [] }) => {
     const id = jobId === 'manual' ? 'manual' : assertPositiveId(jobId, 'job id');
-    const { fetch: expoFetch } = await import('expo/fetch');
-    const { File, Paths } = await import('expo-file-system');
-    const Sharing = await import('expo-sharing');
-    const SecureStore = await import('../util/secureStore');
-    const { STORAGE_KEYS } = await import('../util/constants');
-
-    const token = await SecureStore.getItemAsync(STORAGE_KEYS.AUTH_TOKEN);
-    if (!token) throw new Error('You need to log in again before generating a report.');
-
-    const formData = new FormData();
-    formData.append('report_date', reportDate);
-    formData.append('report_data', JSON.stringify(reportData));
-    if (id === 'manual') {
-      formData.append('project_name', manualJob.projectName.trim());
-      formData.append('sales_order', manualJob.salesOrder.trim());
-      formData.append('project_supervisor', manualJob.projectSupervisor.trim());
-      formData.append('site_address', manualJob.siteAddress.trim());
-    }
-    // expo/fetch is a web-standard fetch, so its FormData has no special case for
-    // React Native's {uri, name, type} pseudo-file the way XHR/apiClient does —
-    // toRNFile() here serialises to the string "[object Object]" and the server
-    // rejects the part. expo-file-system's File is a real Blob, which FormData
-    // encodes properly. The explicit third argument keeps the extension the
-    // backend validates against ATTENDANCE_PHOTO_EXTENSIONS.
-    progressPhotos.forEach((photo) => {
-      if (!photo?.uri) return;
-      formData.append('progress_photos', new File(photo.uri), photo.name);
-    });
-
-    const url = `${apiClient.defaults.baseURL || ''}/dashboard/jobs/${id}/daily-report`;
-    const response = await expoFetch(url, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'X-Requested-With': 'XMLHttpRequest' },
-      body: formData,
-    });
-    if (!response.ok) {
-      let detail = '';
-      try { detail = (await response.text()).trim(); } catch { detail = ''; }
-      throw new Error(detail || `Report generation failed with status ${response.status}`);
-    }
-
-    const disposition = response.headers.get('content-disposition') || '';
+    const response = await generateDailyReportRequest({ jobId: id, manualJob, reportDate, reportData, progressPhotos });
+    const disposition = String(response.headers?.['content-disposition'] || '');
     const filename = disposition.match(/filename="?([^";]+)/i)?.[1]
       || 'daily-installation-report.pdf';
     const file = new File(Paths.cache, filename);
     file.create({ overwrite: true, intermediates: true });
-    file.write(await response.bytes());
+    file.write(new Uint8Array(response.data));
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(file.uri, {
         mimeType: 'application/pdf',
@@ -153,72 +134,47 @@ export const dashboardApi = {
   },
 
   getAttendance: async (skip = 0, limit = 50) => {
-    const response = await apiClient.get('/dashboard/attendance', {
-      params: { skip, limit },
-    });
-    return response.data;
+    return generated.getAttendance(skip, limit);
+  },
+
+  getJobChecklists: async (jobId) => {
+    const id = assertPositiveId(jobId, 'job id');
+    return (await generated.getJobChecklists(id))?.checklists || [];
+  },
+
+  getRoster: async ({ dateFrom, dateTo } = {}) => {
+    return getRosterRequest({ date_from: dateFrom, date_to: dateTo });
   },
 
   getSundayRequests: async () => {
-    const response = await apiClient.get('/dashboard/sunday-requests');
-    return response.data;
+    return generated.getSundayRequests();
   },
 
   createSundayRequest: async ({ requestDate, reason }) => {
-    const response = await apiClient.post('/dashboard/sunday-requests', {
-      request_date: requestDate,
-      reason: reason?.trim() || null,
-    });
-    return response.data;
+    return generated.createSundayRequest(requestDate, reason);
   },
 
   getBilling: async (jobId) => {
     const id = assertPositiveId(jobId, 'job id');
-    const response = await apiClient.get(`/dashboard/jobs/${id}/billing`);
-    return response.data;
+    return generated.getBilling(id);
   },
 
   requestInvoice: async (jobId) => {
     const id = assertPositiveId(jobId, 'job id');
-    const response = await apiClient.post(`/dashboard/jobs/${id}/invoice-request`);
-    return response.data;
+    return generated.requestInvoice(id);
   },
 
   requestAdditionalInvoice: async (jobId, data = {}) => {
     const id = assertPositiveId(jobId, 'job id');
-    const response = await apiClient.post(`/dashboard/jobs/${id}/invoice-requests`, data);
-    return response.data;
+    return generated.requestAdditionalInvoice(id, data);
   },
 
   downloadInvoice: async (jobId, jobName, invoiceRequestId) => {
     const id = assertPositiveId(jobId, 'job id');
-    const { fetch: expoFetch } = await import('expo/fetch');
-    const { File, Paths } = await import('expo-file-system');
-    const Sharing = await import('expo-sharing');
-    const SecureStore = await import('../util/secureStore');
-    const { STORAGE_KEYS } = await import('../util/constants');
-
-    const baseURL = apiClient.defaults.baseURL || '';
-    const invoicePath = invoiceRequestId
-      ? `/dashboard/jobs/${id}/invoice-requests/${invoiceRequestId}/download`
-      : `/dashboard/jobs/${id}/invoice-request/download`;
-    const url = `${baseURL}${invoicePath}`;
-    const token = await SecureStore.getItemAsync(STORAGE_KEYS.AUTH_TOKEN);
-    if (!token) throw new Error('You need to log in again before downloading.');
 
     const file = new File(Paths.cache, `billing_invoice_${jobName || id}_${invoiceRequestId || 'latest'}.xlsx`);
-    const response = await expoFetch(url, {
-      headers: { Authorization: `Bearer ${token}`, 'X-Requested-With': 'XMLHttpRequest' },
-    });
-
-    if (!response.ok) {
-      let detail = '';
-      try { detail = (await response.text()).trim(); } catch { detail = ''; }
-      throw new Error(detail || `Download failed with status ${response.status}`);
-    }
-
     file.create({ overwrite: true, intermediates: true });
-    file.write(await response.bytes());
+    file.write(new Uint8Array(await generated.downloadInvoice(id, invoiceRequestId)));
 
     const canShare = await Sharing.isAvailableAsync();
     if (canShare) {

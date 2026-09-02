@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from fastapi import HTTPException
@@ -7,6 +7,11 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.crud.ip import assign_ip, unassign_ip
+from app.crud.checklist import (
+    get_job_type_checklist_ids,
+    sync_job_checklists,
+    validate_checklist_ids,
+)
 from app.model.ip import ip
 from app.model.job import (
     ChecklistItem,
@@ -16,11 +21,20 @@ from app.model.job import (
     JobChecklistItemStatus,
     JobRate,
 )
+from app.model.attendance import DailyAttendance
 from app.model.job_status_log import JobStatusLog
 from app.model.media_document import MediaDocument
+from app.model.roster import JobRosterEntry, RosterSlotSetting
 from app.model.user import User
 from app.schemas.job import JobCreate, JobUpdate, validate_job_slot
+from app.utils.attendance_policy import now_ist
+from app.utils.job_documents import (
+    closure_documents,
+    describe_closure_documents,
+    site_report_slot,
+)
 from app.utils.ip_assignment import is_admin_allowed_for_ip
+from app.utils.roster_day import roster_entry_window
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +53,25 @@ def _resolve_rate_card(db: Session, job_rate_id: int) -> JobRate:
     if not rate_card:
         raise HTTPException(status_code=404, detail=f"Job rate {job_rate_id} not found")
     return rate_card
+
+
+def _normalise_phone(value: str | None) -> str | None:
+    """Store customer phones the way the rest of the app does: 12 digits, 91-prefixed.
+
+    ponytail: best effort — anything that isn't recognisably an Indian mobile is kept
+              verbatim rather than rejected. A CRM lead with a junk phone still becomes
+              a job; losing the job over a typo'd number is worse than storing the typo.
+    """
+    if value is None:
+        return None
+    digits = "".join(c for c in value if c.isdigit())
+    if len(digits) == 10:
+        return "91" + digits
+    if len(digits) == 11 and digits.startswith("0"):
+        return "91" + digits[1:]
+    if len(digits) == 12 and digits.startswith("91"):
+        return digits
+    return value.strip() or None
 
 
 def _upsert_customer(
@@ -63,6 +96,8 @@ def _upsert_customer(
         and pincode is None
     ):
         return existing_customer
+
+    customer_phone = _normalise_phone(customer_phone)
 
     customer = existing_customer
     if customer is None:
@@ -99,24 +134,34 @@ def _upsert_customer(
 def _get_customer_by_id(db: Session, customer_id: int) -> Customer:
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
-        raise HTTPException(status_code=404, detail=f"Customer with ID {customer_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Customer with ID {customer_id} not found"
+        )
     return customer
 
 
 def get_job_by_id(db: Session, job_id: int, user_id: int = None):
     """Get a job by ID with authorization checks."""
     try:
-        job = db.scalars(select(Job).options(*JOB_LOAD_OPTIONS).where(Job.id == job_id)).first()
+        job = db.scalars(
+            select(Job).options(*JOB_LOAD_OPTIONS).where(Job.id == job_id)
+        ).first()
         if not job:
-            raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Job with ID {job_id} not found"
+            )
         if user_id is not None and job.user_id != user_id:
-            raise HTTPException(status_code=403, detail="Not authorized to access this job")
+            raise HTTPException(
+                status_code=403, detail="Not authorized to access this job"
+            )
         return job
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Database error")
-        raise HTTPException(status_code=500, detail="Could not complete the request. Try again.") from e
+        raise HTTPException(
+            status_code=500, detail="Could not complete the request. Try again."
+        ) from e
 
 
 def get_all_jobs(
@@ -137,7 +182,9 @@ def get_all_jobs(
         if status:
             stmt = stmt.where(Job.status == status)
         else:
-            stmt = stmt.where(Job.status.notin_(["pending_approval", "creation_rejected"]))
+            stmt = stmt.where(
+                Job.status.notin_(["pending_approval", "creation_rejected"])
+            )
         if job_type:
             stmt = stmt.where(Job.job_type == job_type)
         if search:
@@ -148,11 +195,17 @@ def get_all_jobs(
                     Customer.city.ilike(search_pattern),
                 )
             )
-        stmt = stmt.order_by(Job.created_at.desc(), Job.id.desc()).offset(skip).limit(limit)
+        stmt = (
+            stmt.order_by(Job.created_at.desc(), Job.id.desc())
+            .offset(skip)
+            .limit(limit)
+        )
         return db.scalars(stmt).unique().all()
     except Exception as e:
         logger.exception("Database error")
-        raise HTTPException(status_code=500, detail="Could not complete the request. Try again.") from e
+        raise HTTPException(
+            status_code=500, detail="Could not complete the request. Try again."
+        ) from e
 
 
 def get_jobs_for_ip(db: Session, ip_id: int, skip: int = 0, limit: int = 100):
@@ -161,7 +214,16 @@ def get_jobs_for_ip(db: Session, ip_id: int, skip: int = 0, limit: int = 100):
         stmt = (
             select(Job)
             .options(*JOB_LOAD_OPTIONS)
-            .where(Job.assigned_ip_id == ip_id)
+            .where(
+                or_(
+                    Job.assigned_ip_id == ip_id,
+                    Job.id.in_(
+                        select(JobRosterEntry.job_id).where(
+                            JobRosterEntry.ip_user_id == ip_id
+                        )
+                    ),
+                )
+            )
             .order_by(Job.created_at.desc(), Job.id.desc())
             .offset(skip)
             .limit(limit)
@@ -169,15 +231,33 @@ def get_jobs_for_ip(db: Session, ip_id: int, skip: int = 0, limit: int = 100):
         return db.scalars(stmt).unique().all()
     except Exception as e:
         logger.exception("Database error")
-        raise HTTPException(status_code=500, detail="Could not complete the request. Try again.") from e
+        raise HTTPException(
+            status_code=500, detail="Could not complete the request. Try again."
+        ) from e
 
 
-def get_ip_job_by_id(db: Session, job_id: int, ip_id: int):
-    """Get a job assigned to the current IP user."""
+def get_ip_job_by_id(
+    db: Session, job_id: int, ip_id: int, *, allow_roster: bool = True
+):
+    """Get a job assigned directly or through the daily roster to this IP."""
     try:
-        stmt = select(Job).options(*JOB_LOAD_OPTIONS).where(
-            Job.id == job_id,
-            Job.assigned_ip_id == ip_id,
+        ownership = Job.assigned_ip_id == ip_id
+        if allow_roster:
+            ownership = or_(
+                Job.assigned_ip_id == ip_id,
+                Job.id.in_(
+                    select(JobRosterEntry.job_id).where(
+                        JobRosterEntry.ip_user_id == ip_id
+                    )
+                ),
+            )
+        stmt = (
+            select(Job)
+            .options(*JOB_LOAD_OPTIONS)
+            .where(
+                Job.id == job_id,
+                ownership,
+            )
         )
         job = db.scalars(stmt).first()
         if not job:
@@ -190,7 +270,9 @@ def get_ip_job_by_id(db: Session, job_id: int, ip_id: int):
         raise
     except Exception as e:
         logger.exception("Database error")
-        raise HTTPException(status_code=500, detail="Could not complete the request. Try again.") from e
+        raise HTTPException(
+            status_code=500, detail="Could not complete the request. Try again."
+        ) from e
 
 
 def _validate_supervisor(db: Session, admin_id: int | None) -> None:
@@ -199,34 +281,223 @@ def _validate_supervisor(db: Session, admin_id: int | None) -> None:
         return
     supervisor = db.query(User).filter(User.id == admin_id).first()
     if not supervisor:
-        raise HTTPException(status_code=404, detail=f"Supervisor with ID {admin_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Supervisor with ID {admin_id} not found"
+        )
     if supervisor.is_superadmin:
-        raise HTTPException(status_code=400, detail="A superadmin cannot be assigned as supervisor")
+        raise HTTPException(
+            status_code=400, detail="A superadmin cannot be assigned as supervisor"
+        )
     if not supervisor.is_active or not supervisor.is_approved:
         raise HTTPException(
-            status_code=400, detail=f"Supervisor {admin_id} is not an active, approved admin"
+            status_code=400,
+            detail=f"Supervisor {admin_id} is not an active, approved admin",
         )
+
+
+def _validate_ip_for_supervisor(
+    db: Session, ip_id: int, supervisor_id: int | None
+) -> ip:
+    ip_user = db.get(ip, ip_id)
+    if not ip_user:
+        raise HTTPException(status_code=404, detail=f"IP with ID {ip_id} not found")
+    if not ip_user.is_id_verified:
+        raise HTTPException(status_code=400, detail=f"IP {ip_id} is not verified")
+    if supervisor_id is None or not is_admin_allowed_for_ip(db, ip_id, supervisor_id):
+        raise HTTPException(
+            status_code=403,
+            detail="The selected IP is not mapped to this job's supervisor",
+        )
+    return ip_user
+
+
+def _drop_stale_roster_entries(
+    db: Session, job_id: int, keep_ip_id: int | None
+) -> None:
+    """Remove future visits when a supervisor/lifecycle change invalidates them."""
+    stale = db.query(JobRosterEntry).filter(
+        JobRosterEntry.job_id == job_id,
+        JobRosterEntry.work_date >= now_ist().date(),
+    )
+    if keep_ip_id is not None:
+        stale = stale.filter(JobRosterEntry.ip_user_id != keep_ip_id)
+    stale_entries = stale.all()
+    stale_ids = [entry.id for entry in stale_entries]
+    if (
+        stale_ids
+        and db.query(DailyAttendance.id)
+        .filter(DailyAttendance.roster_entry_id.in_(stale_ids))
+        .first()
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="The IP cannot be changed after attendance exists for today's roster",
+        )
+    for entry in stale_entries:
+        db.delete(entry)
+
+
+def sync_job_roster_defaults(
+    db: Session, job: Job, created_by_admin_id: int | None = None
+) -> None:
+    """Persist the job's default IP schedule so admin and IP rosters read one source."""
+    today = now_ist().date()
+    old_defaults = (
+        db.query(JobRosterEntry)
+        .filter(
+            JobRosterEntry.job_id == job.id,
+            JobRosterEntry.is_job_default.is_(True),
+            JobRosterEntry.work_date >= today,
+        )
+        .all()
+    )
+    notification_state = {
+        (entry.ip_user_id, entry.work_date, entry.slot_number): (
+            entry.notified_at,
+            entry.reminder_sent_at,
+            entry.notified_status,
+            entry.reminder_status,
+        )
+        for entry in old_defaults
+    }
+    old_ids = [entry.id for entry in old_defaults]
+    if (
+        old_ids
+        and db.query(DailyAttendance.id)
+        .filter(DailyAttendance.roster_entry_id.in_(old_ids))
+        .first()
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="The job schedule cannot change after attendance has been recorded",
+        )
+    for entry in old_defaults:
+        db.delete(entry)
+    db.flush()
+
+    active = job.status in {"created", "in_progress", "paused"}
+    if (
+        not active
+        or not job.assigned_ip_id
+        or not job.start_date
+        or not job.delivery_date
+    ):
+        return
+    if job.delivery_date < job.start_date:
+        raise HTTPException(
+            status_code=422, detail="Delivery date must be on or after start date"
+        )
+
+    slots = db.query(RosterSlotSetting).order_by(RosterSlotSetting.slot_number).all()
+    if not slots:
+        raise HTTPException(
+            status_code=409, detail="Roster slot settings are incomplete"
+        )
+    if (job.job_type or "").strip().lower() == "installation":
+        selected_slots = slots
+    elif job.slot_start and job.slot_end:
+        selected_slots = [
+            slot
+            for slot in slots
+            if job.slot_start < slot.end_time and job.slot_end > slot.start_time
+        ]
+        if not selected_slots:
+            # Keep an out-of-shift visit visible in the nearest roster column. Its
+            # attendance still follows the exact job time stored below.
+            def minutes(value):
+                return value.hour * 60 + value.minute
+
+            selected_slots = [
+                min(
+                    slots,
+                    key=lambda slot: min(
+                        abs(minutes(job.slot_start) - minutes(slot.end_time)),
+                        abs(minutes(job.slot_end) - minutes(slot.start_time)),
+                    ),
+                )
+            ]
+    else:
+        selected_slots = slots[:1]
+    start = max(today, job.start_date)
+    if job.delivery_date < start:
+        return
+    existing = (
+        db.query(JobRosterEntry)
+        .filter(
+            or_(
+                JobRosterEntry.job_id == job.id,
+                JobRosterEntry.ip_user_id == job.assigned_ip_id,
+            ),
+            JobRosterEntry.work_date.between(start, job.delivery_date),
+        )
+        .all()
+    )
+    job_overrides = {
+        (entry.work_date, entry.slot_number)
+        for entry in existing
+        if entry.job_id == job.id
+    }
+    ip_conflicts = {
+        (entry.work_date, entry.slot_number): entry
+        for entry in existing
+        if entry.ip_user_id == job.assigned_ip_id and entry.job_id != job.id
+    }
+    actor_id = job.admin_assigned or created_by_admin_id
+    if actor_id is None:
+        raise HTTPException(status_code=409, detail="Assign a supervisor before an IP")
+
+    work_date = start
+    while work_date <= job.delivery_date:
+        for slot in selected_slots:
+            slot_start, slot_end = roster_entry_window(job, slot)
+            key = (work_date, slot.slot_number)
+            if key in job_overrides:
+                continue
+            conflict = ip_conflicts.get(key)
+            if conflict:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"The selected IP is already on Job #{conflict.job_id} "
+                        f"on {work_date.isoformat()} in slot {slot.slot_number}"
+                    ),
+                )
+            notice = notification_state.get(
+                (job.assigned_ip_id, work_date, slot.slot_number)
+            )
+            db.add(
+                JobRosterEntry(
+                    job_id=job.id,
+                    ip_user_id=job.assigned_ip_id,
+                    work_date=work_date,
+                    slot_number=slot.slot_number,
+                    slot_start=slot_start,
+                    slot_end=slot_end,
+                    created_by_admin_id=actor_id,
+                    is_job_default=True,
+                    notified_at=notice[0] if notice else None,
+                    reminder_sent_at=notice[1] if notice else None,
+                    notified_status=notice[2] if notice else None,
+                    reminder_status=notice[3] if notice else None,
+                )
+            )
+        work_date += timedelta(days=1)
 
 
 def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = False):
     """Create a job draft; regular admins require superadmin approval before it becomes active."""
     try:
+        supervisor_id = job.admin_assigned if is_superadmin else user_id
+        if is_superadmin and supervisor_id is None:
+            raise HTTPException(
+                status_code=400, detail="Select a supervisor for the job"
+            )
+        _validate_supervisor(db, supervisor_id)
         if job.assigned_ip_id:
-            ip_user = db.query(ip).filter(ip.id == job.assigned_ip_id).first()
-            if not ip_user:
-                raise HTTPException(status_code=404, detail=f"IP with ID {job.assigned_ip_id} not found")
-            if ip_user.is_assigned:
-                raise HTTPException(status_code=400, detail=f"IP {ip_user.id} is already assigned to another job")
-            if not is_superadmin and not is_admin_allowed_for_ip(db, job.assigned_ip_id, user_id):
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"Admin {user_id} is not allowed to be assigned IP {job.assigned_ip_id}",
-                )
-
-        _validate_supervisor(db, job.admin_assigned)
+            _validate_ip_for_supervisor(db, job.assigned_ip_id, supervisor_id)
 
         job_data = job.model_dump()
-        checklist_ids = job_data.pop("checklist_ids", [])
+        posted_checklist_ids = job_data.pop("checklist_ids", None)
         job_data.pop("checklist_id", None)
         job_data.pop("user_id", None)
 
@@ -264,6 +535,12 @@ def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = 
             job_type = rate_card.job_type_name
             job_rate_val = rate_card.base_rate
 
+        checklist_ids = get_job_type_checklist_ids(db, job_type)
+        # Backward compatibility until each job type has been configured. Once a
+        # type mapping exists, the client can no longer override it per job.
+        if not checklist_ids and posted_checklist_ids:
+            checklist_ids = validate_checklist_ids(db, posted_checklist_ids)
+
         # Only a superadmin sets an incentive; anyone else's value is discarded.
         incentive = job_data.pop("incentive", Decimal("0.00"))
         if not is_superadmin:
@@ -277,7 +554,9 @@ def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = 
 
         # Re-checked here, not just in JobCreate: a rate card can override the posted type.
         try:
-            validate_job_slot(job_type, job_data.get("slot_start"), job_data.get("slot_end"))
+            validate_job_slot(
+                job_type, job_data.get("slot_start"), job_data.get("slot_end")
+            )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -291,9 +570,7 @@ def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = 
             job_type=job_type,
             rate_amount=job_rate_val,
             area=job_data.pop("size", None),
-            # Falls back to the creator when no supervisor is picked. The creator is
-            # recorded independently in the JobStatusLog entry below either way.
-            admin_assigned=job_data.pop("admin_assigned", None) or user_id,
+            admin_assigned=supervisor_id,
             start_date=job_data.pop("start_date", None),
             latitude=latitude,
             longitude=longitude,
@@ -309,8 +586,14 @@ def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = 
         for checklist_id in checklist_ids or []:
             db.add(JobChecklist(job_id=db_job.id, checklist_id=checklist_id))
 
+        sync_job_roster_defaults(db, db_job, user_id)
+
         log_status = "created" if initial_status == "created" else "pending_approval"
-        log_notes = "Job created" if initial_status == "created" else "Job submitted for superadmin approval"
+        log_notes = (
+            "Job created"
+            if initial_status == "created"
+            else "Job submitted for superadmin approval"
+        )
         db.add(
             JobStatusLog(
                 job_id=db_job.id,
@@ -334,33 +617,89 @@ def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = 
         raise HTTPException(status_code=500, detail="Could not create the job.") from e
 
 
-def update_job(db: Session, job_id: int, job_update: JobUpdate, admin_id: int = None, is_superadmin: bool = False):
+def update_job(
+    db: Session,
+    job_id: int,
+    job_update: JobUpdate,
+    admin_id: int = None,
+    is_superadmin: bool = False,
+):
     """Update job details, customer, and manual type/rate fields."""
     try:
         db_job = get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
 
         update_data = job_update.model_dump(exclude_unset=True)
 
+        if not is_superadmin:
+            update_data.pop("admin_assigned", None)
+            update_data.pop("status", None)
+        resync_roster = bool(
+            {
+                "assigned_ip_id",
+                "admin_assigned",
+                "start_date",
+                "delivery_date",
+                "type",
+                "job_rate_id",
+                "slot_start",
+                "slot_end",
+                "status",
+            }
+            & update_data.keys()
+        )
+        new_supervisor_id = update_data.get("admin_assigned", db_job.admin_assigned)
+        if "admin_assigned" in update_data:
+            _validate_supervisor(db, new_supervisor_id)
+            if db_job.assigned_ip_id and not is_admin_allowed_for_ip(
+                db, db_job.assigned_ip_id, new_supervisor_id
+            ):
+                if db_job.status == "in_progress":
+                    unassign_ip(
+                        db,
+                        db_job.assigned_ip_id,
+                        admin_id,
+                        is_superadmin,
+                        commit=False,
+                        excluding_job_id=job_id,
+                    )
+                _drop_stale_roster_entries(db, job_id, keep_ip_id=None)
+                db_job.assigned_ip_id = None
+
         if "assigned_ip_id" in update_data:
             new_ip_id = update_data["assigned_ip_id"]
             old_ip_id = db_job.assigned_ip_id
+            if new_ip_id:
+                _validate_ip_for_supervisor(
+                    db,
+                    new_ip_id,
+                    new_supervisor_id,
+                )
+            # Dated roster rows are actual visits and may intentionally name another
+            # IP for a one-day swap, so changing the default IP must not erase them.
             if db_job.status == "in_progress" and new_ip_id != old_ip_id:
                 if old_ip_id:
-                    unassign_ip(db, old_ip_id, admin_id, is_superadmin, commit=False)
+                    unassign_ip(
+                        db,
+                        old_ip_id,
+                        admin_id,
+                        is_superadmin,
+                        commit=False,
+                        excluding_job_id=job_id,
+                    )
                 if new_ip_id:
                     assign_ip(db, new_ip_id, admin_id, is_superadmin, commit=False)
             db_job.assigned_ip_id = new_ip_id
 
-        if "checklist_ids" in update_data:
-            checklist_ids = update_data.pop("checklist_ids")
-            db.query(JobChecklist).filter(JobChecklist.job_id == job_id).delete()
-            for checklist_id in checklist_ids or []:
-                db.add(JobChecklist(job_id=job_id, checklist_id=checklist_id))
+        update_data.pop("checklist_ids", None)
 
         customer_id_provided = "customer_id" in update_data
         customer_id = update_data.pop("customer_id", None)
         if customer_id_provided:
-            db_job.customer_id = _get_customer_by_id(db, customer_id).id if customer_id is not None else None
+            db_job.customer_id = (
+                _get_customer_by_id(db, customer_id).id
+                if customer_id is not None
+                else None
+            )
             update_data.pop("customer_name", None)
             update_data.pop("customer_phone", None)
             update_data.pop("address_line_1", None)
@@ -383,6 +722,7 @@ def update_job(db: Session, job_id: int, job_update: JobUpdate, admin_id: int = 
             if customer:
                 db_job.customer_id = customer.id
 
+        previous_job_type = db_job.job_type
         job_rate_id = update_data.pop("job_rate_id", None)
         if job_rate_id is not None:
             # A picked card wins over any manually typed type/rate in the same payload.
@@ -398,16 +738,17 @@ def update_job(db: Session, job_id: int, job_update: JobUpdate, admin_id: int = 
             if "rate" in update_data:
                 db_job.rate_amount = update_data.pop("rate")
 
+        if db_job.job_type != previous_job_type:
+            checklist_ids = get_job_type_checklist_ids(db, db_job.job_type)
+            if checklist_ids:
+                sync_job_checklists(db, db_job, checklist_ids)
+
         if "size" in update_data:
             db_job.area = update_data.pop("size")
 
         if not is_superadmin:
-            update_data.pop("status", None)
             # Rate card aside, an incentive is a superadmin call.
             update_data.pop("incentive", None)
-
-        if "admin_assigned" in update_data:
-            _validate_supervisor(db, update_data["admin_assigned"])
 
         # The payload is partial, so the merged pair is what has to hold. db_job.job_type is
         # already final here, which also catches switching a slotted job to installation.
@@ -438,6 +779,8 @@ def update_job(db: Session, job_id: int, job_update: JobUpdate, admin_id: int = 
             if source in update_data:
                 setattr(db_job, target, update_data[source])
 
+        if resync_roster:
+            sync_job_roster_defaults(db, db_job, admin_id)
         db.commit()
         db.refresh(db_job)
         return db_job
@@ -450,16 +793,34 @@ def update_job(db: Session, job_id: int, job_update: JobUpdate, admin_id: int = 
         raise HTTPException(status_code=500, detail="Could not update the job.") from e
 
 
-def delete_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bool = False):
+def delete_job(
+    db: Session, job_id: int, admin_id: int = None, is_superadmin: bool = False
+):
     """Delete a job and related runtime mappings."""
     try:
         db_job = get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
 
         if db_job.assigned_ip_id:
-            unassign_ip(db, db_job.assigned_ip_id, admin_id, is_superadmin, commit=False)
+            unassign_ip(
+                db,
+                db_job.assigned_ip_id,
+                admin_id,
+                is_superadmin,
+                commit=False,
+                excluding_job_id=job_id,
+            )
 
-        db.query(JobChecklist).filter(JobChecklist.job_id == job_id).delete(synchronize_session=False)
-        db.query(JobStatusLog).filter(JobStatusLog.job_id == job_id).delete(synchronize_session=False)
+        db.query(JobChecklist).filter(JobChecklist.job_id == job_id).delete(
+            synchronize_session=False
+        )
+        db.query(JobStatusLog).filter(JobStatusLog.job_id == job_id).delete(
+            synchronize_session=False
+        )
+        # job_roster_entries.job_id has no ON DELETE CASCADE, so the rows have to go
+        # first or Postgres refuses the delete outright.
+        db.query(JobRosterEntry).filter(JobRosterEntry.job_id == job_id).delete(
+            synchronize_session=False
+        )
         db.delete(db_job)
         db.commit()
         return {"message": "Job deleted successfully"}
@@ -472,56 +833,85 @@ def delete_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bo
         raise HTTPException(status_code=500, detail="Could not delete the job.") from e
 
 
-def validate_job_start(db: Session, job_id: int, admin_id: int = None, is_superadmin: bool = False):
+def validate_job_start(
+    db: Session,
+    job_id: int,
+    admin_id: int = None,
+    is_superadmin: bool = False,
+    ip_id: int = None,
+):
     """Validate start preconditions before an OTP is consumed or state changes."""
-    db_job = get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
+    # An IP may start the job they are on, same as its supervisor. Scoping is the only
+    # difference: their own assignment (direct or via the day's roster) instead of the
+    # admin ownership check.
+    db_job = (
+        get_ip_job_by_id(db, job_id, ip_id)
+        if ip_id is not None
+        else get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
+    )
 
     if db_job.status == "pending_approval":
-        raise HTTPException(status_code=400, detail="Job is pending superadmin approval and cannot be started yet.")
+        raise HTTPException(
+            status_code=400,
+            detail="Job is pending superadmin approval and cannot be started yet.",
+        )
     if db_job.status not in {"created", "paused"}:
-        raise HTTPException(status_code=400, detail=f"Job cannot be started. Current status: {db_job.status}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job cannot be started. Current status: {db_job.status}",
+        )
 
     if not db_job.assigned_ip_id:
         raise HTTPException(
             status_code=400,
-            detail="Cannot start job: No IP assigned. Please edit the job to assign an IP first.",
+            detail="Cannot start job: assign a mapped IP first.",
+        )
+    if not db.query(JobChecklist.id).filter(JobChecklist.job_id == job_id).first():
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot start job: configure a checklist mapping for this job type first.",
         )
 
-    # Material receipt is the first prerequisite of an installation job.
-    if db_job.type == "installation":
-        from app.model.site_grn import SiteGRN
-
-        linked_grns = db.query(SiteGRN.status).filter(SiteGRN.job_id == job_id).all()
-        if not linked_grns:
-            raise HTTPException(
-                status_code=400,
-                detail="Link a Site GRN to this job before starting an installation job",
-            )
-        incomplete_count = sum(status != "submitted" for status, in linked_grns)
-        if incomplete_count:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Complete all Site GRNs linked to this job before starting ({incomplete_count} incomplete)",
-            )
+    # No GRN prerequisite on start: receiving the material is the grn job's own work,
+    # so it is only checked at completion.
     return db_job
 
 
-def start_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bool = False, notes: str = None):
-    """Start/resume a job and assign IP."""
+def start_job(
+    db: Session,
+    job_id: int,
+    admin_id: int = None,
+    is_superadmin: bool = False,
+    notes: str = None,
+    ip_id: int = None,
+):
+    """Start/resume a job and assign IP. Actor is the supervisor, or the IP on the job."""
     try:
-        db_job = validate_job_start(db, job_id, admin_id=admin_id, is_superadmin=is_superadmin)
+        db_job = validate_job_start(
+            db, job_id, admin_id=admin_id, is_superadmin=is_superadmin, ip_id=ip_id
+        )
         prev_status = db_job.status
 
-        assign_ip(db, db_job.assigned_ip_id, admin_id, is_superadmin, commit=False)
+        if db_job.assigned_ip_id:
+            # An IP starting their own job is already scoped by get_ip_job_by_id, so the
+            # admin-to-IP allow-list check does not apply to them.
+            assign_ip(
+                db,
+                db_job.assigned_ip_id,
+                admin_id,
+                is_superadmin or ip_id is not None,
+                commit=False,
+            )
         db_job.status = "in_progress"
         db.add(
             JobStatusLog(
                 job_id=job_id,
                 status="in_progress",
                 created_at=datetime.utcnow(),
-                notes=notes or ("Job resumed" if prev_status == "paused" else "Job started"),
-                actor_type="admin",
-                actor_id=admin_id,
+                notes=notes
+                or ("Job resumed" if prev_status == "paused" else "Job started"),
+                actor_type="ip" if ip_id is not None else "admin",
+                actor_id=ip_id if ip_id is not None else admin_id,
             )
         )
         db.commit()
@@ -536,7 +926,13 @@ def start_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: boo
         raise HTTPException(status_code=500, detail="Could not start the job.") from e
 
 
-def pause_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: bool = False, notes: str = None):
+def pause_job(
+    db: Session,
+    job_id: int,
+    admin_id: int = None,
+    is_superadmin: bool = False,
+    notes: str = None,
+):
     """Pause a job and unassign its IP."""
     try:
         db_job = get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
@@ -547,7 +943,14 @@ def pause_job(db: Session, job_id: int, admin_id: int = None, is_superadmin: boo
             )
 
         if db_job.assigned_ip_id:
-            unassign_ip(db, db_job.assigned_ip_id, admin_id, is_superadmin, commit=False)
+            unassign_ip(
+                db,
+                db_job.assigned_ip_id,
+                admin_id,
+                is_superadmin,
+                commit=False,
+                excluding_job_id=job_id,
+            )
 
         db_job.status = "paused"
         db.add(
@@ -580,33 +983,64 @@ def validate_job_completion(
     handover_document_link: str = None,
     ncr_document_link: str = None,
     project_report_document_link: str = None,
+    site_report_document_link: str = None,
+    ip_id: int = None,
 ):
     """Validate completion evidence before an OTP is consumed or state changes."""
-    db_job = get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
+    # An IP may close the job they are on, same as its supervisor. Scoping is the only
+    # difference: their own assignment (direct or via the day's roster).
+    db_job = (
+        get_ip_job_by_id(db, job_id, ip_id)
+        if ip_id is not None
+        else get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
+    )
     if db_job.status != "in_progress":
         raise HTTPException(
             status_code=400,
             detail=f"Only jobs in progress can be finished. Current status: {db_job.status}",
         )
 
-    if not all((handover_document_link, ncr_document_link, project_report_document_link)):
-        raise HTTPException(status_code=400, detail="Handover, NCR, and Project Report documents are required")
-    if db_job.ncr_document_link != ncr_document_link:
+    # What closes a job depends on its type: installation files handover, NCR and a
+    # project report; a measurement, readiness or validation job files the one report
+    # it already produced on site.
+    supplied = {
+        "handover": handover_document_link or db_job.handover_document_link,
+        "ncr": ncr_document_link or db_job.ncr_document_link,
+        "project_report": project_report_document_link
+        or db_job.project_report_document_link,
+        **{
+            slot: site_report_document_link or db_job.site_report_document_link
+            for slot in (
+                (site_report_slot(db_job.type),)
+                if site_report_slot(db_job.type)
+                else ()
+            )
+        },
+    }
+    required_documents = {
+        slot: supplied.get(slot) for slot in closure_documents(db_job.type)
+    }
+    if not all(required_documents.values()):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{describe_closure_documents(db_job.type)} "
+            f"{'is' if len(required_documents) == 1 else 'are'} required to complete this job",
+        )
+    if "ncr" in required_documents and db_job.ncr_document_link != supplied["ncr"]:
         raise HTTPException(
             status_code=400,
             detail="Generate and attach the Level 2 NCR from the admin document form before completion",
         )
 
-    required_documents = {
-        "handover": handover_document_link,
-        "ncr": ncr_document_link,
-        "project_report": project_report_document_link,
-    }
-    documents = db.query(MediaDocument).filter(
-        MediaDocument.owner_type == "job_completion",
-        MediaDocument.owner_id == job_id,
-        MediaDocument.doc_link.in_(required_documents.values()),
-    ).all()
+    documents = (
+        db.query(MediaDocument)
+        .filter(
+            MediaDocument.owner_type == "job_completion",
+            MediaDocument.owner_id == job_id,
+            MediaDocument.doc_link.in_(required_documents.values()),
+        )
+        .all()
+    )
     documents_by_type = {document.status: document.doc_link for document in documents}
     if documents_by_type != required_documents:
         raise HTTPException(
@@ -614,22 +1048,28 @@ def validate_job_completion(
             detail="Completion documents must be uploaded for this job in the correct document slots",
         )
 
-    if db_job.type == "installation":
+    # The GRN job is the material-receipt visit, so it is the one that must show a
+    # submitted Site GRN before it can be closed.
+    if db_job.type == "grn":
         from app.model.site_grn import SiteGRN
 
-        has_submitted_grn = db.query(SiteGRN.id).filter(
-            SiteGRN.job_id == job_id,
-            SiteGRN.status == "submitted",
-        ).first()
+        has_submitted_grn = (
+            db.query(SiteGRN.id)
+            .filter(
+                SiteGRN.job_id == job_id,
+                SiteGRN.status == "submitted",
+            )
+            .first()
+        )
         if not has_submitted_grn:
             raise HTTPException(
                 status_code=400,
-                detail="A submitted Site GRN linked to this job is required before an installation job can be completed",
+                detail="A submitted Site GRN linked to this job is required before a GRN job can be completed",
             )
 
     assigned_item_ids = [
         item_id
-        for item_id, in (
+        for (item_id,) in (
             db.query(ChecklistItem.id)
             .join(JobChecklist, JobChecklist.checklist_id == ChecklistItem.checklist_id)
             .filter(JobChecklist.job_id == job_id)
@@ -637,11 +1077,15 @@ def validate_job_completion(
         )
     ]
     if assigned_item_ids:
-        approved_count = db.query(JobChecklistItemStatus.id).filter(
-            JobChecklistItemStatus.job_id == job_id,
-            JobChecklistItemStatus.checklist_item_id.in_(assigned_item_ids),
-            JobChecklistItemStatus.review_status == "approved",
-        ).count()
+        approved_count = (
+            db.query(JobChecklistItemStatus.id)
+            .filter(
+                JobChecklistItemStatus.job_id == job_id,
+                JobChecklistItemStatus.checklist_item_id.in_(assigned_item_ids),
+                JobChecklistItemStatus.review_status == "approved",
+            )
+            .count()
+        )
         if approved_count != len(assigned_item_ids):
             raise HTTPException(
                 status_code=409,
@@ -659,8 +1103,10 @@ def finish_job(
     handover_document_link: str = None,
     ncr_document_link: str = None,
     project_report_document_link: str = None,
+    site_report_document_link: str = None,
+    ip_id: int = None,
 ):
-    """Finish a job and unassign its IP."""
+    """Finish a job and unassign its IP. Actor is the supervisor, or the IP on the job."""
     try:
         db_job = validate_job_completion(
             db,
@@ -670,23 +1116,48 @@ def finish_job(
             handover_document_link=handover_document_link,
             ncr_document_link=ncr_document_link,
             project_report_document_link=project_report_document_link,
+            site_report_document_link=site_report_document_link,
+            ip_id=ip_id,
         )
 
         if db_job.assigned_ip_id:
-            unassign_ip(db, db_job.assigned_ip_id, admin_id, is_superadmin, commit=False)
+            # An IP closing their own job is already scoped by get_ip_job_by_id, so the
+            # admin-to-IP allow-list check does not apply to them.
+            unassign_ip(
+                db,
+                db_job.assigned_ip_id,
+                admin_id,
+                is_superadmin or ip_id is not None,
+                commit=False,
+                excluding_job_id=job_id,
+            )
 
         db_job.status = "completed"
-        db_job.handover_document_link = handover_document_link
-        db_job.ncr_document_link = ncr_document_link
-        db_job.project_report_document_link = project_report_document_link
+        # A finished job stops owning tomorrow: its future roster rows would otherwise
+        # keep holding the IP's slot (uq_roster_ip_date_slot) for work that is over.
+        _drop_stale_roster_entries(db, job_id, keep_ip_id=None)
+        # Only stamp what this job type files, so an installation's three links are not
+        # blanked by a measurement close and vice versa.
+        if site_report_slot(db_job.type):
+            db_job.site_report_document_link = (
+                site_report_document_link or db_job.site_report_document_link
+            )
+        else:
+            db_job.handover_document_link = (
+                handover_document_link or db_job.handover_document_link
+            )
+            db_job.ncr_document_link = ncr_document_link or db_job.ncr_document_link
+            db_job.project_report_document_link = (
+                project_report_document_link or db_job.project_report_document_link
+            )
         db.add(
             JobStatusLog(
                 job_id=job_id,
                 status="completed",
                 created_at=datetime.utcnow(),
                 notes=notes or "Job completed",
-                actor_type="admin",
-                actor_id=admin_id,
+                actor_type="ip" if ip_id is not None else "admin",
+                actor_id=ip_id if ip_id is not None else admin_id,
             )
         )
         db.commit()
@@ -706,9 +1177,22 @@ def approve_job_creation(db: Session, job_id: int, admin_id: int = None):
     try:
         db_job = get_job_by_id(db, job_id, user_id=None)
         if db_job.status != "pending_approval":
-            raise HTTPException(status_code=400, detail=f"Job is not pending approval. Current status: {db_job.status}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Job is not pending approval. Current status: {db_job.status}",
+            )
         db_job.status = "created"
-        db.add(JobStatusLog(job_id=job_id, status="created", created_at=datetime.utcnow(), notes="Approved by superadmin", actor_type="admin", actor_id=admin_id))
+        sync_job_roster_defaults(db, db_job, admin_id)
+        db.add(
+            JobStatusLog(
+                job_id=job_id,
+                status="created",
+                created_at=datetime.utcnow(),
+                notes="Approved by superadmin",
+                actor_type="admin",
+                actor_id=admin_id,
+            )
+        )
         db.commit()
         db.refresh(db_job)
         return db_job
@@ -721,14 +1205,28 @@ def approve_job_creation(db: Session, job_id: int, admin_id: int = None):
         raise HTTPException(status_code=500, detail="Could not approve the job.") from e
 
 
-def reject_job_creation(db: Session, job_id: int, reason: str = "", admin_id: int = None):
+def reject_job_creation(
+    db: Session, job_id: int, reason: str = "", admin_id: int = None
+):
     """Superadmin rejects a pending_approval job."""
     try:
         db_job = get_job_by_id(db, job_id, user_id=None)
         if db_job.status != "pending_approval":
-            raise HTTPException(status_code=400, detail=f"Job is not pending approval. Current status: {db_job.status}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Job is not pending approval. Current status: {db_job.status}",
+            )
         db_job.status = "creation_rejected"
-        db.add(JobStatusLog(job_id=job_id, status="creation_rejected", created_at=datetime.utcnow(), notes=reason or "Rejected by superadmin", actor_type="admin", actor_id=admin_id))
+        db.add(
+            JobStatusLog(
+                job_id=job_id,
+                status="creation_rejected",
+                created_at=datetime.utcnow(),
+                notes=reason or "Rejected by superadmin",
+                actor_type="admin",
+                actor_id=admin_id,
+            )
+        )
         db.commit()
         db.refresh(db_job)
         return db_job
@@ -757,7 +1255,9 @@ def get_job_status_history(db: Session, job_id: int, verify_exists: bool = True)
         raise
     except Exception as e:
         logger.exception("Error fetching job status history")
-        raise HTTPException(status_code=500, detail="Could not load the job history.") from e
+        raise HTTPException(
+            status_code=500, detail="Could not load the job history."
+        ) from e
 
 
 def get_job_checklists_overview(db: Session, job_id: int):
@@ -772,7 +1272,9 @@ def get_job_checklists_overview(db: Session, job_id: int):
         return db.scalars(stmt).all()
     except Exception as e:
         logger.exception("Error fetching job checklists")
-        raise HTTPException(status_code=500, detail="Could not load the job checklists.") from e
+        raise HTTPException(
+            status_code=500, detail="Could not load the job checklists."
+        ) from e
 
 
 def get_job_checklist_items_with_status(db: Session, job_id: int, checklist_id: int):
@@ -826,12 +1328,20 @@ def get_job_checklist_items_with_status(db: Session, job_id: int, checklist_id: 
                     "status": {
                         "id": item_status.id if item_status else None,
                         "job_id": item_status.job_id if item_status else job_id,
-                        "checklist_item_id": item_status.checklist_item_id if item_status else item.id,
+                        "checklist_item_id": item_status.checklist_item_id
+                        if item_status
+                        else item.id,
                         "checked": item_status.checked if item_status else False,
-                        "is_approved": item_status.is_approved if item_status else False,
+                        "is_approved": item_status.is_approved
+                        if item_status
+                        else False,
                         "comment": item_status.comment if item_status else None,
-                        "admin_comment": item_status.admin_comment if item_status else None,
-                        "document_link": item_status.document_link if item_status else None,
+                        "admin_comment": item_status.admin_comment
+                        if item_status
+                        else None,
+                        "document_link": item_status.document_link
+                        if item_status
+                        else None,
                         "created_at": item_status.created_at if item_status else None,
                         "updated_at": item_status.updated_at if item_status else None,
                     },
@@ -843,4 +1353,6 @@ def get_job_checklist_items_with_status(db: Session, job_id: int, checklist_id: 
         raise
     except Exception as e:
         logger.exception("Error fetching checklist items")
-        raise HTTPException(status_code=500, detail="Could not load the checklist items.") from e
+        raise HTTPException(
+            status_code=500, detail="Could not load the checklist items."
+        ) from e

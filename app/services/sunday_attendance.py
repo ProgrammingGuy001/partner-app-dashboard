@@ -89,6 +89,7 @@ def record_parked_attendance(db: Session, request: SundayWorkRequest) -> bool:
             .filter(
                 DailyAttendance.ip_user_id == request.ip_user_id,
                 DailyAttendance.job_id == payload.get("job_id"),
+                DailyAttendance.roster_entry_id == payload.get("roster_entry_id"),
                 DailyAttendance.attendance_date == request.request_date,
                 DailyAttendance.attendance_type == "check_in",
             )
@@ -104,6 +105,7 @@ def record_parked_attendance(db: Session, request: SundayWorkRequest) -> bool:
         db.add(
             DailyAttendance(
                 job_id=payload.get("job_id"),
+                roster_entry_id=payload.get("roster_entry_id"),
                 ip_user_id=request.ip_user_id,
                 attendance_date=request.request_date,
                 phone=payload["phone"],

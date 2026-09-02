@@ -23,11 +23,12 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from '@/components/ui/dialog';
 import {
   IconCalendarCheck,
@@ -600,6 +601,9 @@ const MarkAttendanceDialog: React.FC<{
       <DialogContent className="flex max-h-[calc(100svh-1rem)] flex-col sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Mark Attendance</DialogTitle>
+          <DialogDescription>
+            Record a check-in or check-out with a site photo and location.
+          </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
           <p className="text-sm text-muted-foreground">
@@ -895,6 +899,9 @@ const SundayRequestsPanel: React.FC<{ canReview: boolean }> = ({ canReview }) =>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Request Sunday work</DialogTitle>
+            <DialogDescription>
+              Ask a superadmin to approve attendance on a Sunday.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
@@ -983,11 +990,11 @@ const AdminView: React.FC = () => {
       </div>
 
       {/* Today status */}
-      <Card className={markedToday ? 'border-green-500/50 bg-green-50/50 dark:bg-green-950/20' : 'border-orange-400/50 bg-orange-50/50 dark:bg-orange-950/20'}>
+      <Card className={markedToday ? 'border-success/30 bg-success/10' : 'border-warning/30 bg-warning/10'}>
         <CardContent className="pt-4 pb-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${markedToday ? 'bg-green-500/20' : 'bg-orange-400/20'}`}>
-              <IconCalendarCheck className={`h-5 w-5 ${markedToday ? 'text-green-600' : 'text-orange-500'}`} />
+            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${markedToday ? 'bg-success/20' : 'bg-warning/20'}`}>
+              <IconCalendarCheck className={`h-5 w-5 ${markedToday ? 'text-success' : 'text-warning'}`} />
             </div>
             <div>
               <div className="font-semibold text-sm">

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Annotated, List, Optional
 from app.database import get_db
+from app.crud.checklist import checklist_items_pending
 from app.crud.ip import verify_ip_user, get_ip_by_phone, get_all_ips, get_approved_ips
 from app.core.security import get_current_user
 from app.model.user import User
@@ -119,6 +120,24 @@ def _admin_completion_summary(db: Session, admins: list[User]) -> list[dict]:
 
 class AssignAdminRequest(BaseModel):
     admin_ids: List[int]
+
+
+class AdminIPAssignmentUpdate(BaseModel):
+    ip_ids: List[int] = Field(default_factory=list, max_length=500)
+
+
+def _ensure_mapping_removal_safe(db: Session, removed_pairs: set[tuple[int, int]]) -> None:
+    for admin_id, ip_id in removed_pairs:
+        job_id = db.query(Job.id).filter(
+            Job.admin_assigned == admin_id,
+            Job.assigned_ip_id == ip_id,
+            Job.status.in_({"created", "pending_approval", "in_progress", "paused"}),
+        ).scalar()
+        if job_id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Reassign Job #{job_id} before removing this supervisor/IP mapping",
+            )
 
 
 def _serialize_ip_user(ip_user: ip) -> dict:
@@ -243,6 +262,46 @@ def get_admin_users(db: Session = Depends(get_db), current_user: User = Depends(
     return db.query(User).filter(User.isActive == True, User.isApproved == True).all()
 
 
+@router.put("/admin-users/{admin_id}/ips")
+def assign_ips_to_admin(
+    admin_id: Annotated[int, Path(gt=0)],
+    request: AdminIPAssignmentUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Replace one supervisor's IP mapping without disturbing other supervisors."""
+    if not current_user.is_superadmin:
+        raise HTTPException(status_code=403, detail="Only superadmins can change IP mappings")
+    supervisor = db.get(User, admin_id)
+    if not supervisor or supervisor.is_superadmin or not supervisor.is_active or not supervisor.is_approved:
+        raise HTTPException(status_code=404, detail="Active supervisor not found")
+
+    ip_ids = list(dict.fromkeys(request.ip_ids))
+    found = {
+        row.id
+        for row in db.query(ip.id).filter(
+            ip.id.in_(ip_ids), ip.is_id_verified.is_(True)
+        )
+    } if ip_ids else set()
+    missing = [ip_id for ip_id in ip_ids if ip_id not in found]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Verified IP IDs not found: {missing}")
+
+    current_ip_ids = {
+        row.ip_id
+        for row in db.query(IPAdminAssignment.ip_id).filter(
+            IPAdminAssignment.admin_id == admin_id
+        )
+    }
+    _ensure_mapping_removal_safe(
+        db, {(admin_id, ip_id) for ip_id in current_ip_ids - set(ip_ids)}
+    )
+    db.query(IPAdminAssignment).filter(IPAdminAssignment.admin_id == admin_id).delete()
+    db.add_all(IPAdminAssignment(ip_id=ip_id, admin_id=admin_id) for ip_id in ip_ids)
+    db.commit()
+    return {"message": "IP mapping updated", "admin_id": admin_id, "ip_ids": ip_ids}
+
+
 @router.post("/ips/{ip_id}/assign-admins")
 def assign_admins_to_ip(
     ip_id: Annotated[int, Path(gt=0)],
@@ -260,6 +319,15 @@ def assign_admins_to_ip(
     if not current_user.is_superadmin:
         raise HTTPException(status_code=403, detail="Only superadmins can assign admins to IPs")
 
+    current_admin_ids = {
+        row.admin_id
+        for row in db.query(IPAdminAssignment.admin_id).filter(
+            IPAdminAssignment.ip_id == ip_id
+        )
+    }
+    _ensure_mapping_removal_safe(
+        db, {(admin_id, ip_id) for admin_id in current_admin_ids - set(request.admin_ids)}
+    )
     # Clear existing assignments
     db.query(IPAdminAssignment).filter(IPAdminAssignment.ip_id == ip_id).delete()
 
@@ -385,6 +453,10 @@ def get_all_attendance(
             "status": "overdue" if overdue else "missing",
         })
 
+    # A check-out files the report, never the checklist. Flag what is still open so the
+    # supervisor sees it on the same row, without that ever having blocked the IP.
+    pending_items = checklist_items_pending(db, [r.job_id for r in records])
+
     return {
         "total": total,
         "skip": skip,
@@ -394,6 +466,7 @@ def get_all_attendance(
         "records": [
             {
                 "id": r.id,
+                "checklist_items_pending": pending_items.get(r.job_id, 0),
                 "job_id": r.job_id,
                 "job_name": job_names.get(r.job_id),
                 "phone": r.phone,

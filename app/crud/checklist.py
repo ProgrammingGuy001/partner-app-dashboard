@@ -4,6 +4,7 @@ from app.model.job import (
     Job,
     Checklist,
     ChecklistItem,
+    JobTypeChecklist,
     JobChecklist,
     JobChecklistItemStatus,
 )
@@ -16,9 +17,41 @@ from app.schemas.checklist import (
     JobChecklistItemStatusCreate,
     JobChecklistItemStatusUpdate,
 )
+from app.utils.job_documents import normalize_job_type
 
 
 ISM_CHECKLIST_NAME = "ISM Checklist"
+
+
+def checklist_items_pending(db: Session, job_ids) -> dict[int, int]:
+    """Assigned checklist items not yet approved, per job.
+
+    Checkout is never blocked on this — the report is its own document — but an
+    incomplete checklist is worth saying out loud to the IP and the supervisor.
+    """
+    job_ids = [job_id for job_id in set(job_ids or []) if job_id]
+    if not job_ids:
+        return {}
+    approved = (
+        db.query(JobChecklistItemStatus.job_id, JobChecklistItemStatus.checklist_item_id)
+        .filter(
+            JobChecklistItemStatus.job_id.in_(job_ids),
+            JobChecklistItemStatus.review_status == "approved",
+        )
+        .all()
+    )
+    approved_keys = set(approved)
+    pending: dict[int, int] = {job_id: 0 for job_id in job_ids}
+    assigned = (
+        db.query(JobChecklist.job_id, ChecklistItem.id)
+        .join(ChecklistItem, ChecklistItem.checklist_id == JobChecklist.checklist_id)
+        .filter(JobChecklist.job_id.in_(job_ids))
+        .all()
+    )
+    for job_id, item_id in assigned:
+        if (job_id, item_id) not in approved_keys:
+            pending[job_id] += 1
+    return pending
 
 
 def get_assigned_job_checklist(db: Session, job_id: int, checklist_id: int) -> JobChecklist:
@@ -84,6 +117,100 @@ def get_checklists(db: Session, skip: int = 0, limit: int = 100):
         .limit(limit)
         .all()
     )
+
+
+def validate_checklist_ids(db: Session, checklist_ids: list[int] | None) -> list[int]:
+    unique_ids = list(dict.fromkeys(checklist_ids or []))
+    if not unique_ids:
+        raise HTTPException(status_code=400, detail="Select at least one checklist")
+    found = {row.id for row in db.query(Checklist.id).filter(Checklist.id.in_(unique_ids))}
+    missing = [checklist_id for checklist_id in unique_ids if checklist_id not in found]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Checklist IDs not found: {missing}")
+    return unique_ids
+
+
+def get_job_type_checklist_ids(db: Session, job_type: str | None) -> list[int]:
+    normalized = normalize_job_type(job_type)
+    if not normalized:
+        return []
+    return [
+        row.checklist_id
+        for row in db.query(JobTypeChecklist)
+        .filter(JobTypeChecklist.job_type == normalized)
+        .order_by(JobTypeChecklist.checklist_id)
+    ]
+
+
+def get_job_type_checklist_mappings(db: Session) -> list[dict]:
+    mappings: dict[str, list[int]] = {}
+    for row in db.query(JobTypeChecklist).order_by(
+        JobTypeChecklist.job_type, JobTypeChecklist.checklist_id
+    ):
+        mappings.setdefault(row.job_type, []).append(row.checklist_id)
+    return [
+        {"job_type": job_type, "checklist_ids": checklist_ids}
+        for job_type, checklist_ids in mappings.items()
+    ]
+
+
+def sync_job_checklists(db: Session, job: Job, checklist_ids: list[int]) -> None:
+    current = {
+        row.checklist_id: row
+        for row in db.query(JobChecklist).filter(JobChecklist.job_id == job.id)
+    }
+    desired = set(checklist_ids)
+
+    for checklist_id in current.keys() - desired:
+        row = current[checklist_id]
+        has_status = (
+            db.query(JobChecklistItemStatus.id)
+            .join(ChecklistItem, ChecklistItem.id == JobChecklistItemStatus.checklist_item_id)
+            .filter(
+                JobChecklistItemStatus.job_id == job.id,
+                ChecklistItem.checklist_id == checklist_id,
+            )
+            .first()
+            is not None
+        )
+        if row.document_link or has_status:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Job #{job.id} has checklist evidence; it cannot be removed from this job type",
+            )
+        db.delete(row)
+
+    for checklist_id in desired - current.keys():
+        db.add(JobChecklist(job_id=job.id, checklist_id=checklist_id))
+
+
+def replace_job_type_checklist_mapping(
+    db: Session, job_type: str, checklist_ids: list[int]
+) -> dict:
+    normalized = normalize_job_type(job_type)
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Job type is required")
+    checklist_ids = validate_checklist_ids(db, checklist_ids)
+    jobs = [
+        job
+        for job in db.query(Job).all()
+        if normalize_job_type(job.job_type) == normalized
+    ]
+
+    for job in jobs:
+        sync_job_checklists(db, job, checklist_ids)
+
+    db.query(JobTypeChecklist).filter(JobTypeChecklist.job_type == normalized).delete()
+    db.add_all(
+        JobTypeChecklist(job_type=normalized, checklist_id=checklist_id)
+        for checklist_id in checklist_ids
+    )
+    db.commit()
+    return {
+        "job_type": normalized,
+        "checklist_ids": checklist_ids,
+        "updated_jobs": len(jobs),
+    }
 
 
 def create_checklist(db: Session, checklist: ChecklistCreate):

@@ -1,9 +1,11 @@
 // The Daily Installation Report fields, shared by the check-out flow in
 // DailyAttendance and the standalone generator screen.
 import React, { useState } from 'react';
-import { Image, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, TextInput, View } from 'react-native';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { Text } from '@/components/ui/text';
+import { Button } from '@/components/ui/button';
+import { IconButton } from '../common/Primitives';
 import {
   addReportRow,
   emptyProgressRow,
@@ -22,6 +24,7 @@ export const ReportInput = ({
   maxLength = LIMITS.action,
   keyboardType = 'default',
   multiline = false,
+  error,
 }) => (
   <View className="gap-1">
     {label ? <Text className="text-xs font-medium text-muted-foreground">{label}</Text> : null}
@@ -39,7 +42,9 @@ export const ReportInput = ({
       className={`rounded-xl border border-border bg-background px-3 text-sm text-foreground ${
         multiline ? 'min-h-20 py-2' : 'h-11'
       }`}
+      aria-invalid={Boolean(error)}
     />
+    {error ? <Text accessibilityRole="alert" className="text-xs text-destructive">{error}</Text> : null}
   </View>
 );
 
@@ -73,18 +78,18 @@ const DailyReportForm = ({
         onChangeText={(text) => setReportData((current) => ({ ...current, accomplishments: current.accomplishments.map((item, i) => i === index ? text : item) }))} />
     ))}
     {reportData.accomplishments.length < MAX_REPORT_ROWS ? (
-      <TouchableOpacity
+      <Button
+        variant="outline"
         onPress={() => setReportData((current) => ({
           ...current,
           accomplishments: addReportRow(current.accomplishments, ''),
         }))}
-        accessibilityRole="button"
         accessibilityLabel="Add accomplishment"
-        className="min-h-11 flex-row items-center justify-center gap-2 rounded-xl border border-border px-3"
+        className="w-full"
       >
         <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
         <Text className="text-sm font-semibold text-primary">Add accomplishment</Text>
-      </TouchableOpacity>
+      </Button>
     ) : null}
 
     <Text className="text-sm font-semibold text-foreground">Completed work</Text>
@@ -96,18 +101,18 @@ const DailyReportForm = ({
       </View>
     ))}
     {reportData.completed_work.length < MAX_REPORT_ROWS ? (
-      <TouchableOpacity
+      <Button
+        variant="outline"
         onPress={() => setReportData((current) => ({
           ...current,
           completed_work: addReportRow(current.completed_work, emptyProgressRow()),
         }))}
-        accessibilityRole="button"
         accessibilityLabel="Add completed work"
-        className="min-h-11 flex-row items-center justify-center gap-2 rounded-xl border border-border px-3"
+        className="w-full"
       >
         <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
         <Text className="text-sm font-semibold text-primary">Add completed work</Text>
-      </TouchableOpacity>
+      </Button>
     ) : null}
 
     <Text className="text-sm font-semibold text-foreground">Manpower</Text>
@@ -120,15 +125,15 @@ const DailyReportForm = ({
       </View>
     ))}
     {visibleManpowerRows < MANPOWER_ROWS.length ? (
-      <TouchableOpacity
+      <Button
+        variant="outline"
         onPress={() => setVisibleManpowerRows((current) => current + 1)}
-        accessibilityRole="button"
         accessibilityLabel="Add manpower row"
-        className="min-h-11 flex-row items-center justify-center gap-2 rounded-xl border border-border px-3"
+        className="w-full"
       >
         <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
         <Text className="text-sm font-semibold text-primary">Add manpower row</Text>
-      </TouchableOpacity>
+      </Button>
     ) : null}
     <ReportInput label="Mandays" value={reportData.mandays} placeholder="0" maxLength={LIMITS.short} keyboardType="decimal-pad" colors={colors} onChangeText={(text) => setReportData((current) => ({ ...current, mandays: text }))} />
 
@@ -141,18 +146,18 @@ const DailyReportForm = ({
       </View>
     ))}
     {reportData.upcoming_work.length < MAX_REPORT_ROWS ? (
-      <TouchableOpacity
+      <Button
+        variant="outline"
         onPress={() => setReportData((current) => ({
           ...current,
           upcoming_work: addReportRow(current.upcoming_work, emptyUpcomingRow()),
         }))}
-        accessibilityRole="button"
         accessibilityLabel="Add upcoming work"
-        className="min-h-11 flex-row items-center justify-center gap-2 rounded-xl border border-border px-3"
+        className="w-full"
       >
         <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
         <Text className="text-sm font-semibold text-primary">Add upcoming work</Text>
-      </TouchableOpacity>
+      </Button>
     ) : null}
 
     <Text className="text-sm font-semibold text-foreground">
@@ -161,29 +166,28 @@ const DailyReportForm = ({
     <Text className="text-xs text-muted-foreground">
       Optional images, maximum 2 MB each, are added after the generated report.
     </Text>
-    <TouchableOpacity
+    <Button
+      variant="outline"
       onPress={onPickPhotos}
-      accessibilityRole="button"
       accessibilityLabel="Choose progress photos"
       disabled={progressPhotos.length >= MAX_PROGRESS_PHOTOS}
-      className="min-h-11 flex-row items-center justify-center gap-2 rounded-xl border border-border bg-background px-3 disabled:opacity-50"
+      className="w-full"
     >
       <Ionicons name="images-outline" size={18} color={colors.primary} />
       <Text className="text-sm font-semibold text-primary">Choose photos</Text>
-    </TouchableOpacity>
+    </Button>
     {progressPhotos.length > 0 ? (
       <View className="flex-row flex-wrap gap-2">
         {progressPhotos.map((file, index) => (
-          <View key={`${file.uri}-${index}`} className="relative h-24 w-[31%] overflow-hidden rounded-lg border border-border">
+          <View key={`${file.uri}-${index}`} className="relative h-24 min-w-24 flex-1 overflow-hidden rounded-lg border border-border">
             <Image source={{ uri: file.uri }} className="h-full w-full" resizeMode="cover" />
-            <TouchableOpacity
+            <IconButton
+              icon="close"
+              tone="danger"
+              label={`Remove progress photo ${index + 1}`}
               onPress={() => onRemovePhoto(index)}
-              accessibilityRole="button"
-              accessibilityLabel={`Remove progress photo ${index + 1}`}
-              className="absolute right-1 top-1 rounded-full bg-black/70 p-1"
-            >
-              <Ionicons name="close-circle" size={19} color="#fff" />
-            </TouchableOpacity>
+              className="absolute right-1 top-1"
+            />
           </View>
         ))}
       </View>

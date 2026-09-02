@@ -10,6 +10,9 @@ import { useTheme } from "../../hooks/useTheme";
 import { formatters } from "../../util/formatters";
 import { validators } from "../../util/validators";
 import KYCConsentModal from "./KYCConsentModal";
+import { Card } from "../common/Primitives";
+import { getApiErrorMessage, getApiFieldErrors } from "../../api/apiErrors";
+import { typography } from "../../theme/designSystem";
 
 const BankVerification = ({ onSuccess, isBankVerified, canProceed }) => {
   const toast = useToast();
@@ -42,11 +45,17 @@ const BankVerification = ({ onSuccess, isBankVerified, canProceed }) => {
 
     setLoading(true);
     try {
-      await verificationApi.verifyBank(formData.accountNumber, formData.ifsc);
+      const status = await verificationApi.verifyBank(formData.accountNumber, formData.ifsc);
       toast.success("Bank details verified successfully!");
-      onSuccess?.();
+      onSuccess?.(status);
     } catch (err) {
-      toast.error(err.message || "Bank verification failed");
+      const fieldErrors = getApiFieldErrors(err);
+      setErrors((current) => ({
+        ...current,
+        ...(fieldErrors.account_number ? { accountNumber: fieldErrors.account_number } : {}),
+        ...(fieldErrors.ifsc ? { ifsc: fieldErrors.ifsc } : {}),
+      }));
+      toast.error(getApiErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -54,8 +63,8 @@ const BankVerification = ({ onSuccess, isBankVerified, canProceed }) => {
 
   if (!canProceed) {
     return (
-      <View className="bg-surface rounded-2xl p-8 items-center opacity-60 border border-border border-dashed">
-        <View className="w-16 h-16 rounded-[32px] bg-background items-center justify-center mb-4">
+      <Card className="items-center border-dashed p-8 opacity-60">
+        <View className="w-16 h-16 rounded-full bg-background items-center justify-center mb-4">
           <Ionicons name="lock-closed" size={28} color={colors.textMuted} />
         </View>
         <Text className="text-lg font-bold text-foreground mb-2">
@@ -65,18 +74,15 @@ const BankVerification = ({ onSuccess, isBankVerified, canProceed }) => {
           Please complete the PAN verification first to unlock bank details
           verification.
         </Text>
-      </View>
+      </Card>
     );
   }
 
   if (isBankVerified) {
     return (
-      <View
-        className="bg-surface rounded-2xl p-8 items-center border border-border"
-        style={colors.shadowSm}
-      >
+      <Card className="items-center p-8">
         <View
-          className="w-20 h-20 rounded-[40px] items-center justify-center mb-5"
+          className="w-20 h-20 rounded-full items-center justify-center mb-5"
           style={{ backgroundColor: colors.primaryLight }}
         >
           <Ionicons name="cash-outline" size={40} color={colors.primary} />
@@ -87,7 +93,7 @@ const BankVerification = ({ onSuccess, isBankVerified, canProceed }) => {
         <Text className="text-sm text-muted-foreground text-center leading-5">
           Your settlement account has been successfully linked and verified.
         </Text>
-      </View>
+      </Card>
     );
   }
 
@@ -102,15 +108,12 @@ const BankVerification = ({ onSuccess, isBankVerified, canProceed }) => {
         }}
         onDecline={() => setShowConsent(false)}
       />
-      <View
-        className="bg-surface rounded-2xl p-6 border border-border"
-        style={colors.shadowSm}
-      >
+      <Card className="p-6">
         <View className="mb-5">
           <Text className="text-lg font-extrabold text-foreground mb-1.5">
             Bank Details
           </Text>
-          <Text className="text-[13px] text-muted-foreground leading-[18px]">
+          <Text className="text-muted-foreground" style={typography.caption}>
             Provide your primary bank account details for payouts.
           </Text>
         </View>
@@ -130,7 +133,7 @@ const BankVerification = ({ onSuccess, isBankVerified, canProceed }) => {
               keyboardType="number-pad"
               accessibilityLabel="Bank account number"
               autoComplete="off"
-              className="h-[52px] rounded-xl bg-background border px-4 text-base font-semibold text-foreground"
+              className="h-14 rounded-xl bg-background border px-4 text-base font-semibold text-foreground"
               style={{
                 borderColor: errors.accountNumber
                   ? colors.danger
@@ -161,7 +164,7 @@ const BankVerification = ({ onSuccess, isBankVerified, canProceed }) => {
               autoCapitalize="characters"
               maxLength={11}
               accessibilityLabel="IFSC code"
-              className="h-[52px] rounded-xl bg-background border px-4 text-base font-semibold text-foreground"
+              className="h-14 rounded-xl bg-background border px-4 text-base font-semibold text-foreground"
               style={{
                 borderColor: errors.ifsc ? colors.danger : colors.border,
               }}
@@ -176,7 +179,8 @@ const BankVerification = ({ onSuccess, isBankVerified, canProceed }) => {
 
         {!consentGiven ? (
           <Button
-            className="w-full h-14 rounded-2xl bg-primary"
+            className="w-full"
+            size="lg"
             onPress={() => setShowConsent(true)}
           >
             <Text className="text-primary-foreground text-base font-bold">
@@ -185,7 +189,8 @@ const BankVerification = ({ onSuccess, isBankVerified, canProceed }) => {
           </Button>
         ) : (
           <Button
-            className="w-full h-14 rounded-2xl bg-primary"
+            className="w-full"
+            size="lg"
             loading={loading}
             onPress={handleSubmit}
           >
@@ -194,7 +199,7 @@ const BankVerification = ({ onSuccess, isBankVerified, canProceed }) => {
             </Text>
           </Button>
         )}
-      </View>
+      </Card>
     </>
   );
 };

@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
 import { getApiErrorMessage } from '@/lib/apiError';
-import { adminAPI, authAPI, type IPUser, type AdminUser } from '@/api/services';
+import { adminAPI, type IPUser } from '@/api/services';
 import { useIPUsers, IP_USERS_QUERY_KEY } from '@/hooks/useIPUsers';
 import {
   Users, CheckCircle, XCircle, Search, MapPin, Phone, Calendar,
-  CreditCard, Building2, Award, Briefcase, RefreshCw, Eye, AlertCircle, UserPlus
+  CreditCard, Building2, Award, Briefcase, RefreshCw, Eye, AlertCircle
 } from 'lucide-react';
 import { StatCard } from '@/components/StatCard';
 import {
@@ -19,7 +19,6 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
@@ -40,7 +39,6 @@ import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 
 const Workers: React.FC = () => {
@@ -49,57 +47,24 @@ const Workers: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<'all' | 'verified' | 'pending' | 'unassigned'>('all');
   const [selectedWorker, setSelectedWorker] = useState<IPUser | null>(null);
   const [showDetails, setShowDetails] = useState(false);
-  const [selectedAdminIds, setSelectedAdminIds] = useState<number[]>([]);
   const [pendingVerifyPhone, setPendingVerifyPhone] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const { data, isLoading, error, refetch } = useIPUsers();
-  const { data: currentUser } = useQuery({
-    queryKey: ['auth', 'user'],
-    queryFn: () => authAPI.getCurrentUser(),
-    staleTime: 1000 * 60 * 5,
-  });
-  const canManageAssignments = Boolean(currentUser?.is_superadmin);
-
-  // Fetch admin users for assignment dropdown
-  const { data: adminUsers = [] } = useQuery({
-    queryKey: ['admin-users'],
-    queryFn: () => adminAPI.getAdminUsers(),
-    staleTime: 1000 * 60 * 5,
-  });
-
   const verifyMutation = useMutation({
-    mutationFn: ({ phoneNumber, adminIds }: { phoneNumber: string, adminIds?: number[] }) =>
-      adminAPI.verifyIPUser(phoneNumber, adminIds),
+    mutationFn: (phoneNumber: string) => adminAPI.verifyIPUser(phoneNumber),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: IP_USERS_QUERY_KEY });
       toast.success("Worker verified successfully");
       setShowDetails(false);
-      setSelectedAdminIds([]);
     },
     onError: (error: AxiosError<{ message: string }>) => {
       toast.error(error.response?.data?.message || "Failed to verify worker");
     },
   });
 
-  const assignAdminsMutation = useMutation({
-    mutationFn: ({ ipId, adminIds }: { ipId: number; adminIds: number[] }) =>
-      adminAPI.assignAdminsToIP(ipId, adminIds),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: IP_USERS_QUERY_KEY });
-      setSelectedWorker((prev) => (
-        prev ? { ...prev, assigned_admin_ids: variables.adminIds } : prev
-      ));
-      toast.success("Admin assignments updated");
-    },
-    onError: (error: AxiosError<{ detail?: string; message?: string }>) => {
-      toast.error(getApiErrorMessage(error, "Failed to update assignments"));
-    },
-  });
-
   const openWorkerDetails = (worker: IPUser) => {
     setSelectedWorker(worker);
-    setSelectedAdminIds(worker.assigned_admin_ids || []);
     setShowDetails(true);
   };
 
@@ -156,24 +121,8 @@ const Workers: React.FC = () => {
 
   const confirmVerify = () => {
     if (!pendingVerifyPhone) return;
-    verifyMutation.mutate({
-      phoneNumber: pendingVerifyPhone,
-      adminIds: canManageAssignments && selectedAdminIds.length > 0 ? selectedAdminIds : undefined,
-    });
+    verifyMutation.mutate(pendingVerifyPhone);
     setPendingVerifyPhone(null);
-  };
-
-  const handleSaveAssignments = () => {
-    if (!selectedWorker?.id) return;
-    assignAdminsMutation.mutate({ ipId: selectedWorker.id, adminIds: selectedAdminIds });
-  };
-
-  const toggleAdminSelection = (adminId: number) => {
-    setSelectedAdminIds(prev =>
-      prev.includes(adminId)
-        ? prev.filter(id => id !== adminId)
-        : [...prev, adminId]
-    );
   };
 
   if (error) {
@@ -298,7 +247,6 @@ const Workers: React.FC = () => {
                     <TableHead>Contact</TableHead>
                     <TableHead>Location</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Assigned Admins</TableHead>
                     <TableHead>Verification</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -329,12 +277,6 @@ const Workers: React.FC = () => {
         onOpenChange={setShowDetails}
         onVerify={handleVerify}
         getVerificationScore={getVerificationScore}
-        adminUsers={adminUsers}
-        selectedAdminIds={selectedAdminIds}
-        toggleAdminSelection={toggleAdminSelection}
-        canManageAssignments={canManageAssignments}
-        onSaveAssignments={handleSaveAssignments}
-        isSavingAssignments={assignAdminsMutation.isPending}
       />
 
       {/* Verify Confirmation Dialog */}
@@ -422,10 +364,6 @@ const WorkerMobileCard: React.FC<{
           <MapPin className="h-3.5 w-3.5" />
           <span>{worker.city}, {worker.pincode}</span>
         </div>
-        <div className="flex items-center gap-2">
-          <UserPlus className="h-3.5 w-3.5" />
-          <span>{worker.assigned_admin_ids?.length || 0} admin(s)</span>
-        </div>
       </div>
 
       <div className="mt-4 space-y-1">
@@ -506,11 +444,6 @@ const WorkerRow: React.FC<{
         </Badge>
       </TableCell>
       <TableCell>
-        <div className="text-sm text-muted-foreground">
-          {worker.assigned_admin_ids?.length || 0} admin(s)
-        </div>
-      </TableCell>
-      <TableCell>
         <div className="w-full max-w-[120px] space-y-1">
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>Progress</span>
@@ -551,24 +484,12 @@ const DetailsModal: React.FC<{
   onOpenChange: (open: boolean) => void;
   onVerify: (phoneNumber: string) => void;
   getVerificationScore: (worker: IPUser) => number;
-  adminUsers: AdminUser[];
-  selectedAdminIds: number[];
-  toggleAdminSelection: (adminId: number) => void;
-  canManageAssignments: boolean;
-  onSaveAssignments: () => void;
-  isSavingAssignments: boolean;
 }> = ({
   worker,
   open,
   onOpenChange,
   onVerify,
   getVerificationScore,
-  adminUsers,
-  selectedAdminIds,
-  toggleAdminSelection,
-  canManageAssignments,
-  onSaveAssignments,
-  isSavingAssignments,
 }) => {
   if (!worker) return null;
 
@@ -643,57 +564,6 @@ const DetailsModal: React.FC<{
               </div>
             </div>
 
-            {/* Admin Assignment Section */}
-            {adminUsers.length > 0 && (
-              <>
-                <Separator />
-                <div className="overflow-hidden">
-                  <h4 className="font-semibold mb-3 flex items-center gap-2 text-sm">
-                    <UserPlus className="h-4 w-4" /> Assign Admins to this Personnel
-                  </h4>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    {canManageAssignments
-                      ? 'Select which admins can manage jobs for this personnel'
-                      : 'Only superadmins can update these assignments'}
-                  </p>
-                  <div className="space-y-2 max-h-[200px] overflow-y-auto border rounded-lg p-3">
-                    {adminUsers.map((admin) => (
-                      <div
-                        key={admin.id}
-                        className={`flex items-center gap-3 p-2 rounded min-w-0 ${canManageAssignments ? 'hover:bg-muted/50' : 'opacity-70'}`}
-                      >
-                        <Checkbox
-                          id={`admin-${admin.id}`}
-                          checked={selectedAdminIds.includes(admin.id)}
-                          disabled={!canManageAssignments}
-                          onCheckedChange={() => {
-                            if (canManageAssignments) {
-                              toggleAdminSelection(admin.id);
-                            }
-                          }}
-                          className="shrink-0"
-                        />
-                        <Label
-                          htmlFor={`admin-${admin.id}`}
-                          className={`flex-1 flex items-center justify-between gap-2 min-w-0 ${canManageAssignments ? 'cursor-pointer' : 'cursor-not-allowed'}`}
-                        >
-                          <span className="truncate text-sm">{admin.email}</span>
-                          {admin.is_superadmin && (
-                            <Badge variant="secondary" className="text-xs shrink-0">Super</Badge>
-                          )}
-                        </Label>
-                      </div>
-                    ))}
-                  </div>
-                  {selectedAdminIds.length > 0 && (
-                    <p className="text-xs text-muted-foreground mt-2">
-                      {selectedAdminIds.length} admin(s) selected
-                    </p>
-                  )}
-                </div>
-              </>
-            )}
-
             {/* Financial Details */}
             {(worker.pan_number || worker.account_number) && <Separator />}
 
@@ -729,19 +599,7 @@ const DetailsModal: React.FC<{
                   size="lg"
                   onClick={() => onVerify(worker.phone_number)}
                 >
-                  Verify Personnel {selectedAdminIds.length > 0 && `& Assign ${selectedAdminIds.length} Admin(s)`}
-                </Button>
-              </div>
-            )}
-            {worker.is_id_verified && canManageAssignments && (
-              <div className="pt-4">
-                <Button
-                  className="w-full"
-                  size="lg"
-                  onClick={onSaveAssignments}
-                  disabled={isSavingAssignments}
-                >
-                  {isSavingAssignments ? 'Saving Assignments...' : 'Save Admin Assignments'}
+                  Verify Personnel
                 </Button>
               </div>
             )}

@@ -142,7 +142,7 @@ export default function PurchaseOrders() {
                     <button
                       key={item.id}
                       type="button"
-                      className="block w-full border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-muted"
+                      className="block w-full border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-muted/90"
                       onClick={() => {
                         setVendor(item);
                         setVendorSearch(item.name);
@@ -154,7 +154,7 @@ export default function PurchaseOrders() {
                   {!isSearching && vendors.length === 0 && <p className="p-3 text-sm text-muted-foreground">No active Odoo vendors found.</p>}
                 </div>
               )}
-              {vendor && <p className="text-sm text-green-700">Selected: {vendor.name}</p>}
+              {vendor && <p className="text-sm text-success">Selected: {vendor.name}</p>}
             </div>
 
             <div className="space-y-2">
@@ -210,7 +210,7 @@ export default function PurchaseOrders() {
                 <p className="text-sm text-muted-foreground">{request.vendor_name} · {request.quantity} ft² × ₹{request.unit_price} = ₹{(request.quantity * request.unit_price).toFixed(2)}</p>
                 <p className="text-xs text-muted-foreground">Requested by {request.requested_by_email || 'admin'} on {new Date(request.requested_at).toLocaleString()}</p>
                 {request.odoo_purchase_order_name && (
-                  <p className="mt-1 text-sm text-green-700">
+                  <p className="mt-1 text-sm text-success">
                     Odoo RFQ: {request.odoo_purchase_order_name}
                     {request.odoo_purchase_order_state ? ` · ${request.odoo_purchase_order_state}` : ''}
                     {request.odoo_invoice_status ? ` · ${request.odoo_invoice_status.replaceAll('_', ' ')}` : ''}
@@ -223,7 +223,7 @@ export default function PurchaseOrders() {
                   </p>
                 )}
                 {request.odoo_vendor_bill_name && (
-                  <p className="mt-1 text-sm text-green-700">
+                  <p className="mt-1 text-sm text-success">
                     Odoo vendor bill: {request.odoo_vendor_bill_name}
                     {request.odoo_vendor_bill_state ? ` · ${request.odoo_vendor_bill_state}` : ''}
                   </p>

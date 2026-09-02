@@ -1,10 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   RefreshControl,
   ScrollView,
-  TouchableOpacity,
   View,
 } from "react-native";
 import {
@@ -12,13 +10,15 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import Ionicons from "@react-native-vector-icons/ionicons";
-import { Text } from "@/components/ui/text";
+import { Button, Text } from "@/components/ui";
 import ScreenHeader from "../../components/common/ScreenHeader";
 import Loader from "../../components/common/Loader";
 import EmptyState from "../../components/common/EmptyState";
 import { Notice } from "../../components/common/Primitives";
 import { grnApi } from "../../api/grnApi";
+import { getApiErrorMessage } from "../../api/apiErrors";
 import { useTheme } from "../../hooks/useTheme";
+import { radii, spacing, typography } from "../../theme/designSystem";
 
 const asGRNList = (data) => {
   if (Array.isArray(data)) return data;
@@ -36,7 +36,6 @@ const receivedMapFor = (grn) => {
 const SiteGRNScreen = ({ route }) => {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const onPrimary = colors.primaryForeground;
   const [grns, setGrns] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -44,6 +43,7 @@ const SiteGRNScreen = ({ route }) => {
   const [error, setError] = useState("");
   const [received, setReceived] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   const grn = selectedId ? grns.find((item) => item.id === selectedId) || null : null;
   const submitted = grn?.status === "submitted";
@@ -66,12 +66,10 @@ const SiteGRNScreen = ({ route }) => {
       });
       setError("");
     } catch (err) {
-      setGrns([]);
-      setSelectedId(null);
-      if (err?.response?.status === 404) {
+      if (err?.status === 404 || err?.response?.status === 404) {
         setError("No pending GRN is assigned to you.");
       } else {
-        setError("Failed to load GRN. Pull down to retry.");
+        setError(getApiErrorMessage(err));
       }
     }
   }, [route.params?.jobId]);
@@ -98,6 +96,7 @@ const SiteGRNScreen = ({ route }) => {
   const doSubmit = async () => {
     if (!grn?.packages) return;
     setSubmitting(true);
+    setSubmitError("");
     try {
       const packages = grn.packages.map((p) => ({
         package_id: p.id,
@@ -108,10 +107,7 @@ const SiteGRNScreen = ({ route }) => {
       setSelectedId(updated.id);
       setReceived(receivedMapFor(updated));
     } catch (err) {
-      Alert.alert(
-        "Error",
-        err?.response?.data?.detail || "Submission failed. Please try again.",
-      );
+      setSubmitError(getApiErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
@@ -153,7 +149,7 @@ const SiteGRNScreen = ({ route }) => {
             flex: 1,
             alignItems: "center",
             justifyContent: "center",
-            padding: 24,
+            padding: spacing.lg,
           }}
           contentInsetAdjustmentBehavior="automatic"
           refreshControl={
@@ -178,7 +174,7 @@ const SiteGRNScreen = ({ route }) => {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
         <ScrollView
-          contentContainerStyle={{ padding: 20, paddingBottom: 120 }}
+          contentContainerStyle={{ padding: spacing.md, paddingBottom: spacing.xl * 3 }}
           contentInsetAdjustmentBehavior="automatic"
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -196,10 +192,10 @@ const SiteGRNScreen = ({ route }) => {
             right={
               <View
                 style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 14,
-                  backgroundColor: colors.primary + "18",
+                  width: spacing.xl + spacing.sm,
+                  height: spacing.xl + spacing.sm,
+                  borderRadius: radii.lg,
+                  backgroundColor: colors.primaryLight,
                   alignItems: "center",
                   justifyContent: "center",
                 }}
@@ -208,6 +204,8 @@ const SiteGRNScreen = ({ route }) => {
               </View>
             }
           />
+
+          {error ? <Notice tone="warning" title="Showing saved GRNs" message={error} className="mb-4" /> : null}
 
           {grns.length === 0 ? (
             <EmptyState
@@ -219,53 +217,43 @@ const SiteGRNScreen = ({ route }) => {
             grns.map((item) => {
               const packageCount = item.packages?.length || 0;
               return (
-                <TouchableOpacity
+                <Button
+                  variant="outline"
                   key={item.id}
                   onPress={() => setSelectedId(item.id)}
                   accessibilityRole="button"
                   accessibilityLabel={`Open GRN ${item.odoo_picking_name || item.source_document}`}
-                  activeOpacity={0.75}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 14,
-                    padding: 16,
-                    borderRadius: 16,
-                    marginBottom: 12,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    backgroundColor: colors.surface,
-                    ...colors.shadowSm,
-                  }}
+                  className="mb-3 h-auto w-full flex-row justify-between gap-3 rounded-2xl bg-card p-4"
+                  style={colors.shadowSm}
                 >
                   <View
+                    className="bg-warning-muted"
                     style={{
-                      width: 42,
-                      height: 42,
-                      borderRadius: 14,
-                      backgroundColor: colors.warning + "16",
+                      width: spacing.xl + spacing.sm,
+                      height: spacing.xl + spacing.sm,
+                      borderRadius: radii.lg,
                       alignItems: "center",
                       justifyContent: "center",
                     }}
                   >
-                    <Ionicons name="time-outline" size={22} color={colors.warning} />
+                    <Ionicons name="time-outline" size={typography.title2.fontSize} color={colors.warning} />
                   </View>
-                  <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+                  <View style={{ flex: 1, minWidth: 0, gap: spacing.xxs }}>
                     <Text
                       numberOfLines={1}
-                      style={{ color: colors.text, fontSize: 15, fontWeight: "700" }}
+                      style={[typography.callout, { color: colors.text }]}
                     >
                       {item.odoo_picking_name || item.source_document}
                     </Text>
                     <Text
                       numberOfLines={1}
-                      style={{ color: colors.textMuted, fontSize: 12 }}
+                      style={[typography.caption, { color: colors.textMuted }]}
                     >
                       {item.source_document} · {packageCount} package{packageCount !== 1 ? "s" : ""}
                     </Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-                </TouchableOpacity>
+                  <Ionicons name="chevron-forward" size={typography.title3.fontSize} color={colors.textMuted} />
+                </Button>
               );
             })
           )}
@@ -281,7 +269,7 @@ const SiteGRNScreen = ({ route }) => {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
-        contentContainerStyle={{ padding: 20, paddingBottom: 200 }}
+        contentContainerStyle={{ padding: spacing.md, paddingBottom: spacing.xl * 7 }}
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -293,23 +281,17 @@ const SiteGRNScreen = ({ route }) => {
         }
       >
         {grns.length > 1 && (
-          <TouchableOpacity
+          <Button
+            variant="ghost"
+            size="sm"
             onPress={() => setSelectedId(null)}
             accessibilityRole="button"
             accessibilityLabel="Back to all GRNs"
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 6,
-              marginBottom: 14,
-              alignSelf: "flex-start",
-            }}
+            className="mb-4 self-start"
           >
-            <Ionicons name="chevron-back" size={20} color={colors.primary} />
-            <Text style={{ color: colors.primary, fontWeight: "700" }}>
-              All GRNs
-            </Text>
-          </TouchableOpacity>
+            <Ionicons name="chevron-back" size={typography.title3.fontSize} color={colors.primary} />
+            <Text>All GRNs</Text>
+          </Button>
         )}
 
         {/* Header */}
@@ -324,10 +306,10 @@ const SiteGRNScreen = ({ route }) => {
           right={
             <View
               style={{
-                width: 44,
-                height: 44,
-                borderRadius: 14,
-                backgroundColor: colors.primary + "18",
+                width: spacing.xl + spacing.sm,
+                height: spacing.xl + spacing.sm,
+                borderRadius: radii.lg,
+                backgroundColor: colors.primaryLight,
                 alignItems: "center",
                 justifyContent: "center",
               }}
@@ -364,6 +346,14 @@ const SiteGRNScreen = ({ route }) => {
           />
         ) : null}
 
+        {error ? (
+          <Notice tone="warning" title="Showing saved GRN details" message={error} className="mb-4" />
+        ) : null}
+
+        {submitError ? (
+          <Notice tone="danger" title="GRN not submitted" message={submitError} className="mb-4" />
+        ) : null}
+
         {/* Progress */}
         {grn && (
           <View className="mb-4">
@@ -371,17 +361,17 @@ const SiteGRNScreen = ({ route }) => {
               <Text className="text-sm font-bold text-foreground">
                 Packages
               </Text>
-              <Text className="text-[13px] font-semibold text-muted-foreground">
+              <Text style={{ fontSize: typography.caption.fontSize, lineHeight: typography.caption.lineHeight }} className="font-semibold text-muted-foreground">
                 {receivedCount} / {grn.packages.length} received
               </Text>
             </View>
             <View className="h-2 bg-muted rounded-full overflow-hidden">
               <View
                 style={{
-                  height: 8,
+                  height: spacing.xs,
                   width: `${grn.packages.length ? (receivedCount / grn.packages.length) * 100 : 0}%`,
                   backgroundColor: colors.success,
-                  borderRadius: 999,
+                  borderRadius: radii.pill,
                 }}
               />
             </View>
@@ -393,7 +383,8 @@ const SiteGRNScreen = ({ route }) => {
           grn.packages.map((pkg) => {
             const isReceived = received[pkg.id] ?? false;
             return (
-              <TouchableOpacity
+              <Button
+                variant="outline"
                 key={pkg.id}
                 onPress={() => toggle(pkg.id)}
                 disabled={submitted}
@@ -403,27 +394,17 @@ const SiteGRNScreen = ({ route }) => {
                   checked: isReceived,
                   disabled: submitted,
                 }}
-                activeOpacity={submitted ? 1 : 0.7}
+                className={`mb-2.5 h-auto w-full flex-row justify-between p-4 ${isReceived ? "border-success bg-success-muted" : "border-border bg-surface"}`}
                 style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 14,
-                  padding: 16,
-                  borderRadius: 16,
-                  marginBottom: 10,
-                  borderWidth: 1.5,
                   borderColor: isReceived ? colors.success : colors.border,
-                  backgroundColor: isReceived
-                    ? colors.success + "14"
-                    : colors.surface,
                   ...colors.shadowSm,
                 }}
               >
                 <View
                   style={{
-                    width: 26,
-                    height: 26,
-                    borderRadius: 13,
+                    width: typography.title1.fontSize,
+                    height: typography.title1.fontSize,
+                    borderRadius: radii.pill,
                     borderWidth: 2,
                     borderColor: isReceived ? colors.success : colors.border,
                     backgroundColor: isReceived
@@ -436,7 +417,7 @@ const SiteGRNScreen = ({ route }) => {
                   {isReceived && (
                     <Ionicons
                       name="checkmark"
-                      size={16}
+                      size={typography.body.fontSize}
                       color={colors.background}
                     />
                   )}
@@ -444,19 +425,18 @@ const SiteGRNScreen = ({ route }) => {
                 <Text
                   style={{
                     flex: 1,
-                    fontSize: 14,
-                    fontWeight: "500",
+                    ...typography.caption,
                     color: isReceived ? colors.success : colors.text,
                   }}
                 >
                   {pkg.package_name}
                 </Text>
                 {!isReceived && !submitted && (
-                  <Text style={{ fontSize: 11, color: colors.textMuted }}>
+                  <Text style={[typography.micro, { color: colors.textMuted }]}>
                     Tap
                   </Text>
                 )}
-              </TouchableOpacity>
+              </Button>
             );
           })}
       </ScrollView>
@@ -469,39 +449,23 @@ const SiteGRNScreen = ({ route }) => {
             bottom: 0,
             left: 0,
             right: 0,
-            padding: 20,
-            paddingBottom: insets.bottom + 90,
+            padding: spacing.md,
+            paddingBottom: insets.bottom + spacing.xl * 3,
             backgroundColor: colors.background,
             borderTopWidth: 1,
             borderTopColor: colors.border,
           }}
         >
-          <TouchableOpacity
+          <Button
             onPress={handleSubmit}
-            disabled={submitting}
+            loading={submitting}
             accessibilityRole="button"
             accessibilityLabel="Submit GRN"
             accessibilityState={{ disabled: submitting, busy: submitting }}
-            style={{
-              backgroundColor: colors.primary,
-              borderRadius: 16,
-              padding: 16,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 8,
-              opacity: submitting ? 0.7 : 1,
-            }}
           >
-            {submitting ? (
-              <ActivityIndicator size="small" color={onPrimary} />
-            ) : (
-              <Ionicons name="clipboard-outline" size={20} color={onPrimary} />
-            )}
-            <Text style={{ color: onPrimary, fontWeight: "700", fontSize: 16 }}>
-              {submitting ? "Submitting..." : "Submit GRN"}
-            </Text>
-          </TouchableOpacity>
+            <Ionicons name="clipboard-outline" size={typography.title3.fontSize} color={colors.primaryForeground} />
+            <Text>Submit GRN</Text>
+          </Button>
         </View>
       )}
     </SafeAreaView>

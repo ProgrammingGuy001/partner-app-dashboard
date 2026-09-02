@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   RefreshControl,
   View,
-  TouchableOpacity,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
@@ -11,6 +10,7 @@ import JobFilters from "../../components/dashboard/JobFilters";
 import JobList from "../../components/dashboard/JobList";
 import StatsCards from "../../components/dashboard/StatsCards";
 import DailyAttendance from "../../components/dashboard/DailyAttendance";
+import TodayCard from "../../components/dashboard/TodayCard";
 import ScreenHeader from "../../components/common/ScreenHeader";
 import { SkeletonList } from "../../components/common/EmptyState";
 import Ionicons from "@react-native-vector-icons/ionicons";
@@ -23,6 +23,9 @@ import { useToast } from "../../hooks/useToast";
 import { useResponsive } from "../../hooks/useResponsive";
 import { useTheme } from "../../hooks/useTheme";
 import { ROUTES } from "../../util/constants";
+import { Notice, StatusBadge } from '../../components/common/Primitives';
+import { getApiErrorMessage } from '../../api/apiErrors';
+import { spacing, typography } from '../../theme/designSystem';
 
 const getGreeting = () => {
   const hour = new Date().getHours();
@@ -51,6 +54,7 @@ const DashboardScreen = ({ navigation }) => {
   } = useDashboardStore();
   const [loading, setLoading] = useState(jobs.length === 0);
   const [refreshing, setRefreshing] = useState(false);
+  const [attendanceIntent, setAttendanceIntent] = useState(null);
   const hasJobsRef = useRef(jobs.length > 0);
   const isMountedRef = useRef(true);
 
@@ -71,7 +75,7 @@ const DashboardScreen = ({ navigation }) => {
         setError(null);
       }
     } catch (error) {
-      const message = error.message || "Failed to fetch jobs";
+      const message = getApiErrorMessage(error);
       if (isMountedRef.current) {
         setError(message);
         toast.error(message);
@@ -91,6 +95,29 @@ const DashboardScreen = ({ navigation }) => {
     if (isMountedRef.current) setRefreshing(false);
   }, [fetchJobs]);
 
+  // One CTA per day-state: attendance opens inline, the rest are ordinary navigation.
+  const handleTodayAction = useCallback((action, entry) => {
+    if (action === "check_in" || action === "check_out") {
+      setAttendanceIntent({
+        rosterEntryId: entry.id,
+        jobId: entry.job_id,
+        attendanceType: action,
+        // A new object each press so re-tapping re-opens the card.
+        at: Date.now(),
+      });
+      return;
+    }
+    if (action === "daily_report") {
+      navigation.navigate(ROUTES.DAILY_REPORT);
+      return;
+    }
+    if (action === "roster") {
+      navigation.navigate(ROUTES.MAIN_TABS, { screen: ROUTES.ROSTER });
+      return;
+    }
+    navigation.navigate(ROUTES.JOB_DETAIL, { id: entry.job_id });
+  }, [navigation]);
+
   const handlePress = useCallback((route, params) => {
     Haptics.selectionAsync();
     navigation.navigate(route, params);
@@ -109,61 +136,64 @@ const DashboardScreen = ({ navigation }) => {
             month: "long",
           })}
           right={
-            <TouchableOpacity
+            <Button
+              size="icon"
               onPress={() => handlePress(ROUTES.ACCOUNT)}
-              className="w-11 h-11 rounded-full bg-primary items-center justify-center"
-              style={colors.shadowSm}
+              className="rounded-full"
               accessibilityRole="button"
               accessibilityLabel="Open account settings"
             >
-              <Text className="text-primary-foreground text-base font-bold">
-                {initials}
-              </Text>
-            </TouchableOpacity>
+              <Text>{initials}</Text>
+            </Button>
           }
         />
       </Animated.View>
 
       <Animated.View entering={FadeInUp.delay(200).duration(600)}>
-        <StatsCards stats={stats} isInternal={user?.is_internal} />
+        <TodayCard onAction={handleTodayAction} />
       </Animated.View>
 
+      {jobsError ? <Notice tone="warning" title="Showing saved jobs" message={jobsError} className="mt-4" /> : null}
+
       <Animated.View entering={FadeInUp.delay(400).duration(600)} className="mt-4">
-        <DailyAttendance />
+        <DailyAttendance openWith={attendanceIntent} />
       </Animated.View>
 
       {/* Report generation without marking attendance. */}
       <Animated.View entering={FadeInUp.delay(500).duration(600)} className="mt-3">
-        <TouchableOpacity
+        <Button
+          variant="outline"
           onPress={() => navigation.navigate(ROUTES.DAILY_REPORT)}
           accessibilityRole="button"
           accessibilityLabel="Generate a Daily Installation Report"
-          className="min-h-12 flex-row items-center justify-center gap-2 rounded-xl border border-border bg-background px-4"
         >
-          <Ionicons name="document-text-outline" size={18} color={colors.primary} />
-          <Text className="text-sm font-semibold text-primary">Generate Daily Report</Text>
-        </TouchableOpacity>
+          <Ionicons name="document-text-outline" size={typography.title3.fontSize} color={colors.primary} />
+          <Text>Generate daily report</Text>
+        </Button>
       </Animated.View>
 
       {/* Job Queue section */}
       <Animated.View entering={FadeInUp.delay(700).duration(600)} className="mt-6">
         <View className="flex-row items-end justify-between mb-3">
           <View>
-            <Text className="text-[18px] font-extrabold text-foreground">Your Jobs</Text>
-            <Text className="text-[13px] font-medium text-muted-foreground mt-0.5">
+            <Text style={{ fontSize: typography.title3.fontSize, lineHeight: typography.title3.lineHeight }} className="font-extrabold text-foreground">Your Jobs</Text>
+            <Text style={typography.caption} className="text-muted-foreground mt-0.5">
               Active work queue
             </Text>
           </View>
-          <View className="rounded-xl bg-primary-light px-3 py-1.5">
-            <Text className="text-[12px] font-extrabold text-primary" style={{ fontVariant: ["tabular-nums"] }}>
-              {jobs.length} total
-            </Text>
-          </View>
+          <StatusBadge label={`${jobs.length} total`} tone="primary" />
         </View>
         <JobFilters />
       </Animated.View>
     </View>
-  ), [firstName, handlePress, colors, initials, stats, user, jobs.length]);
+  ), [firstName, handlePress, handleTodayAction, attendanceIntent, colors, initials, jobs.length, jobsError]);
+
+  const ListFooter = useCallback(() => (
+    <Animated.View entering={FadeInUp.duration(500)} className="mt-6">
+      <Text style={typography.micro} className="mb-3 uppercase tracking-wider text-muted-foreground">Work summary</Text>
+      <StatsCards stats={stats} isInternal={user?.is_internal} />
+    </Animated.View>
+  ), [stats, user?.is_internal]);
 
   useEffect(() => {
     fetchJobs();
@@ -195,7 +225,8 @@ const DashboardScreen = ({ navigation }) => {
       <JobList
         onJobPress={(job) => handlePress(ROUTES.JOB_DETAIL, { id: job.id })}
         ListHeaderComponent={ListHeader}
-        contentContainerStyle={{ paddingHorizontal: px, paddingBottom: 120 }}
+        ListFooterComponent={ListFooter}
+        contentContainerStyle={{ paddingHorizontal: px, paddingBottom: spacing.xl * 4 }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

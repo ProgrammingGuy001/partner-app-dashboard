@@ -1165,28 +1165,80 @@ class OdooService:
             }
 
     @classmethod
+    def get_repair_orders_for_sales_order(cls, sales_order: str) -> List[Dict[str, Any]]:
+        """The repair orders linked to a sales order, or [] when there are none.
+
+        An SO that Odoo has never heard of is not an error here: a job can carry an SO
+        number before the order exists, so the caller gets an empty list either way.
+        """
+        sales_order = (sales_order or "").strip()
+        if not sales_order:
+            return []
+        sale_orders = cls._execute_kw(
+            'sale.order',
+            'search_read',
+            [[('name', '=', sales_order), cls._company_domain()]],
+            {'fields': ['id'], 'limit': 1},
+            context=cls._company_context(),
+        )
+        if not sale_orders:
+            return []
+        return cls._execute_kw(
+            'repair.order',
+            'search_read',
+            [[
+                (cls.REPAIR_ORDER_SALE_FIELD, '=', sale_orders[0]['id']),
+                cls._company_domain(),
+            ]],
+            {'fields': ['name']},
+            context=cls._company_context(),
+        )
+
+    @classmethod
     def get_pickings_by_source_doc(cls, source_doc: str) -> List[Dict[str, Any]]:
         """
-        Fetch all stock.pickings matching a source document.
+        Fetch open GRN pickings matching a source document.
 
-        Matches by picking name (WH/OUT/XXXXX, WH/RO/XXXXX, ...) or by
-        origin (e.g. SO number) — a single origin can map to multiple pickings.
+        An SO owns both its direct delivery orders and delivery orders whose origin is
+        a linked repair order. A direct picking/RO lookup still works as before.
         """
+        source_doc = source_doc.strip()
+        origin_names = [source_doc]
+        repair_orders = cls.get_repair_orders_for_sales_order(source_doc)
+        origin_names.extend(order['name'] for order in repair_orders if order.get('name'))
+
         pickings = cls._execute_kw(
             'stock.picking',
             'search_read',
             [[
                 '|',
                 ('name', '=', source_doc),
-                ('origin', '=', source_doc),
+                ('origin', 'in', origin_names),
                 cls._company_domain(),
             ]],
             {'fields': ['id', 'name', 'origin', 'partner_id', 'state']},
             context=cls._company_context(),
         )
+        picking_ids = [picking['id'] for picking in pickings]
+        if not picking_ids:
+            return []
+        open_grns = cls._execute_kw(
+            'x_site_grn',
+            'search_read',
+            [[
+                ('x_studio_delivery_order', 'in', picking_ids),
+                ('x_studio_status', '!=', 'Done'),
+            ]],
+            {'fields': ['x_studio_delivery_order']},
+        )
+        open_picking_ids = {
+            cls.safe_extract_id(grn.get('x_studio_delivery_order')) for grn in open_grns
+        }
 
         results: List[Dict[str, Any]] = []
         for p in pickings:
+            if p['id'] not in open_picking_ids:
+                continue
             partner_name = None
             partner_field = p.get('partner_id')
             if partner_field and isinstance(partner_field, list) and len(partner_field) >= 2:
@@ -1218,7 +1270,10 @@ class OdooService:
             grn_records = cls._execute_kw(
                 'x_site_grn',
                 'search_read',
-                [[('x_studio_delivery_order', '=', picking_id)]],
+                [[
+                    ('x_studio_delivery_order', '=', picking_id),
+                    ('x_studio_status', '!=', 'Done'),
+                ]],
                 {'fields': ['id']}
             )
 

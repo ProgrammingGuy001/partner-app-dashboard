@@ -186,7 +186,7 @@ const SiteRequisite: React.FC = () => {
                     )}
 
                     {detailsError && (
-                        <div className="mt-4 flex items-start gap-3 rounded-md border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-200">
+                        <div className="mt-4 flex items-start gap-3 rounded-md border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
                             <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
                             <div>
                                 <p className="font-semibold">BOM loaded, but sales-order details are missing</p>

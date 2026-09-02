@@ -70,3 +70,5 @@ test.db
 *.log
 app/env.mode
 tests/*
+CLAUDE.md
+tmp/*

@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { Alert, TouchableOpacity } from 'react-native';
-import Ionicons from '@react-native-vector-icons/ionicons';
+import { Alert } from 'react-native';
 import { Text } from '@/components/ui/text';
+import { Button } from '@/components/ui/button';
 import { verificationApi } from '../../api/verificationApi';
+import { getApiErrorMessage } from '../../api/apiErrors';
 import { useAuthStore } from '../../store/authStore';
 import { useVerificationStore } from '../../store/verificationStore';
 import { useToast } from '../../hooks/useToast';
-import { useTheme } from '../../hooks/useTheme';
 
 const DeleteVerificationDataButton = () => {
   const [deleting, setDeleting] = useState(false);
@@ -14,7 +14,6 @@ const DeleteVerificationDataButton = () => {
   const setUser = useAuthStore((state) => state.setUser);
   const resetVerification = useVerificationStore((state) => state.resetVerification);
   const toast = useToast();
-  const { colors } = useTheme();
 
   const deleteData = async () => {
     setDeleting(true);
@@ -29,7 +28,7 @@ const DeleteVerificationDataButton = () => {
       });
       toast.success('Verification data deleted');
     } catch (error) {
-      toast.error(error.message || 'Failed to delete verification data');
+      toast.error(getApiErrorMessage(error));
     } finally {
       setDeleting(false);
     }
@@ -45,18 +44,17 @@ const DeleteVerificationDataButton = () => {
   );
 
   return (
-    <TouchableOpacity
+    <Button
+      variant="destructive"
       onPress={confirm}
       disabled={deleting}
-      accessibilityRole="button"
       accessibilityLabel="Delete verification data"
       accessibilityState={{ disabled: deleting, busy: deleting }}
-      className="min-h-12 flex-row items-center justify-center gap-2 rounded-2xl border p-3"
-      style={{ backgroundColor: colors.danger + '10', borderColor: colors.danger + '20', opacity: deleting ? 0.5 : 1 }}
+      loading={deleting}
+      className="w-full"
     >
-      <Ionicons name="trash-outline" size={19} color={colors.danger} />
-      <Text style={{ color: colors.danger, fontWeight: '700' }}>{deleting ? 'Deleting…' : 'Delete verification data'}</Text>
-    </TouchableOpacity>
+      <Text>{deleting ? 'Deleting…' : 'Delete verification data'}</Text>
+    </Button>
   );
 };
 

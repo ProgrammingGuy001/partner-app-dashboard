@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
+import { View, ScrollView, RefreshControl } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@react-native-vector-icons/ionicons';
@@ -7,9 +7,12 @@ import { Text } from '@/components/ui/text';
 import { useLogout } from '../../hooks/useLogout';
 import { useAuthStore } from '../../store/authStore';
 import { useTheme } from '../../hooks/useTheme';
-import { Notice } from '../../components/common/Primitives';
+import ScreenHeader from '../../components/common/ScreenHeader';
+import { Card, IconButton, Notice } from '../../components/common/Primitives';
 import DeleteVerificationDataButton from '../../components/verification/DeleteVerificationDataButton';
 import { useToast } from '../../hooks/useToast';
+import { getApiErrorMessage } from '../../api/apiErrors';
+import { spacing, typography } from '../../theme/designSystem';
 
 const PendingApprovalScreen = () => {
   const { colors } = useTheme();
@@ -17,6 +20,7 @@ const PendingApprovalScreen = () => {
   const user = useAuthStore((state) => state.user);
   const refreshProfile = useAuthStore((state) => state.refreshProfile);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState('');
   const toast = useToast();
 
   const handleRefresh = useCallback(async () => {
@@ -24,8 +28,11 @@ const PendingApprovalScreen = () => {
     setRefreshing(true);
     try {
       await refreshProfile();
+      setRefreshError('');
     } catch (error) {
-      toast.error(error.message || 'Failed to refresh verification status');
+      const message = getApiErrorMessage(error);
+      setRefreshError(message);
+      toast.error(message);
     } finally {
       setRefreshing(false);
     }
@@ -58,7 +65,7 @@ const PendingApprovalScreen = () => {
   return (
     <SafeAreaView className="flex-1 bg-background">
       <ScrollView
-        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: 20, paddingBottom: 40 }}
+        contentContainerStyle={{ flexGrow: 1, padding: spacing.lg, paddingBottom: spacing.xl }}
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -70,38 +77,23 @@ const PendingApprovalScreen = () => {
           />
         }
       >
-        {/* Header with Logout */}
-        <View className="flex-row justify-between items-center mb-8">
-          <View>
-            <Text className="text-2xl font-extrabold text-foreground">
-              Pending Approval
-            </Text>
-            <Text className="text-[13px] text-muted-foreground mt-1">
-              Your verification is under review
-            </Text>
-          </View>
-          <TouchableOpacity
-            onPress={logout}
-            disabled={loggingOut}
-            accessibilityRole="button"
-            accessibilityLabel="Logout"
-            accessibilityState={{ disabled: loggingOut, busy: loggingOut }}
-            className="w-10 h-10 rounded-[20px] bg-surface items-center justify-center border border-border"
-            style={colors.shadowSm}
-          >
-            <Ionicons name="log-out-outline" size={20} color={colors.danger} />
-          </TouchableOpacity>
-        </View>
+        <ScreenHeader
+          eyebrow="Account verification"
+          title="Pending approval"
+          subtitle="Your identity document is under review"
+          right={<IconButton icon="log-out-outline" label="Logout" tone="danger" onPress={logout} disabled={loggingOut} />}
+          className="pt-0"
+        />
 
         {/* Main Illustration */}
         <View className="items-center mb-8">
-          <View className="w-[120px] h-[120px] rounded-full bg-primary-light flex items-center justify-center mb-5">
-            <View className="w-20 h-20 rounded-[40px] bg-primary items-center justify-center">
+          <View className="h-24 w-24 rounded-full bg-primary-light items-center justify-center mb-5">
+            <View className="h-16 w-16 rounded-full bg-primary items-center justify-center">
               <Ionicons name="hourglass-outline" size={40} color={colors.primaryForeground} />
             </View>
           </View>
 
-          <Text className="text-[22px] font-extrabold text-foreground text-center">
+          <Text className="font-extrabold text-foreground text-center" style={typography.title2}>
             Waiting for Admin Approval
           </Text>
           <Text className="text-sm text-muted-foreground text-center mt-2 leading-5 px-5">
@@ -110,11 +102,10 @@ const PendingApprovalScreen = () => {
         </View>
 
         {/* Verification Status Card */}
-        <View
-          className="bg-surface rounded-2xl p-5 mb-6 border border-border"
-          style={colors.shadowSm}
-        >
-          <Text className="text-[15px] font-bold text-foreground mb-4">
+        {refreshError ? <Notice tone="warning" title="Showing saved status" message={refreshError} className="mb-5" /> : null}
+
+        <Card className="mb-6">
+          <Text className="font-bold text-foreground mb-4" style={typography.callout}>
             Verification Status
           </Text>
 
@@ -126,12 +117,12 @@ const PendingApprovalScreen = () => {
               }`}
             >
               <View
-                className="w-10 h-10 rounded-[20px] items-center justify-center mr-3"
+                className="w-10 h-10 rounded-full items-center justify-center mr-3"
                 style={{
                   backgroundColor: item.completed
                     ? colors.primaryLight
                     : item.pending
-                    ? colors.warning + '15'
+                    ? colors.surfaceAlt
                     : colors.surface,
                 }}
               >
@@ -144,7 +135,7 @@ const PendingApprovalScreen = () => {
               <View className="flex-1">
                 <Text className="text-sm font-semibold text-foreground">{item.label}</Text>
                 {item.pending && (
-                  <Text className="text-[11px] mt-0.5" style={{ color: colors.warning }}>Pending admin review</Text>
+                  <Text className="mt-0.5" style={[typography.micro, { color: colors.warning }]}>Pending admin review</Text>
                 )}
               </View>
               {item.completed && (
@@ -152,7 +143,7 @@ const PendingApprovalScreen = () => {
               )}
             </View>
           ))}
-        </View>
+        </Card>
 
         {/* Info Card */}
         <Notice

@@ -2,11 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { View, ActivityIndicator, TextInput } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { Button } from '@/components/ui/button';
-import { Notice } from '../common/Primitives';
+import { Card, Notice } from '../common/Primitives';
 import { dashboardApi } from '../../api/dashboardApi';
 import { useToast } from '../../hooks/useToast';
 import { useTheme } from '../../hooks/useTheme';
 import Ionicons from '@react-native-vector-icons/ionicons';
+import { getApiErrorMessage, getApiFieldErrors } from '../../api/apiErrors';
 
 const BillingSection = ({ job }) => {
   const toast = useToast();
@@ -20,6 +21,8 @@ const BillingSection = ({ job }) => {
   const [showAdditionalForm, setShowAdditionalForm] = useState(false);
   const [completionPercentage, setCompletionPercentage] = useState('');
   const [invoiceNotes, setInvoiceNotes] = useState('');
+  const [formError, setFormError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const fetchBilling = useCallback(async () => {
     if (!job?.id) return;
@@ -28,7 +31,7 @@ const BillingSection = ({ job }) => {
       const data = await dashboardApi.getBilling(job.id);
       setBilling(data);
     } catch (error) {
-      setBillingError(error.message || 'Failed to load billing information');
+      setBillingError(getApiErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -45,7 +48,7 @@ const BillingSection = ({ job }) => {
       toast.success('Invoice request submitted');
       fetchBilling();
     } catch (err) {
-      toast.error(err?.response?.data?.detail || 'Failed to submit invoice request');
+      toast.error(getApiErrorMessage(err));
     } finally {
       setRequesting(false);
     }
@@ -57,16 +60,18 @@ const BillingSection = ({ job }) => {
       await dashboardApi.downloadInvoice(job.id, job.name, invoiceRequestId);
       toast.success('Bill downloaded');
     } catch (err) {
-      toast.error(err?.message || 'Failed to download bill');
+      toast.error(getApiErrorMessage(err));
     } finally {
       setDownloadingId(null);
     }
   };
 
   const handleAdditionalRequest = async () => {
+    setFormError('');
+    setFieldErrors({});
     const percentage = completionPercentage === '' ? undefined : Number(completionPercentage);
     if (percentage !== undefined && (!Number.isInteger(percentage) || percentage < 0 || percentage > 100)) {
-      toast.error('Completion percentage must be a whole number from 0 to 100');
+      setFieldErrors({ completion_percentage: 'Completion percentage must be a whole number from 0 to 100' });
       return;
     }
     setRequesting(true);
@@ -81,7 +86,10 @@ const BillingSection = ({ job }) => {
       await fetchBilling();
       toast.success('Additional invoice request submitted');
     } catch (error) {
-      toast.error(error.message || 'Failed to submit invoice request');
+      const message = getApiErrorMessage(error);
+      setFormError(message);
+      setFieldErrors(getApiFieldErrors(error));
+      toast.error(message);
     } finally {
       setRequesting(false);
     }
@@ -91,10 +99,7 @@ const BillingSection = ({ job }) => {
   const status = invoiceRequest?.status;
 
   return (
-    <View
-      className="mt-6 rounded-2xl border border-border bg-surface p-5"
-      style={colors.shadowSm}
-    >
+    <Card className="mt-6 bg-surface">
       <View className="flex-row items-center gap-2 mb-4">
         <Ionicons name="receipt-outline" size={18} color={colors.primary} />
         <Text className="text-base font-extrabold text-foreground">Billing</Text>
@@ -104,14 +109,16 @@ const BillingSection = ({ job }) => {
         <ActivityIndicator size="small" color={colors.primary} accessibilityLabel="Loading billing status" />
       )}
 
-      {!loading && billingError ? (
+      {!loading && billingError && !billing ? (
         <View className="gap-2">
           <Notice tone="danger" title="Billing unavailable" message={billingError} />
           <Button variant="outline" onPress={fetchBilling}><Text>Retry</Text></Button>
         </View>
       ) : null}
 
-      {!loading && !billingError && !invoiceRequest && (
+      {!loading && billingError && billing ? <Notice tone="warning" title="Showing saved billing data" message={billingError} /> : null}
+
+      {!loading && !invoiceRequest && (
         <View className="gap-3">
           <Text className="text-sm text-muted-foreground">
             No invoice request yet. Submit a request to generate your invoice.
@@ -127,7 +134,7 @@ const BillingSection = ({ job }) => {
         </View>
       )}
 
-      {!loading && !billingError && status === 'pending' && (
+      {!loading && status === 'pending' && (
         <View className="gap-2">
           <Notice tone="warning" title="Invoice request pending" message="Admin approval is required before the bill can be downloaded." />
           <Text className="text-xs text-muted-foreground">
@@ -136,7 +143,7 @@ const BillingSection = ({ job }) => {
         </View>
       )}
 
-      {!loading && !billingError && status === 'rejected' && (
+      {!loading && status === 'rejected' && (
         <View className="gap-3">
           <Notice
             tone="danger"
@@ -146,7 +153,7 @@ const BillingSection = ({ job }) => {
         </View>
       )}
 
-      {!loading && !billingError && status === 'approved' && (
+      {!loading && status === 'approved' && (
         <View className="gap-4">
           <Notice tone="success" title="Invoice approved" message="The bill is ready to download." />
           <Button
@@ -164,14 +171,14 @@ const BillingSection = ({ job }) => {
         </View>
       )}
 
-      {!loading && !billingError && invoiceRequest && (invoiceRequest.completion_percentage != null || invoiceRequest.notes) ? (
+      {!loading && invoiceRequest && (invoiceRequest.completion_percentage != null || invoiceRequest.notes) ? (
         <View className="mt-3 rounded-xl border border-border bg-background p-3">
           {invoiceRequest.completion_percentage != null ? <Text className="text-sm text-foreground">Completion: {invoiceRequest.completion_percentage}%</Text> : null}
           {invoiceRequest.notes ? <Text className="mt-1 text-sm text-muted-foreground">{invoiceRequest.notes}</Text> : null}
         </View>
       ) : null}
 
-      {!loading && !billingError && invoiceRequest && status !== 'pending' ? (
+      {!loading && invoiceRequest && status !== 'pending' ? (
         <View className="mt-4 border-t border-border pt-4">
           {!showAdditionalForm ? (
             <Button variant="outline" onPress={() => setShowAdditionalForm(true)}>
@@ -179,6 +186,7 @@ const BillingSection = ({ job }) => {
             </Button>
           ) : (
             <View className="gap-3">
+              {formError ? <Notice tone="danger" title="Invoice request not submitted" message={formError} /> : null}
               <Text className="text-xs font-bold text-muted-foreground">COMPLETION PERCENTAGE (OPTIONAL)</Text>
               <TextInput
                 value={completionPercentage}
@@ -189,6 +197,7 @@ const BillingSection = ({ job }) => {
                 placeholderTextColor={colors.textMuted}
                 className="h-11 rounded-xl border border-border bg-background px-3 text-sm text-foreground"
               />
+              {fieldErrors.completion_percentage ? <Text className="text-xs text-destructive">{fieldErrors.completion_percentage}</Text> : null}
               <Text className="text-xs font-bold text-muted-foreground">NOTES (OPTIONAL)</Text>
               <TextInput
                 value={invoiceNotes}
@@ -200,6 +209,7 @@ const BillingSection = ({ job }) => {
                 placeholderTextColor={colors.textMuted}
                 className="min-h-20 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground"
               />
+              {fieldErrors.notes ? <Text className="text-xs text-destructive">{fieldErrors.notes}</Text> : null}
               <View className="flex-row gap-2">
                 <Button className="flex-1" onPress={handleAdditionalRequest} loading={requesting}><Text>Submit request</Text></Button>
                 <Button className="flex-1" variant="outline" onPress={() => setShowAdditionalForm(false)} disabled={requesting}><Text>Cancel</Text></Button>
@@ -231,7 +241,7 @@ const BillingSection = ({ job }) => {
             ))}
         </View>
       )}
-    </View>
+    </Card>
   );
 };
 

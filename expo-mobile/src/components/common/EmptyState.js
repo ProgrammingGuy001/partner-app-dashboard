@@ -4,6 +4,7 @@ import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withRepeat
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { Text } from '@/components/ui';
 import { useTheme } from '../../hooks/useTheme';
+import { spacing, typography } from '../../theme/designSystem';
 
 /**
  * Reusable empty state component.
@@ -18,12 +19,12 @@ const EmptyState = ({ icon = 'folder-open-outline', title = 'Nothing here', subt
       accessible
       accessibilityRole="summary"
     >
-      <View className="w-[72px] h-[72px] rounded-full bg-primary-light items-center justify-center">
+      <View className="rounded-full bg-primary-light items-center justify-center" style={{ width: spacing.xl * 2 + spacing.xs, height: spacing.xl * 2 + spacing.xs }}>
         <Ionicons name={icon} size={34} color={colors.primary} />
       </View>
       <Text className="text-base font-bold text-foreground text-center">{title}</Text>
       {subtitle ? (
-        <Text className="text-[13px] text-muted-foreground text-center leading-[18px]">{subtitle}</Text>
+        <Text style={typography.caption} className="text-muted-foreground text-center">{subtitle}</Text>
       ) : null}
     </View>
   );

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { KeyboardAvoidingView, Platform, FlatList, View, TouchableOpacity } from 'react-native';
+import { KeyboardAvoidingView, Platform, FlatList, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { Text } from '@/components/ui/text';
@@ -8,6 +8,11 @@ import RequisiteSuccessPanel from '../../components/requisite/RequisiteSuccessPa
 import useRequisiteStore from '../../store/requisiteStore';
 import { useTheme } from '../../hooks/useTheme';
 import { useResponsive } from '../../hooks/useResponsive';
+import EmptyState from '../../components/common/EmptyState';
+import ScreenHeader from '../../components/common/ScreenHeader';
+import { Card, IconButton, StatusBadge } from '../../components/common/Primitives';
+import { Button } from '@/components/ui/button';
+import { spacing, typography } from '../../theme/designSystem';
 
 const SubmitScreen = ({ navigation }) => {
   const bucket = useRequisiteStore((state) => state.bucket);
@@ -20,72 +25,48 @@ const SubmitScreen = ({ navigation }) => {
     return <RequisiteSuccessPanel navigation={navigation} />;
   }
 
+  if (!bucket.length) {
+    return (
+      <SafeAreaView className="flex-1 bg-background px-5 items-center justify-center">
+        <EmptyState icon="basket-outline" title="Nothing to submit" subtitle="Add at least one material before confirming the requisite." />
+        <Button variant="outline" className="mt-5" onPress={() => navigation.goBack()}>Back to materials</Button>
+      </SafeAreaView>
+    );
+  }
+
   const renderHeader = () => (
         <>
           {/* Header */}
-          <View className="flex-row items-center gap-3 pt-4 mb-6">
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              className="w-10 h-10 rounded-full bg-surface items-center justify-center border border-border"
-              style={colors.shadowSm}
-              accessibilityRole="button"
-              accessibilityLabel="Go Back"
-            >
-              <Ionicons name="arrow-back" size={20} color={colors.text} />
-            </TouchableOpacity>
-            <View>
-              <Text className="text-xs font-bold text-muted-foreground uppercase">
-                FINAL STEP
-              </Text>
-              <Text className="text-xl font-extrabold text-foreground">
-                Confirm Requisite
-              </Text>
-            </View>
-          </View>
+          <ScreenHeader eyebrow="Final step" title="Confirm Requisite" subtitle="Review the request before submission." />
+          <IconButton icon="arrow-back" label="Go back" onPress={() => navigation.goBack()} className="mb-4" />
 
           <RequisiteSubmitForm onSubmitted={() => setSuccess(true)} />
 
           <View className="flex-row items-center justify-between mb-4 mt-2">
             <Text className="text-base font-extrabold text-foreground">Items Summary</Text>
-            <View className="bg-primary-light px-2 py-1 rounded-lg">
-               <Text className="text-xs font-extrabold text-primary">{bucket.length} Total</Text>
-            </View>
+            <StatusBadge label={`${bucket.length} total`} tone="primary" />
           </View>
         </>
       );
 
       const renderItem = ({ item, index }) => (
-        <View
-          className="p-4 bg-background rounded-2xl border border-border mb-3 shadow-sm"
-        >
+        <Card className="mb-3">
           <Text className="text-sm font-bold text-foreground">{index + 1}. {item.product_name}</Text>
           <View className="flex-row mt-2 items-center gap-3 flex-wrap">
              <View className="flex-row items-center gap-1">
-                <Ionicons name="layers-outline" size={14} color={colors.textSecondary} />
+                <Ionicons name="layers-outline" size={typography.caption.fontSize} color={colors.textSecondary} />
                 <Text className="text-xs text-muted-foreground">
                   <Text className="font-bold">Qty:</Text> {item.quantity}
                 </Text>
              </View>
              {item.responsible_department && (
-               <View
-                 className="px-2 py-0.5 rounded-lg flex-row items-center gap-1"
-                 style={{ backgroundColor: colors.primary + '20' }}
-               >
-                 <Ionicons name="business-outline" size={12} color={colors.primary} />
-                 <Text className="text-xs font-bold capitalize" style={{ color: colors.primary }}>
-                   {item.responsible_department}
-                 </Text>
-               </View>
+               <StatusBadge label={item.responsible_department} tone="primary" icon="business-outline" />
              )}
              {item.component_status && (
-               <View className="px-2 py-0.5 rounded-lg bg-muted">
-                 <Text className="text-xs font-bold text-foreground capitalize">
-                   {item.component_status}
-                 </Text>
-               </View>
+               <StatusBadge label={item.component_status} />
              )}
           </View>
-        </View>
+        </Card>
       );
 
   return (
@@ -96,7 +77,7 @@ const SubmitScreen = ({ navigation }) => {
           keyExtractor={(item) => item.product_name}
           renderItem={renderItem}
           ListHeaderComponent={renderHeader}
-          contentContainerStyle={{ paddingHorizontal: px, paddingBottom: 120 }}
+          contentContainerStyle={{ paddingHorizontal: px, paddingBottom: spacing.xl * 4 }}
           contentInsetAdjustmentBehavior="automatic"
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"

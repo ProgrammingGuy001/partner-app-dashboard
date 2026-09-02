@@ -10,20 +10,21 @@ needs no binary beyond the wheel.
 """
 
 import io
+from pathlib import Path
 from xml.sax.saxutils import escape
 
 import requests
 from PIL import Image
+from reportlab.graphics.shapes import Drawing, Rect
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_LEFT
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
-    HRFlowable,
     Image as RLImage,
-    KeepTogether,
+    PageBreak,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -35,27 +36,22 @@ from app.services.document_automation_service import GeneratedDocument, _safe_na
 from app.utils.attendance_policy import now_ist
 
 # A 12MP phone photo at full size would make a 40MB PDF; 900px wide is plenty for
-# an A4 half-width render.
+# an A4 page render.
 PHOTO_MAX_WIDTH = 900
 PHOTO_JPEG_QUALITY = 72
-PHOTO_RENDER_WIDTH = 80 * mm
-# A portrait or panorama shot scaled to the width above can be taller than the
-# usable page, which would make its KeepTogether block unplaceable. Cap it.
-PHOTO_RENDER_MAX_HEIGHT = 110 * mm
-# Same ceiling the installation report uses. Past this, items still render — they
-# just show the evidence as a link instead of an image.
-MAX_PHOTOS = 12
+# The supplied paper check sheet carries sixteen evidence photos. Keep a finite
+# ceiling, but leave enough room for a real installation rather than dropping the
+# last pages of a normal report.
+MAX_PHOTOS = 24
 FETCH_TIMEOUT_SECONDS = 10
 # ponytail: 8MB ceiling on a single download, so one pathological upload can't
 # exhaust memory. Raise if real site photos ever exceed it.
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
-STATUS_COLORS = {
-    "approved": "#15803d",
-    "rejected": "#b91c1c",
-    "pending": "#b45309",
-}
-NEUTRAL = "#6b7280"
+LOGO_PATH = (
+    Path(__file__).resolve().parents[1] / "templates" / "documents" / "modula-logo.png"
+)
+LOGO_RENDER_HEIGHT = 16 * mm
 
 
 def _fetch_image(url: str) -> bytes | None:
@@ -90,33 +86,57 @@ def _styles() -> dict:
     base = getSampleStyleSheet()
     return {
         "title": ParagraphStyle(
-            "ExportTitle", parent=base["Title"], fontSize=16, spaceAfter=2, alignment=TA_LEFT
+            "ExportTitle",
+            parent=base["Title"],
+            fontName="Helvetica-Bold",
+            fontSize=17,
+            leading=20,
+            alignment=TA_CENTER,
         ),
-        "subtitle": ParagraphStyle(
-            "ExportSubtitle",
+        "section": ParagraphStyle(
+            "ExportSection",
             parent=base["Normal"],
-            fontSize=9,
-            textColor=colors.HexColor("#6b7280"),
+            fontName="Helvetica-Bold",
+            fontSize=12,
+            leading=15,
+            alignment=TA_CENTER,
+            textColor=colors.white,
         ),
-        "meta": ParagraphStyle("ExportMeta", parent=base["Normal"], fontSize=9, leading=13),
+        "label": ParagraphStyle(
+            "ExportLabel", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=7
+        ),
+        "value": ParagraphStyle(
+            "ExportValue",
+            parent=base["Normal"],
+            fontName="Helvetica",
+            fontSize=9,
+            leading=11,
+        ),
         "item": ParagraphStyle(
-            "ExportItem", parent=base["Normal"], fontSize=10, leading=14, spaceAfter=2
+            "ExportItem", parent=base["Normal"], fontSize=7.5, leading=9.5
+        ),
+        "item_center": ParagraphStyle(
+            "ExportItemCenter",
+            parent=base["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=7.5,
+            leading=9.5,
+            alignment=TA_CENTER,
         ),
         "note": ParagraphStyle(
             "ExportNote",
             parent=base["Normal"],
-            fontSize=9,
-            leading=12,
-            leftIndent=6,
+            fontSize=7.5,
+            leading=9.5,
             textColor=colors.HexColor("#374151"),
         ),
-        "admin": ParagraphStyle(
-            "ExportAdminNote",
+        "photo_caption": ParagraphStyle(
+            "ExportPhotoCaption",
             parent=base["Normal"],
-            fontSize=9,
-            leading=12,
-            leftIndent=6,
-            textColor=colors.HexColor("#b91c1c"),
+            fontName="Helvetica-Bold",
+            fontSize=8,
+            leading=10,
+            textColor=colors.HexColor("#374151"),
         ),
     }
 
@@ -134,116 +154,245 @@ def _ip_name(job) -> str:
     return full or (person.phone_number or "Unassigned")
 
 
-def _header(job, name: str, document_link: str | None, styles: dict) -> list:
-    story = [
-        Paragraph(escape(name), styles["title"]),
-        Paragraph(
-            f"Job #{job.id} &middot; exported {now_ist().strftime('%d %b %Y, %H:%M IST')}",
-            styles["subtitle"],
-        ),
-        Spacer(1, 6),
-    ]
+def _logo_flowable() -> RLImage | None:
+    """The Modula mark on the first page. Missing file is not fatal."""
+    try:
+        reader = ImageReader(str(LOGO_PATH))
+        width, height = reader.getSize()
+        return RLImage(
+            str(LOGO_PATH),
+            width=LOGO_RENDER_HEIGHT * width / height,
+            height=LOGO_RENDER_HEIGHT,
+            hAlign="LEFT",
+        )
+    except Exception:  # noqa: BLE001 - a missing or unreadable logo must not fail the export
+        return None
 
-    rows = [
-        ("Project", job.name or job.customer_name or f"Job {job.id}"),
-        ("Sales order", job.sales_order or "—"),
-        ("Customer", job.customer_name or "—"),
-        ("Installation partner", _ip_name(job)),
-        ("Job status", (job.status or "—").replace("_", " ").title()),
-    ]
-    table = Table(
-        [[Paragraph(f"<b>{label}</b>", styles["meta"]), Paragraph(escape(str(value)), styles["meta"])]
-         for label, value in rows],
-        colWidths=[45 * mm, None],
-        hAlign="LEFT",
+
+def _checklist_sheet(
+    job,
+    name: str,
+    document_link: str | None,
+    items: list,
+    styles: dict,
+) -> list:
+    story: list = []
+    logo = _logo_flowable()
+    if logo is not None:
+        logo.hAlign = "CENTER"
+        story.extend([logo, Spacer(1, 5 * mm)])
+
+    exported = now_ist()
+    project = job.name or job.customer_name or f"Job {job.id}"
+    details = Table(
+        [
+            [
+                Paragraph("DATE", styles["label"]),
+                Paragraph("PROJECT NAME", styles["label"]),
+            ],
+            [
+                Paragraph(exported.strftime("%d/%m/%Y"), styles["value"]),
+                Paragraph(escape(str(project)), styles["value"]),
+            ],
+        ],
+        colWidths=[55 * mm, 127 * mm],
+        hAlign="CENTER",
     )
-    table.setStyle(
+    details.setStyle(
         TableStyle(
             [
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("LINEBELOW", (0, 1), (-1, 1), 0.8, colors.HexColor("#111827")),
+                ("RIGHTPADDING", (0, 0), (0, -1), 8 * mm),
                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (1, 0), (1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 1),
+                ("BOTTOMPADDING", (0, 1), (-1, 1), 3),
             ]
         )
     )
-    story.append(table)
+    story.extend(
+        [
+            details,
+            Spacer(1, 3 * mm),
+            Paragraph("Installation checklist", styles["title"]),
+            Spacer(1, 2 * mm),
+            Table(
+                [
+                    [
+                        Paragraph(
+                            escape(
+                                name.removesuffix(" Checklist").removesuffix(
+                                    " Checksheet"
+                                )
+                            ),
+                            styles["section"],
+                        )
+                    ]
+                ],
+                colWidths=[182 * mm],
+                style=TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#252525")),
+                        ("TOPPADDING", (0, 0), (-1, -1), 4),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ]
+                ),
+            ),
+        ]
+    )
 
-    if document_link:
-        story.append(Spacer(1, 4))
-        story.append(
-            Paragraph(
-                f"Completed checklist document: {_link(document_link, 'open')}", styles["meta"]
-            )
+    rows = [
+        [
+            Paragraph("NO.", styles["item_center"]),
+            Paragraph("INSTALLATION CHECK POINTS", styles["item_center"]),
+            Paragraph("CHECK<br/>BOX", styles["item_center"]),
+            Paragraph("REMARKS", styles["item_center"]),
+        ]
+    ]
+    for index, item in enumerate(items, start=1):
+        checkbox = Drawing(9, 9)
+        checkbox.add(Rect(0.5, 0.5, 8, 8, strokeWidth=0.8, fillColor=None))
+        rows.append(
+            [
+                Paragraph(str(index), styles["item_center"]),
+                Paragraph(escape(item.get("text") or ""), styles["item"]),
+                checkbox,
+                "",
+            ]
         )
 
-    story.append(Spacer(1, 8))
-    story.append(HRFlowable(width="100%", color=colors.HexColor("#d1d5db")))
-    story.append(Spacer(1, 8))
+    if not items:
+        rows.append(
+            [
+                Paragraph("1", styles["item_center"]),
+                Paragraph("See the completed checklist document.", styles["item"]),
+                Paragraph("&mdash;", styles["item_center"]),
+                Paragraph(
+                    _link(document_link, "open attachment")
+                    if document_link
+                    else "No line items",
+                    styles["note"],
+                ),
+            ]
+        )
+
+    checklist_table = Table(
+        rows,
+        colWidths=[10 * mm, 108 * mm, 18 * mm, 46 * mm],
+        repeatRows=1,
+        hAlign="CENTER",
+    )
+    checklist_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#ececec")),
+                ("GRID", (0, 0), (-1, -1), 0.45, colors.HexColor("#666666")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
+    story.extend([checklist_table, Spacer(1, 4 * mm)])
+
+    reviews = [
+        status.review_status
+        for item in items
+        if (status := item.get("status")) and status.checked
+    ]
+    approval = (
+        "Review required"
+        if "rejected" in reviews
+        else "Approved"
+        if items and len(reviews) == len(items) and set(reviews) == {"approved"}
+        else "Pending approval"
+    )
+    signoff = Table(
+        [
+            [
+                Paragraph("CHECKER SIGN", styles["label"]),
+                Paragraph("APPROVER STATUS", styles["label"]),
+            ],
+            [
+                Paragraph(escape(_ip_name(job)), styles["value"]),
+                Paragraph(approval, styles["value"]),
+            ],
+        ],
+        colWidths=[91 * mm, 91 * mm],
+        hAlign="CENTER",
+        style=TableStyle(
+            [
+                ("LINEABOVE", (0, 0), (-1, 0), 0.6, colors.HexColor("#666666")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ]
+        ),
+    )
+    story.extend(
+        [
+            signoff,
+            Spacer(1, 2 * mm),
+            Paragraph(
+                f"Job #{job.id} &middot; Sales order {escape(str(job.sales_order or '-'))}",
+                styles["note"],
+            ),
+        ]
+    )
+    if document_link:
+        story.append(
+            Paragraph(
+                f"Completed checklist document: {_link(document_link, 'open attachment')}",
+                styles["note"],
+            )
+        )
     return story
 
 
-def _item_block(index: int, item: dict, styles: dict, photos_left: int) -> tuple[list, bool]:
-    """One item's flowables, plus whether it consumed a photo slot."""
-    status = item.get("status")
-    review = (getattr(status, "review_status", None) or "pending") if status else "pending"
-    checked = bool(getattr(status, "checked", False)) if status else False
-
-    label = review.upper() if checked or review != "pending" else "NOT DONE"
-    color = STATUS_COLORS.get(review, NEUTRAL) if checked or review != "pending" else NEUTRAL
-
-    heading = Table(
-        [[
-            Paragraph(f"<b>{index}.</b> {escape(item.get('text') or '')}", styles["item"]),
-            Paragraph(f'<font color="{color}"><b>{label}</b></font>', styles["item"]),
-        ]],
-        colWidths=[None, 28 * mm],
-        hAlign="LEFT",
+def _photo_page(
+    number: int, item_number: int, text: str, image: bytes, doc, styles: dict
+) -> Table:
+    reader = ImageReader(io.BytesIO(image))
+    width, height = reader.getSize()
+    # Leave a small frame-fit allowance; an exact doc.height table can split its
+    # caption and image into two pages because of ReportLab's boundary epsilon.
+    photo_height = doc.height - 18 * mm
+    scale = min(doc.width / width, photo_height / height)
+    photo = RLImage(
+        io.BytesIO(image),
+        width=width * scale,
+        height=height * scale,
+        hAlign="CENTER",
     )
-    heading.setStyle(
-        TableStyle(
+    return Table(
+        [
             [
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+                Paragraph(
+                    f"PHOTO {number} &middot; ITEM {item_number}: {escape(text)}",
+                    styles["photo_caption"],
+                )
+            ],
+            [photo],
+        ],
+        colWidths=[doc.width],
+        rowHeights=[12 * mm, photo_height],
+        style=TableStyle(
+            [
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 1), (0, 1), "MIDDLE"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("TOPPADDING", (0, 0), (-1, -1), 2),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
             ]
-        )
+        ),
     )
-    block = [heading]
-
-    comment = getattr(status, "comment", None) if status else None
-    if comment:
-        block.append(Paragraph(f"Notes: {escape(comment)}", styles["note"]))
-    admin_comment = getattr(status, "admin_comment", None) if status else None
-    if admin_comment:
-        block.append(Paragraph(f"Admin feedback: {escape(admin_comment)}", styles["admin"]))
-
-    used_photo = False
-    link = getattr(status, "document_link", None) if status else None
-    if link:
-        image = _fetch_image(link) if photos_left > 0 else None
-        if image:
-            used_photo = True
-            reader = ImageReader(io.BytesIO(image))
-            width, height = reader.getSize()
-            scale = min(PHOTO_RENDER_WIDTH / width, PHOTO_RENDER_MAX_HEIGHT / height)
-            block.append(Spacer(1, 3))
-            block.append(
-                RLImage(
-                    io.BytesIO(image),
-                    width=width * scale,
-                    height=height * scale,
-                    hAlign="LEFT",
-                )
-            )
-        else:
-            block.append(Paragraph(f"Evidence: {_link(link, 'open attachment')}", styles["note"]))
-
-    block.append(Spacer(1, 10))
-    return block, used_photo
 
 
 def _page_footer(canv, doc) -> None:
@@ -270,30 +419,31 @@ def checklist_export_pdf(job, checklist: dict) -> GeneratedDocument:
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        leftMargin=18 * mm,
-        rightMargin=18 * mm,
-        topMargin=16 * mm,
-        bottomMargin=18 * mm,
+        leftMargin=14 * mm,
+        rightMargin=14 * mm,
+        topMargin=14 * mm,
+        bottomMargin=14 * mm,
         title=f"{name} - Job {job.id}",
     )
 
-    story = _header(job, name, checklist.get("document_link"), styles)
+    photos = []
+    for index, item in enumerate(items, start=1):
+        status = item.get("status")
+        link = getattr(status, "document_link", None) if status else None
+        if link and len(photos) < MAX_PHOTOS and (image := _fetch_image(link)):
+            photos.append((index, item.get("text") or "", image))
 
-    if not items:
-        story.append(
-            Paragraph(
-                "This checklist has no line items — see the completed checklist document above.",
-                styles["note"],
-            )
+    story = _checklist_sheet(
+        job,
+        name,
+        checklist.get("document_link"),
+        items,
+        styles,
+    )
+    for number, (item_number, text, image) in enumerate(photos, start=1):
+        story.extend(
+            [PageBreak(), _photo_page(number, item_number, text, image, doc, styles)]
         )
-    else:
-        photos_left = MAX_PHOTOS
-        for index, item in enumerate(items, start=1):
-            block, used_photo = _item_block(index, item, styles, photos_left)
-            if used_photo:
-                photos_left -= 1
-            # KeepTogether so an item's notes and photo never split from its heading.
-            story.append(KeepTogether(block))
 
     doc.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
 

@@ -14,17 +14,21 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.api.v1 import attendance, auth, bom, jobs, verification
 from app.config import settings
 from app.core.scheduler import scheduler
+from app.services.visit_listener import start_visit_listener, stop_visit_listener
 from app.database import SessionLocal
 from app.routes.analytics import router as analytics_router
 from app.routes.approval import router as approval_router
 from app.routes.auth import router as auth_router
 from app.routes.bom import router as bom_router
 from app.routes.checklist import router as checklist_router
+from app.routes.crm_webhook import router as crm_webhook_router
+from app.routes.interakt_webhook import router as interakt_webhook_router
 from app.routes.dev import router as dev_router
 from app.routes.grn import admin_router as grn_admin_router, ip_router as grn_ip_router
 from app.routes.job import router as job_router
 from app.routes.job_rate import router as job_rate_router
 from app.routes.purchase_order import router as purchase_order_router
+from app.routes.roster import admin_router as roster_admin_router, ip_router as roster_ip_router
 from app.routes.sunday_work_request import (
     admin_router as sunday_work_request_admin_router,
     ip_router as sunday_work_request_ip_router,
@@ -71,8 +75,10 @@ async def lifespan(app: FastAPI):
         raise
 
     scheduler.start()
+    start_visit_listener()
     yield
     # Shutdown
+    stop_visit_listener()
     scheduler.shutdown()
 
 
@@ -151,7 +157,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         request.method,
         request.url.path,
         request.client.host if request.client else None,
-        len(errors),
+        sanitize_validation_errors(errors),
     )
     return JSONResponse(
         status_code=422,
@@ -212,8 +218,12 @@ app.include_router(dev_router)
 app.include_router(grn_admin_router)
 app.include_router(grn_ip_router)
 app.include_router(purchase_order_router)
+app.include_router(roster_admin_router)
+app.include_router(roster_ip_router)
 app.include_router(sunday_work_request_admin_router)
 app.include_router(sunday_work_request_ip_router)
+app.include_router(crm_webhook_router)  # /webhooks/crm
+app.include_router(interakt_webhook_router)  # /webhooks/interakt
 
 
 @app.get("/health")

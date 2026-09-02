@@ -141,6 +141,21 @@ class Settings(BaseSettings):
     ODOO_COMPANY_ID: int = 1
     # Set to "false" to disable SSL verification for Odoo (dev only, never in prod)
     ODOO_SSL_VERIFY: str = "true"
+    # Shared secret for the inbound Odoo CRM lead webhook. Unset disables the endpoint.
+    CRM_WEBHOOK_SECRET: Optional[str] = None
+
+    # Interakt WhatsApp visit notification. Both values are required to send; leaving
+    # either unset keeps roster writes working without external messaging.
+    INTERAKT_API_KEY: Optional[str] = None
+    # The two approved templates. Both take the same four body values: customer name,
+    # IP name, job type, IP phone number.
+    INTERAKT_VISIT_TEMPLATE_NAME: Optional[str] = "partner_app_tpl_1"
+    INTERAKT_REMINDER_TEMPLATE_NAME: Optional[str] = "partner_app_tpl_2"
+    INTERAKT_VISIT_TEMPLATE_LANGUAGE: str = "en"
+    INTERAKT_CAMPAIGN_ID: Optional[str] = None
+    INTERAKT_COUNTRY_CODE: str = "+91"
+    # Shared secret for Interakt's delivery-status callback. Unset disables the endpoint.
+    INTERAKT_WEBHOOK_SECRET: Optional[str] = None
 
     ModulaCare_URL: str
 
