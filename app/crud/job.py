@@ -750,16 +750,17 @@ def update_job(
             # Rate card aside, an incentive is a superadmin call.
             update_data.pop("incentive", None)
 
-        # The payload is partial, so the merged pair is what has to hold. db_job.job_type is
-        # already final here, which also catches switching a slotted job to installation.
-        try:
-            validate_job_slot(
-                db_job.job_type,
-                update_data.get("slot_start", db_job.slot_start),
-                update_data.get("slot_end", db_job.slot_end),
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # Keep legacy jobs editable without requiring unrelated scheduling changes.
+        # Any explicit type/rate-card/slot edit must still validate the merged slot.
+        if {"type", "job_rate_id", "slot_start", "slot_end"} & job_update.model_fields_set:
+            try:
+                validate_job_slot(
+                    db_job.job_type,
+                    update_data.get("slot_start", db_job.slot_start),
+                    update_data.get("slot_end", db_job.slot_end),
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
 
         field_map = {
             "status": "status",

@@ -43,7 +43,7 @@ def test_ip_uploads_required_documents_then_completes_with_otp_only_payload():
         db.commit()
 
         with patch(
-            "app.api.v1.jobs.upload_file_to_s3",
+            "app.api.v1.jobs.async_upload_file_to_s3",
             side_effect=lambda **kwargs: f"https://files.test/{kwargs['filename']}",
         ):
             for slot in ("handover", "ncr", "project_report"):
@@ -52,7 +52,7 @@ def test_ip_uploads_required_documents_then_completes_with_otp_only_payload():
                         job.id,
                         slot,
                         UploadFile(
-                            BytesIO(b"%PDF completion evidence"),
+                            BytesIO(b"%PDF-1.7 completion evidence"),
                             filename=f"{slot}.pdf",
                         ),
                         current_user=worker,

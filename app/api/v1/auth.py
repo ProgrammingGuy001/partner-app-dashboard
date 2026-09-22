@@ -39,7 +39,8 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register_user(user_data: UserRegistration, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def register_user(request: Request, user_data: UserRegistration, db: Session = Depends(get_db)):
     """Register a new user"""
 
     # Check if user already exists

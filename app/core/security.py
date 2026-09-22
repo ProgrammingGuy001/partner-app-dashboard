@@ -1,4 +1,5 @@
 import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -38,7 +39,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 def create_refresh_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS))
-    to_encode.update({"exp": expire, "type": "refresh"})
+    to_encode.update({"exp": expire, "type": "refresh", "jti": secrets.token_urlsafe(32)})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
@@ -66,20 +67,17 @@ def store_refresh_token(db: Session, subject: str, token: str) -> None:
 
 def consume_refresh_token(db: Session, token: str) -> bool:
     """Single-use check: True and delete the row if the token is known and unexpired."""
-    row = (
+    # One conditional DELETE claims the token across concurrent workers.
+    deleted = (
         db.query(RefreshToken)
-        .filter(RefreshToken.token_hash == _refresh_token_hash(token))
-        .first()
+        .filter(
+            RefreshToken.token_hash == _refresh_token_hash(token),
+            RefreshToken.expires_at > datetime.now(timezone.utc),
+        )
+        .delete(synchronize_session=False)
     )
-    if row is None:
-        return False
-    expires_at = row.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    valid = expires_at >= datetime.now(timezone.utc)
-    db.delete(row)
     db.commit()
-    return valid
+    return deleted == 1
 
 
 def revoke_refresh_tokens(db: Session, subject: str) -> None:

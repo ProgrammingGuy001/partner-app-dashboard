@@ -64,7 +64,7 @@ from app.utils.job_documents import (
     SITE_REPORT_SLOTS,
 )
 from app.services.customer_otp_service import CustomerOTPService
-from app.services.s3_service import upload_file_to_s3
+from app.services.s3_service import async_upload_file_to_s3, upload_file_to_s3
 from app.services.upload_service import read_validated_upload
 from app.services.billing_service import BillingService
 from app.services.invoice_request_service import (
@@ -1172,7 +1172,7 @@ async def upload_job_file(
     )
 
     # Upload
-    file_url = upload_file_to_s3(
+    file_url = await async_upload_file_to_s3(
         file_content=upload.content,
         filename=upload.filename,
         content_type=upload.content_type,

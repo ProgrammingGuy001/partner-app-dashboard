@@ -27,8 +27,10 @@ const jobStatusChartConfig = {
 } satisfies ChartConfig;
 
 const Dashboard: React.FC = () => {
-  const { data: jobsData, isLoading: jobsLoading } = useJobs();
-  const { data: ipsData, isLoading: ipsLoading } = useIPUsers();
+  const jobsQuery = useJobs();
+  const ipsQuery = useIPUsers();
+  const { data: jobsData, isLoading: jobsLoading } = jobsQuery;
+  const { data: ipsData, isLoading: ipsLoading } = ipsQuery;
   const { data: currentUser } = useQuery({
     queryKey: ['auth', 'user'],
     queryFn: () => authAPI.getCurrentUser(),
@@ -36,16 +38,30 @@ const Dashboard: React.FC = () => {
   });
   const isSuperadmin = Boolean(currentUser?.is_superadmin);
   const [payoutPeriod, setPayoutPeriod] = useState<'week' | 'month' | 'quarter' | 'year'>('month');
-  const { data: payout, isLoading: payoutLoading, error: payoutError } = usePayoutReport({ period: payoutPeriod }, isSuperadmin);
-  const { data: jobStages = [], isLoading: stagesLoading } = useJobStages(isSuperadmin);
-  const { data: ipPerformance = [], isLoading: performanceLoading, error: performanceError } = useIPPerformance(isSuperadmin);
+  const payoutQuery = usePayoutReport({ period: payoutPeriod }, isSuperadmin);
+  const stagesQuery = useJobStages(isSuperadmin);
+  const performanceQuery = useIPPerformance(isSuperadmin);
+  const { data: payout, isLoading: payoutLoading } = payoutQuery;
+  const { data: jobStages = [], isLoading: stagesLoading } = stagesQuery;
+  const { data: ipPerformance = [], isLoading: performanceLoading } = performanceQuery;
+  const failedQueries = [
+    { label: 'Jobs', query: jobsQuery },
+    { label: 'Personnel', query: ipsQuery },
+    ...(isSuperadmin ? [
+      { label: 'Job totals', query: stagesQuery },
+      { label: 'Payouts', query: payoutQuery },
+      { label: 'Personnel performance', query: performanceQuery },
+    ] : []),
+  ].filter(({ query }) => query.isError);
+  const jobsMissing = jobsQuery.isError && !jobsData;
+  const ipsMissing = ipsQuery.isError && !ipsData;
 
   const stats = useMemo(() => {
     const jobs = Array.isArray(jobsData) ? jobsData : [];
     const ips = Array.isArray(ipsData) ? ipsData : [];
 
     const activeCount = jobs.filter((job) =>
-      job.status === 'in_progress' || job.status === 'created'
+      job.status === 'in_progress'
     ).length;
 
     const completedCount = jobs.filter((job) =>
@@ -86,7 +102,6 @@ const Dashboard: React.FC = () => {
       .slice(0, 5);
   }, [jobsData]);
 
-  const isLoading = jobsLoading || ipsLoading || (isSuperadmin && stagesLoading);
   const formatCurrency = (value?: number) => new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',
@@ -100,15 +115,32 @@ const Dashboard: React.FC = () => {
         <p className="text-sm text-muted-foreground sm:text-lg">Overview of your operations and daily activities.</p>
       </header>
 
+      <nav aria-label="Common tasks" className="flex flex-wrap gap-3">
+        <Button asChild><Link to="/dashboard/jobs">Manage jobs</Link></Button>
+        <Button asChild variant="outline"><Link to="/dashboard/roster">View schedule</Link></Button>
+        <Button asChild variant="outline"><Link to="/dashboard/attendance">Mark attendance</Link></Button>
+      </nav>
+
+      {failedQueries.length > 0 && (
+        <Card className="border-destructive/40">
+          <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <p role="alert" className="text-sm">Could not update: {failedQueries.map(({ label }) => label).join(', ')}. Available data is still shown and may be out of date.</p>
+            <Button variant="outline" disabled={failedQueries.some(({ query }) => query.isFetching)} onClick={() => { failedQueries.forEach(({ query }) => void query.refetch()); }}>Try again</Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Jobs by status — the one chart in the app, so it carries the most visual weight on this screen */}
       <Card className="border shadow-none">
         <CardHeader>
           <CardTitle className="text-xl">Jobs by Status</CardTitle>
-          <CardDescription>Where every job in the system currently stands</CardDescription>
+          <CardDescription>{isSuperadmin && jobStages.length > 0 ? 'Status across all jobs' : 'Status of up to 100 recently loaded jobs'}</CardDescription>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {jobsLoading || (isSuperadmin && stagesLoading) ? (
             <Skeleton className="h-64 w-full rounded-lg" />
+          ) : jobsMissing && jobStages.length === 0 ? (
+            <p className="py-8 text-sm text-muted-foreground">Job data is unavailable. Use Try again above to reload it.</p>
           ) : jobStatusChartData.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground bg-muted/5 rounded-xl border border-dashed">
               <Activity className="h-8 w-8 mb-3 mx-auto opacity-20" />
@@ -135,32 +167,32 @@ const Dashboard: React.FC = () => {
       {/* Quick Stats */}
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4 lg:gap-6">
         <StatCard
-          title="Total Jobs"
-          value={stats.totalJobs}
-          description="All time records"
+          title="Jobs in this overview"
+          value={jobsMissing ? 'Unavailable' : stats.totalJobs}
+          description="Up to 100 recent jobs"
           icon={<Briefcase className="h-4 w-4" />}
-          loading={isLoading}
+          loading={jobsLoading}
         />
         <StatCard
           title="In Progress Jobs"
-          value={stats.activeJobs}
+          value={jobsMissing ? 'Unavailable' : stats.activeJobs}
           description="Currently in progress"
           icon={<Activity className="h-4 w-4" />}
-          loading={isLoading}
+          loading={jobsLoading}
         />
         <StatCard
           title="Completed Jobs"
-          value={stats.completedJobs}
+          value={jobsMissing ? 'Unavailable' : stats.completedJobs}
           description="Successfully finished"
           icon={<CheckCircle2 className="h-4 w-4" />}
-          loading={isLoading}
+          loading={jobsLoading}
         />
         <StatCard
           title="Total Personnel"
-          value={stats.totalIPs}
-          description={`${stats.availableIPs} available`}
+          value={ipsMissing ? 'Unavailable' : stats.totalIPs}
+          description={ipsMissing ? 'Try again to load personnel' : `${stats.availableIPs} available`}
           icon={<Users className="h-4 w-4" />}
-          loading={isLoading}
+          loading={ipsLoading}
         />
       </section>
 
@@ -186,20 +218,22 @@ const Dashboard: React.FC = () => {
             </label>
           </div>
 
-          {payoutError || performanceError ? (
-            <Card className="border-destructive/40"><CardContent className="p-5 text-sm text-destructive">Analytics could not be loaded. Refresh to retry.</CardContent></Card>
+          {payoutQuery.isError && !payout ? (
+            <p className="text-sm text-muted-foreground">Payout figures are unavailable. Use Try again above to reload them.</p>
           ) : (
-            <>
               <div className="grid gap-3 sm:grid-cols-3">
                 <StatCard title="Period jobs" value={payout?.total_jobs ?? 0} description={payout?.period || payoutPeriod} icon={<Briefcase className="h-4 w-4" />} loading={payoutLoading} />
                 <StatCard title="Total payout" value={formatCurrency(payout?.total_payout)} description={payout?.start_date && payout?.end_date ? `${payout.start_date} to ${payout.end_date}` : 'Selected period'} icon={<IndianRupee className="h-4 w-4" />} loading={payoutLoading} />
                 <StatCard title="Additional expense" value={formatCurrency(payout?.total_additional_expense)} description="Selected period" icon={<Activity className="h-4 w-4" />} loading={payoutLoading} />
               </div>
+          )}
               <Card className="border shadow-none">
                 <CardHeader><CardTitle className="text-lg">IP performance</CardTitle><CardDescription>All-time jobs and payouts from the backend report</CardDescription></CardHeader>
                 <CardContent>
                   {performanceLoading ? (
                     <Skeleton className="h-32 w-full" />
+                  ) : performanceQuery.isError && !performanceQuery.data ? (
+                    <p className="py-8 text-sm text-muted-foreground">Personnel performance is unavailable. Use Try again above to reload it.</p>
                   ) : ipPerformance.length === 0 ? (
                     <p className="py-8 text-center text-sm text-muted-foreground">No IP performance data yet.</p>
                   ) : (
@@ -215,8 +249,6 @@ const Dashboard: React.FC = () => {
                   )}
                 </CardContent>
               </Card>
-            </>
-          )}
         </section>
       )}
 
@@ -224,8 +256,8 @@ const Dashboard: React.FC = () => {
 
       {/* Recent Activity */}
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6">
-        <RecentJobsCard jobs={recentJobs} isLoading={isLoading} />
-        <PendingApprovalsCard pendingCount={stats.pendingIPs} />
+        {jobsMissing ? <Card><CardContent className="p-5 text-sm">Recent jobs are unavailable.</CardContent></Card> : <RecentJobsCard jobs={recentJobs} isLoading={jobsLoading} />}
+        {ipsLoading ? <Skeleton className="h-64 w-full" /> : ipsMissing ? <Card><CardContent className="p-5 text-sm">Approval counts are unavailable.</CardContent></Card> : <PendingApprovalsCard pendingCount={stats.pendingIPs} />}
       </section>
     </div>
   );

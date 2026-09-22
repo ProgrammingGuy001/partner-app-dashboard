@@ -133,7 +133,6 @@ def _request_origin(request: Request) -> str | None:
 async def protect_cookie_authenticated_mutations(request: Request, call_next):
     """Reject cross-site state changes when authentication comes from cookies."""
     if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
-        has_authorization_header = bool(request.headers.get("authorization"))
         auth_cookie_names = {
             settings.ADMIN_AUTH_COOKIE_NAME,
             settings.IP_AUTH_COOKIE_NAME,
@@ -142,7 +141,9 @@ async def protect_cookie_authenticated_mutations(request: Request, call_next):
             "access_token",
         }
         uses_auth_cookie = any(name in request.cookies for name in auth_cookie_names)
-        if uses_auth_cookie and not has_authorization_header:
+        # A header does not prove cookie independence: refresh endpoints and
+        # the admin dependency can still authenticate using the cookie.
+        if uses_auth_cookie:
             allowed_origins = {origin.rstrip("/") for origin in settings.cors_origins_list}
             if _request_origin(request) not in allowed_origins:
                 return JSONResponse(status_code=403, content={"detail": "Cross-site request blocked"})
@@ -185,6 +186,8 @@ async def add_process_time_header(request: Request, call_next):
 
     duration_ms = (perf_counter() - start) * 1000
     response.headers["X-Process-Time-Ms"] = f"{duration_ms:.2f}"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cache-Control"] = "no-store"
     if settings.API_REQUEST_LOGGING_ENABLED or duration_ms >= settings.SLOW_REQUEST_LOG_MS:
         logger.info(
             "HTTP %s %s -> %s in %.2fms",

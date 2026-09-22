@@ -285,6 +285,7 @@ const Jobs: React.FC = () => {
       </header>
 
       {isSuperadmin && (
+        <section id="job-approvals">
         <PendingApprovalSection
           jobs={pendingJobs}
           workers={workers}
@@ -295,6 +296,7 @@ const Jobs: React.FC = () => {
           onReject={(id) => rejectJobMutation.mutate({ id })}
           isMutating={approveJobMutation.isPending || rejectJobMutation.isPending}
         />
+        </section>
       )}
 
       {isSuperadmin && (

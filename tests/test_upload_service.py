@@ -25,7 +25,7 @@ from app.services.upload_service import read_validated_upload
 
 class UploadServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_reads_valid_upload(self):
-        upload = UploadFile(filename="document.pdf", file=BytesIO(b"hello world"))
+        upload = UploadFile(filename="document.pdf", file=BytesIO(b"%PDF-1.7 test"))
 
         result = await read_validated_upload(
             upload,
@@ -34,8 +34,8 @@ class UploadServiceTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result.filename, "document.pdf")
-        self.assertEqual(result.content, b"hello world")
-        self.assertEqual(result.size_bytes, 11)
+        self.assertEqual(result.content, b"%PDF-1.7 test")
+        self.assertEqual(result.size_bytes, 13)
 
     async def test_rejects_invalid_extension(self):
         upload = UploadFile(filename="document.exe", file=BytesIO(b"hello"))

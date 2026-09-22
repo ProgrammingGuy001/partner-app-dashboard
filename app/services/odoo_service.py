@@ -175,11 +175,11 @@ class OdooService:
             )
         except (xmlrpc.client.ProtocolError, OSError, ConnectionError) as net_err:
             # Network or protocol failures (e.g., dropped connection, session timeout)
-            logger.warning("Odoo connection dropped, attempting reconnect... Error: %s", net_err)
-            if method in {"create", "action_create_invoice"}:
+            logger.warning("Odoo connection dropped: %s", net_err)
+            if method not in {"search", "read", "search_read", "search_count", "fields_get", "read_group", "name_search"}:
                 raise HTTPException(
                     status_code=502,
-                    detail="Odoo write result is unknown; retry through the approval endpoint",
+                    detail="Could not confirm the Odoo update. Check its status before trying again.",
                 ) from net_err
             try:
                 cls._initialize_connection(force=True)

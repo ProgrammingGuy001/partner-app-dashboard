@@ -79,6 +79,7 @@ class OTPService:
                 OTPSession.is_used == False,
             )
             .order_by(OTPSession.created_at.desc())
+            .with_for_update()
             .first()
         )
 

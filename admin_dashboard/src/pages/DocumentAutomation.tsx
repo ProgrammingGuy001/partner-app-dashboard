@@ -1,5 +1,6 @@
-import { useState, type FormEvent, type ReactNode } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Download,
   FileText,
@@ -17,7 +18,7 @@ import {
   type NcrDocumentRow,
   type ProjectDocumentRequest,
 } from "@/api/services";
-import { useJobs } from "@/hooks/useJobs";
+import { useJob, useJobs } from "@/hooks/useJobs";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -41,6 +42,9 @@ const emptyNcrRow = (): NcrDocumentRow => ({
 });
 
 const initialNcr: ProjectDocumentRequest = {
+  data_source: "app",
+  project_name: "",
+  sales_order: "",
   ncr_document_number: "AYENA-QUA-QF-001",
   ncr_revision: "02-06-2026/Rev-00",
   city_operation_in_charge: "",
@@ -52,6 +56,7 @@ const initialNcr: ProjectDocumentRequest = {
 
 const emptyMonthlyProject = (): MonthlyProjectRow => ({
   job_id: null,
+  project_id: "",
   project_name: "",
   handover_date: "",
   days_taken: "",
@@ -61,6 +66,7 @@ const emptyMonthlyProject = (): MonthlyProjectRow => ({
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 const initialMonthly: MonthlyDocumentRequest = {
+  data_source: "app",
   month_year: currentMonth,
   experience_centre: "",
   ops_manager: "",
@@ -71,6 +77,7 @@ const initialMonthly: MonthlyDocumentRequest = {
 };
 
 export default function DocumentAutomation() {
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const { data: jobs = [], isLoading } = useJobs({ limit: 1000 });
   const completedJobs = jobs.filter((job) => job.status === "completed");
@@ -79,6 +86,7 @@ export default function DocumentAutomation() {
     searchParams.get("attach") === "project-report" &&
     Boolean(Number(requestedJobId));
   const [jobId, setJobId] = useState(requestedJobId);
+  const { data: jobDetails } = useJob(Number(jobId) || undefined);
   const [ncr, setNcr] = useState(initialNcr);
   const [monthly, setMonthly] = useState<MonthlyDocumentRequest>(() => ({
     ...initialMonthly,
@@ -91,13 +99,20 @@ export default function DocumentAutomation() {
   const [generatedNcr, setGeneratedNcr] = useState<{
     url: string;
     filename: string;
+    attached: boolean;
+    jobId: number;
   } | null>(null);
   const [generatedProjectReport, setGeneratedProjectReport] = useState<{
     url: string;
     filename: string;
   } | null>(null);
 
-  const selectedJob = jobs.find((job) => job.id === Number(jobId));
+  const selectedJob = jobDetails || jobs.find((job) => job.id === Number(jobId));
+  const ncrDownload = generatedNcr?.jobId === Number(jobId) ? generatedNcr : selectedJob?.ncr_document_link
+    ? { url: selectedJob.ncr_document_link, filename: `level-2-ncr-job-${jobId}.pdf` } : null;
+  useEffect(() => () => {
+    if (generatedNcr?.url.startsWith("blob:")) URL.revokeObjectURL(generatedNcr.url);
+  }, [generatedNcr]);
   const setNcrField = (name: keyof ProjectDocumentRequest, value: string) =>
     setNcr((current) => ({ ...current, [name]: value }));
   const setNcrRow = (
@@ -118,12 +133,13 @@ export default function DocumentAutomation() {
     setNcrLoading(true);
     try {
       const result = await jobAPI.generateNcr(Number(jobId), ncr);
-      setGeneratedNcr(result);
-      if (result) {
+      setGeneratedNcr({ ...result, jobId: Number(jobId) });
+      if (result.attached) {
+        void queryClient.invalidateQueries({ queryKey: ["jobs"] });
         toast.success("NCR generated and attached to the job");
       } else {
         toast.warning(
-          "S3 unavailable: NCR downloaded locally but was not attached to the job",
+          "NCR generated but could not be attached. Use Download NCR to save it, then upload it to the job.",
         );
       }
     } catch (error) {
@@ -136,7 +152,7 @@ export default function DocumentAutomation() {
   const setMonthlyProject = (
     index: number,
     name: keyof MonthlyProjectRow,
-    value: string | number,
+    value: string | number | null,
   ) =>
     setMonthly((current) => ({
       ...current,
@@ -148,10 +164,10 @@ export default function DocumentAutomation() {
   const submitMonthly = async (event: FormEvent) => {
     event.preventDefault();
     if (
-      attachProjectReport &&
+      monthly.data_source === "app" &&
       monthly.projects.some((project) => !project.job_id)
     ) {
-      return toast.error("Select the project");
+      return toast.error("Select a project for each row, or choose Enter manually");
     }
     setMonthlyLoading(true);
     try {
@@ -196,6 +212,7 @@ export default function DocumentAutomation() {
           Review and edit document values before generating files in the
           supplied formats.
         </p>
+        {jobId && <Button asChild variant="link" className="px-0"><Link to={`/dashboard/jobs/${jobId}`}>Back to job</Link></Button>}
       </header>
 
       <Tabs
@@ -226,7 +243,7 @@ export default function DocumentAutomation() {
                       setGeneratedNcr(null);
                     }}
                     required
-                    disabled={isLoading}
+                    disabled={isLoading || ncrLoading}
                   >
                     <option value="">Select a job</option>
                     {jobs.map((job) => (
@@ -431,19 +448,22 @@ export default function DocumentAutomation() {
                 )}{" "}
                 Generate and attach NCR
               </Button>
-              {generatedNcr && (
+              {ncrDownload && (
                 <Button asChild variant="outline">
                   <a
-                    href={generatedNcr.url}
-                    download
+                    href={ncrDownload.url}
+                    download={ncrDownload.filename}
                     target="_blank"
                     rel="noreferrer"
                   >
-                    <Download /> Download report
+                    <Download /> Download NCR
                   </a>
                 </Button>
               )}
             </div>
+            {generatedNcr?.jobId === Number(jobId) && !generatedNcr.attached && (
+              <p role="status" className="text-sm text-destructive">This NCR is not attached to the job. Download it before leaving this page, then upload it under completion documents.</p>
+            )}
           </form>
         </TabsContent>
 
@@ -476,6 +496,22 @@ export default function DocumentAutomation() {
                     required
                   />
                 </Field>
+                {!attachProjectReport && (
+                  <Field label="Project details">
+                    <select
+                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                      value={monthly.data_source}
+                      onChange={(event) => setMonthly((current) => ({
+                        ...current,
+                        data_source: event.target.value as 'app' | 'manual',
+                        projects: current.projects.map((project) => ({ ...project, job_id: null })),
+                      }))}
+                    >
+                      <option value="app">Use projects from dashboard</option>
+                      <option value="manual">Enter manually</option>
+                    </select>
+                  </Field>
+                )}
                 <Field label="Experience Centre">
                   <Input
                     value={monthly.experience_centre}
@@ -515,7 +551,7 @@ export default function DocumentAutomation() {
                     key={index}
                     className="grid gap-3 rounded-lg border p-4 md:grid-cols-2 lg:grid-cols-3"
                   >
-                    <Field
+                    {monthly.data_source === "app" ? <Field
                       label={
                         attachProjectReport ? "Project" : "Completed project"
                       }
@@ -532,13 +568,11 @@ export default function DocumentAutomation() {
                               : null,
                           )
                         }
-                        required={attachProjectReport}
+                        required
                         disabled={attachProjectReport}
                       >
                         <option value="">
-                          {attachProjectReport
-                            ? "Select project"
-                            : "Not present in dashboard"}
+                          Select project
                         </option>
                         {(attachProjectReport ? jobs : completedJobs).map(
                           (job) => (
@@ -548,7 +582,11 @@ export default function DocumentAutomation() {
                           ),
                         )}
                       </select>
-                    </Field>
+                    </Field> : (
+                      <Field label="Project ID">
+                        <Input value={project.project_id} onChange={(event) => setMonthlyProject(index, 'project_id', event.target.value)} />
+                      </Field>
+                    )}
                     <Field label="Project name">
                       <Input
                         value={project.project_name}

@@ -19,7 +19,7 @@ from app.services.installation_report_service import (
     MAX_PHOTO_UPLOAD_MB,
     generate_daily_installation_report,
 )
-from app.services.s3_service import upload_file_to_s3
+from app.services.s3_service import async_upload_file_to_s3
 from app.services.sunday_attendance import (
     find_request as find_sunday_request,
     park_attendance as park_sunday_attendance,
@@ -282,20 +282,20 @@ async def record_independent_attendance(
         allowed_content_types=ATTENDANCE_PHOTO_CONTENT_TYPES,
         max_size_mb=5,
     )
-    photo_url = upload_file_to_s3(upload.content, upload.filename, upload.content_type)
+    photo_url = await async_upload_file_to_s3(upload.content, upload.filename, upload.content_type)
 
     report_document_url = None
     if parsed_report is not None:
         generated = await generate_daily_installation_report(
             job, record_date, parsed_report, photos=report_photos
         )
-        report_document_url = upload_file_to_s3(
+        report_document_url = await async_upload_file_to_s3(
             generated.content,
             generated.filename,
             generated.content_type,
         )
     elif uploaded_report is not None:
-        report_document_url = upload_file_to_s3(
+        report_document_url = await async_upload_file_to_s3(
             uploaded_report.content,
             uploaded_report.filename,
             uploaded_report.content_type,

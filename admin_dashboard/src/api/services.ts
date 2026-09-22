@@ -746,13 +746,12 @@ export const jobAPI = {
   rejectJobCreation: (id: number, reason?: string): Promise<Job> =>
     axiosInstance.post(`/jobs/${id}/reject-creation`, null, { params: { reason: reason || '' } }).then(res => normalizeJob(handleResponse(res))),
 
-  generateNcr: async (id: number, data: ProjectDocumentRequest): Promise<{ url: string; filename: string } | null> => {
+  generateNcr: async (id: number, data: ProjectDocumentRequest): Promise<{ url: string; filename: string; attached: boolean }> => {
     const response = await axiosInstance.post<Blob>(`/jobs/${id}/documents/project-ncr`, data, { responseType: 'blob' });
     if (String(response.headers['content-type']).includes('application/json')) {
-      return JSON.parse(await response.data.text());
+      return { ...JSON.parse(await response.data.text()), attached: true };
     }
-    downloadAttachment(response, `level-2-ncr-job-${id}.pdf`);
-    return null;
+    return { url: URL.createObjectURL(response.data), filename: `level-2-ncr-job-${id}.pdf`, attached: false };
   },
 
   downloadNcr: async (data: ProjectDocumentRequest): Promise<void> => {
@@ -800,6 +799,9 @@ export const adminAPI = {
   getApprovedIPUsers: (): Promise<IPUser[]> =>
     axiosInstance.get('/admin/ips/approved').then(res => handleResponse(res)),
 
+  getIdentityDocuments: (ipId: number): Promise<Array<{ id: number; url: string; uploaded_at: string }>> =>
+    axiosInstance.get(`/admin/ips/${ipId}/identity-documents`).then(res => handleResponse(res)),
+
   verifyIPUser: (phoneNumber: string, adminIds?: number[]): Promise<ApiResponse> =>
     axiosInstance.post(`/admin/verify-ip/${phoneNumber}`, { admin_ids: adminIds }).then(res => handleResponse(res)),
 
@@ -820,6 +822,11 @@ export const adminAPI = {
 export const rosterAPI = {
   get: (params: { admin_id?: number; date_from: string; date_to: string }): Promise<AdminRoster> =>
     axiosInstance.get('/admin/roster', { params }).then(res => handleResponse(res)),
+
+  exportXlsx: async (params: { admin_id?: number; job_id?: number; date_from: string; date_to: string }): Promise<void> => {
+    const response = await axiosInstance.get<Blob>('/admin/roster/export', { params, responseType: 'blob' });
+    downloadAttachment(response, `roster-${params.date_from}-${params.date_to}.xlsx`);
+  },
 
   create: (data: { job_id: number; ip_user_id: number; work_date: string; slot_number: 1 | 2 }): Promise<RosterEntry> =>
     axiosInstance.post('/admin/roster/entries', data).then(res => handleResponse(res)),

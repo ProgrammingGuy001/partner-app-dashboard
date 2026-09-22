@@ -70,5 +70,10 @@ test.db
 *.log
 app/env.mode
 tests/*
+!tests/test_session_safety.py
+!tests/check_web_sessions.mjs
+!tests/check_dashboard_states.mjs
 CLAUDE.md
 tmp/*
+
+!tests/check_business_flows.mjs

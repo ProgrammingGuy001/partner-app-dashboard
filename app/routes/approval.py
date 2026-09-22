@@ -11,12 +11,13 @@ from app.crud.ip import verify_ip_user, get_ip_by_phone, get_all_ips, get_approv
 from app.core.security import get_current_user
 from app.model.user import User
 from app.model.ip import ip, IPAdminAssignment
+from app.model.media_document import MediaDocument
 from app.model.attendance import DailyAttendance
 from app.model.job import Customer, Job
 from app.model.admin_attendance import AdminAttendance
 from app.model.sunday_work_request import SundayWorkRequest
 from app.services.attendance_export import build_attendance_workbook
-from app.services.s3_service import upload_file_to_s3
+from app.services.s3_service import async_upload_file_to_s3
 from app.services.sunday_attendance import (
     find_request as find_sunday_request,
     park_attendance as park_sunday_attendance,
@@ -163,6 +164,23 @@ def _serialize_ip_user(ip_user: ip) -> dict:
         "verified_at": ip_user.verified_at,
         "assigned_admin_ids": [a.admin_id for a in ip_user.admin_assignments],
     }
+
+
+@router.get("/ips/{ip_id}/identity-documents")
+def get_ip_identity_documents(
+    ip_id: Annotated[int, Path(gt=0)],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Show identity evidence only to administrators allowed to verify this partner."""
+    if not getattr(current_user, "is_superadmin", False) and not is_admin_allowed_for_ip(db, ip_id, current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized to review this partner")
+    documents = db.query(MediaDocument).filter(
+        MediaDocument.owner_type == "ip_user",
+        MediaDocument.owner_id == ip_id,
+        MediaDocument.status == "id_document_pending_review",
+    ).order_by(MediaDocument.uploaded_at.desc(), MediaDocument.id.desc()).limit(20).all()
+    return [{"id": doc.id, "url": doc.doc_link, "uploaded_at": doc.uploaded_at} for doc in documents]
 
 
 @router.post("/verify-ip/{phone_number}")
@@ -662,7 +680,7 @@ async def mark_admin_attendance(
             allowed_content_types=ATTENDANCE_PHOTO_CONTENT_TYPES,
             max_size_mb=5,
         )
-        photo_url = upload_file_to_s3(
+        photo_url = await async_upload_file_to_s3(
             file_content=upload.content,
             filename=upload.filename,
             content_type=upload.content_type,

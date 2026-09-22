@@ -9,7 +9,6 @@ import {
 } from "@/components/ui/card"
 import {
   Field,
-  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
@@ -127,7 +126,7 @@ export function LoginForm({
             </Field>
 
             {error && (
-              <div className="flex items-start gap-3 rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-destructive">
+              <div role="alert" className="flex items-start gap-3 rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-destructive">
                 <AlertCircle className="mt-0.5 size-4 shrink-0" />
                 <p>{error}</p>
               </div>
@@ -139,17 +138,12 @@ export function LoginForm({
             </Button>
 
             <div className="rounded-2xl bg-muted/55 px-4 py-4 text-sm leading-6 text-muted-foreground">
-              Need an account? Ask a dev to create one for you.
+              Need an account? Contact your administrator to get access.
             </div>
           </FieldGroup>
         </CardContent>
       </Card>
 
-      <FieldDescription className="px-2 text-center text-xs leading-6 sm:px-6">
-        By clicking continue, you agree to our{" "}
-        <a href="#">Terms of Service</a> and{" "}
-        <a href="#">Privacy Policy</a>.
-      </FieldDescription>
     </form>
   )
 }

@@ -35,6 +35,7 @@ const STATUS_MESSAGES: Record<number, string> = {
 type ApiErrorShape = {
   response?: {
     status?: number;
+    data?: { detail?: unknown };
   };
 };
 
@@ -61,5 +62,9 @@ export const sanitizeErrorText = (
 export const getApiErrorMessage = (error: unknown, fallback: string): string => {
   const response = (error as ApiErrorShape | null | undefined)?.response;
   const status = response?.status;
+  // Show actionable business validation without exposing server diagnostics.
+  if (status && [400, 409, 422].includes(status) && isSafeErrorText(response?.data?.detail)) {
+    return response.data.detail.trim();
+  }
   return (status && STATUS_MESSAGES[status]) || fallback;
 };

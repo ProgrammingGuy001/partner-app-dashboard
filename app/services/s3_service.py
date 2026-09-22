@@ -2,6 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 import boto3
 import uuid
+from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
 
@@ -31,3 +32,8 @@ def upload_file_to_s3(file_content: bytes, filename: str, content_type: str | No
         f"https://{settings.AWS_S3_BUCKET}.s3.{settings.AWS_REGION}.amazonaws.com/{unique_filename}"
     )
     return file_url
+
+
+async def async_upload_file_to_s3(file_content: bytes, filename: str, content_type: str | None) -> str:
+    # boto3 is synchronous; a slow upload must not block every request on this worker.
+    return await run_in_threadpool(upload_file_to_s3, file_content, filename, content_type)

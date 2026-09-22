@@ -19,8 +19,9 @@ const Login: React.FC = () => {
 
     try {
       await authAPI.login(data);
-      // Invalidate the cached auth/me error so ProtectedRoute re-fetches with the new cookie
-      await queryClient.invalidateQueries({ queryKey: ['auth', 'user'] });
+      // A different person may sign in after expiry on this shared device.
+      await queryClient.cancelQueries();
+      queryClient.clear();
       toast.success('Logged in successfully');
       navigate('/dashboard');
     } catch (err: unknown) {

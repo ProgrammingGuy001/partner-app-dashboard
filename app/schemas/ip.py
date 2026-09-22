@@ -4,6 +4,18 @@ from datetime import datetime
 
 
 
+def normalize_phone_number(value: str) -> str:
+    if any(char not in '0123456789 +()-\t\r\n' for char in value):
+        raise ValueError('Enter a mobile number using digits, with an optional +91 country code')
+    digits = ''.join(char for char in value if char in '0123456789')
+    # A ten-digit number may itself start with 91; only strip a full country code.
+    if len(digits) == 12 and digits.startswith('91'):
+        digits = digits[2:]
+    if len(digits) != 10 or digits[0] not in '6789':
+        raise ValueError('Enter a valid 10-digit Indian mobile number, with or without +91')
+    return '91' + digits
+
+
 class UserRegistration(BaseModel):
     phone_number: str = Field(..., description="phone_number number with or without country code")
     first_name: str = Field(..., min_length=2, max_length=100)
@@ -14,19 +26,7 @@ class UserRegistration(BaseModel):
 
     @validator('phone_number')
     def validate_phone_number(cls, v):
-        # Remove any non-digit characters
-        digits = ''.join(filter(str.isdigit, v))
-
-        # If it starts with 91, ensure it's 12 digits
-        if digits.startswith('91'):
-            if len(digits) != 12:
-                raise ValueError('phone_number number with country code must be 12 digits')
-        elif len(digits) == 10:
-            digits = '91' + digits
-        else:
-            raise ValueError('phone_number number must be 10 digits (or 12 with country code)')
-
-        return digits
+        return normalize_phone_number(v)
 
 
 class LoginRequest(BaseModel):
@@ -34,21 +34,7 @@ class LoginRequest(BaseModel):
 
     @validator('phone_number')
     def validate_phone_number(cls, v):
-        """Validate and normalize phone number"""
-        digits = ''.join(filter(str.isdigit, v))
-
-        if digits.startswith('91'):
-            if len(digits) != 12:
-                raise ValueError('Phone number with country code must be 12 digits')
-        elif len(digits) == 10:
-            # Validate Indian mobile number format (starts with 6-9)
-            if digits[0] not in '6789':
-                raise ValueError('Invalid Indian mobile number')
-            digits = '91' + digits
-        else:
-            raise ValueError('Phone number must be 10 digits (or 12 with country code)')
-
-        return digits
+        return normalize_phone_number(v)
 
 
 class OTPVerification(BaseModel):
@@ -57,17 +43,7 @@ class OTPVerification(BaseModel):
 
     @validator('phone_number')
     def validate_phone_number(cls, v):
-        digits = ''.join(filter(str.isdigit, v))
-        if digits.startswith('91'):
-            if len(digits) != 12:
-                raise ValueError('Phone number with country code must be 12 digits')
-        elif len(digits) == 10:
-            if digits[0] not in '6789':
-                raise ValueError('Invalid Indian mobile number')
-            digits = '91' + digits
-        else:
-            raise ValueError('Phone number must be 10 digits (or 12 with country code)')
-        return digits
+        return normalize_phone_number(v)
 
 
 class RefreshTokenRequest(BaseModel):
@@ -122,6 +98,10 @@ class UserDetailResponse(UserResponse):
         if instance.account_number:
             instance.account_number = "XXXX" + instance.account_number[-4:]
         return instance
+
+
+class VerificationStatusResponse(UserDetailResponse):
+    id_document_uploaded: bool = False
 
 
 class TokenResponse(BaseModel):

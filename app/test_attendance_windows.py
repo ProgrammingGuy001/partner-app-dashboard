@@ -1,6 +1,7 @@
 """Check-in windows and the slot requirement, the two rules that gate a day's work."""
 from datetime import datetime, time
 from unittest.mock import patch
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -48,6 +49,26 @@ def test_check_in_window_enforced(job_type, slot_start, now, opens):
 def test_check_out_is_never_gated():
     with patch("app.utils.attendance_policy.now_ist", return_value=at(0, 1)):
         ensure_attendance_window_open("check_out", job_type="measurement", slot_start=time(14, 0))
+
+
+@pytest.mark.parametrize("job_type,slot_start,hour,minute,expected", [
+    ("installation", time(9), 8, 0, "check_in_open"),
+    ("installation", time(9), 10, 15, "check_in_open"),
+    ("installation", time(9), 10, 31, "missed"),
+    ("measurement", time(14), 13, 59, "scheduled"),
+    ("measurement", time(14), 14, 30, "check_in_open"),
+    ("measurement", time(14), 14, 31, "missed"),
+])
+def test_roster_next_action_matches_attendance_acceptance(job_type, slot_start, hour, minute, expected):
+    from app.routes.roster import _entry_status
+
+    now = at(hour, minute)
+    entry = SimpleNamespace(
+        job=SimpleNamespace(type=job_type, status="in_progress"),
+        work_date=now.date(), slot_start=slot_start, slot_end=time(18),
+    )
+    with patch("app.routes.roster.now_ist", return_value=now):
+        assert _entry_status(entry, [], [entry]) == expected
 
 
 def test_slot_required_except_installation_and_grn():

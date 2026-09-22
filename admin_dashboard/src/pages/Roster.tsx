@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { closestCenter, DndContext, DragOverlay, type DragEndEvent, useDraggable, useDroppable } from "@dnd-kit/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeftRight, CalendarDays, ChevronLeft, ChevronRight, Clock3, GripVertical, Trash2, Users } from "lucide-react";
+import { ArrowLeftRight, CalendarDays, ChevronLeft, ChevronRight, Clock3, Download, GripVertical, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 
 import { authAPI, rosterAPI, type RosterEntry, type RosterIP, type RosterJob, type RosterSlot } from "@/api/services";
@@ -162,19 +163,28 @@ function SlotEditor({ slot }: { slot: RosterSlot }) {
 
 export default function Roster() {
   const queryClient = useQueryClient();
-  const [weekStart, setWeekStart] = useState(todayIst);
-  const [supervisorId, setSupervisorId] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const jobFilter = Number(searchParams.get("job")) || undefined;
+  const [weekStart, setWeekStart] = useState(() => {
+    const requested = searchParams.get("date_from") || "";
+    return /^\d{4}-\d{2}-\d{2}$/.test(requested) && !Number.isNaN(fromIso(requested).getTime()) ? requested : todayIst();
+  });
+  const [supervisorId, setSupervisorId] = useState(searchParams.get("admin_id") || "");
   const [draggedIpId, setDraggedIpId] = useState<number | null>(null);
   const weekEnd = addDays(weekStart, 6);
   const days = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart]);
   const { data: user } = useQuery({ queryKey: ["auth", "user"], queryFn: authAPI.getCurrentUser });
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["roster", supervisorId, weekStart],
     queryFn: () => rosterAPI.get({ admin_id: supervisorId ? Number(supervisorId) : undefined, date_from: weekStart, date_to: weekEnd }),
   });
   const activeSupervisorId = supervisorId || String(data?.selected_admin_id || "");
   const today = todayIst();
   const draggedIp = data?.ips.find((ipUser) => ipUser.id === draggedIpId);
+  const exportRoster = useMutation({
+    mutationFn: () => rosterAPI.exportXlsx({ admin_id: activeSupervisorId ? Number(activeSupervisorId) : undefined, job_id: jobFilter, date_from: weekStart, date_to: weekEnd }),
+    onError: (error) => toast.error(getApiErrorMessage(error, "Could not export the roster. Please try again.")),
+  });
 
   const create = useMutation({
     mutationFn: (payload: { job_id: number; ip_user_id: number; work_date: string; slot_number: 1 | 2 }) => rosterAPI.create(payload),
@@ -196,7 +206,7 @@ export default function Roster() {
   });
 
   const rosterJobs = (data?.jobs || []).filter((job) =>
-    activeJobStatuses.has(job.status) || data?.entries.some((entry) => entry.job_id === job.id)
+    (!jobFilter || job.id === jobFilter) && (activeJobStatuses.has(job.status) || data?.entries.some((entry) => entry.job_id === job.id))
   );
   const findEntry = (jobId: number, day: string, slot: number) =>
     data?.entries.find((entry) => entry.job_id === jobId && entry.work_date === day && entry.slot_number === slot);
@@ -240,19 +250,26 @@ export default function Roster() {
           <h1 className="text-2xl font-semibold tracking-tight">Job roster</h1>
           <p className="mt-1 text-sm text-muted-foreground">A dated view of job assignments. IPs come from the selected supervisor's mapping.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={() => exportRoster.mutate()} disabled={!data || isError || exportRoster.isPending}><Download className="size-4" />{exportRoster.isPending ? "Exporting…" : "Export XLSX"}</Button>
           <Button variant="outline" size="icon" aria-label="Previous week" onClick={() => setWeekStart(addDays(weekStart, -7))}><ChevronLeft /></Button>
           <Button variant="outline" onClick={() => setWeekStart(todayIst())}>Today</Button>
           <Button variant="outline" size="icon" aria-label="Next week" onClick={() => setWeekStart(addDays(weekStart, 7))}><ChevronRight /></Button>
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <span className="text-muted-foreground">{formatDay(weekStart)} – {formatDay(weekEnd)}</span>
+        {jobFilter && <><span>Job #{jobFilter}</span><Button variant="outline" size="sm" onClick={() => setSearchParams((params) => { params.delete("job"); return params; })}>Show all jobs</Button></>}
+      </div>
+      {isError && <div role="alert" className="flex items-center gap-3 rounded-lg border p-4"><p>The roster could not be loaded.</p><Button variant="outline" onClick={() => refetch()}>Retry</Button></div>}
+
       {user?.is_superadmin ? (
         <Card>
           <CardContent className="flex flex-col gap-4 pt-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="w-full max-w-sm space-y-2">
               <label className="text-sm font-medium">Supervisor</label>
-              <Select value={activeSupervisorId} onValueChange={setSupervisorId}>
+              <Select value={activeSupervisorId} onValueChange={(value) => { setSupervisorId(value); setSearchParams((params) => { params.delete("job"); params.set("admin_id", value); return params; }); }}>
                 <SelectTrigger><SelectValue placeholder="Choose a supervisor" /></SelectTrigger>
                 <SelectContent>{data?.admins.map((admin) => <SelectItem key={admin.id} value={String(admin.id)}>{admin.name}</SelectItem>)}</SelectContent>
               </Select>
@@ -263,10 +280,10 @@ export default function Roster() {
       ) : null}
 
       {user?.is_superadmin && data?.slots.length ? (
-        <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Clock3 className="size-4" />Global slot hours</CardTitle></CardHeader>
-          <CardContent className="flex flex-wrap gap-6">{data.slots.map((slot) => <SlotEditor key={slot.slot_number} slot={slot} />)}</CardContent>
-        </Card>
+        <details className="rounded-xl border bg-card p-4">
+          <summary className="cursor-pointer text-sm font-medium"><Clock3 className="mr-2 inline size-4" />Global slot hours</summary>
+          <div className="mt-4 flex flex-wrap gap-6">{data.slots.map((slot) => <SlotEditor key={slot.slot_number} slot={slot} />)}</div>
+        </details>
       ) : null}
 
       <DndContext
@@ -283,7 +300,7 @@ export default function Roster() {
             </CardHeader>
             <CardContent className="max-h-[65vh] space-y-2 overflow-y-auto">
               {data?.ips.map((ipUser) => <DraggableIP key={ipUser.id} ipUser={ipUser} />)}
-              {!isLoading && !data?.ips.length ? <p className="py-6 text-center text-sm text-muted-foreground">No verified IP is mapped to this supervisor.</p> : null}
+              {!isLoading && !isError && !data?.ips.length ? <p className="py-6 text-center text-sm text-muted-foreground">No verified IP is mapped to this supervisor.</p> : null}
             </CardContent>
           </Card>
 
@@ -301,7 +318,7 @@ export default function Roster() {
                   {rosterJobs.map((job) => (
                     <tr key={job.id} className="border-b align-top last:border-0">
                       <td className="sticky left-0 z-10 bg-background px-4 py-4">
-                        <p className="line-clamp-2 font-medium">{job.name}</p>
+                        <Link to={`/dashboard/jobs/${job.id}`} className="line-clamp-2 font-medium text-primary underline-offset-4 hover:underline">{job.name}</Link>
                         <p className="mt-1 text-xs text-muted-foreground">{job.type || "Unspecified type"}</p>
                         <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{job.assigned_ip_name ? `IP: ${job.assigned_ip_name}` : "IP not assigned"}</p>
                         <Badge variant="outline" className="mt-3 text-[10px]">{job.status.replaceAll("_", " ")}</Badge>
@@ -328,7 +345,7 @@ export default function Roster() {
                   ))}
                 </tbody>
               </table>
-              {!isLoading && !rosterJobs.length ? <div className="p-10 text-center text-sm text-muted-foreground">No schedulable jobs belong to this supervisor.</div> : null}
+              {!isLoading && !isError && !rosterJobs.length ? <div className="p-10 text-center text-sm text-muted-foreground">{jobFilter ? "This job has no schedule in the selected week. Change the week or show all jobs." : "No schedulable jobs belong to this supervisor."}</div> : null}
               {isLoading ? <div className="p-10 text-center text-sm text-muted-foreground">Loading roster…</div> : null}
             </div>
           </Card>

@@ -7,12 +7,12 @@ from app.api.deps import get_verified_user
 from app.database import get_db
 from app.model.ip import ip
 from app.model.media_document import MediaDocument
-from app.schemas.ip import BankVerification, PANVerification, UserDetailResponse
+from app.schemas.ip import BankVerification, PANVerification, UserDetailResponse, VerificationStatusResponse
 from app.schemas.job import JobResponse
 from app.crud.job import get_jobs_for_ip
 from app.services.bank_service import BankService
 from app.services.pan_service import PANService
-from app.services.s3_service import upload_file_to_s3
+from app.services.s3_service import async_upload_file_to_s3
 from app.services.upload_service import read_validated_upload
 from app.utils.rate_limiter import limiter
 
@@ -113,13 +113,21 @@ def verify_bank(
     return current_user
 
 
-@router.get("/status", response_model=UserDetailResponse)
+@router.get("/status", response_model=VerificationStatusResponse)
 def get_verification_status(
     current_user: ip = Depends(get_verified_user),
+    db: Session = Depends(get_db),
 ):
-    """Get current verification status of the user"""
-
-    return current_user
+    """Distinguish a submitted identity document from an approved one."""
+    uploaded = db.query(MediaDocument.id).filter(
+        MediaDocument.owner_type == "ip_user",
+        MediaDocument.owner_id == current_user.id,
+        MediaDocument.status == ID_DOCUMENT_STATUS,
+    ).first() is not None
+    return VerificationStatusResponse(
+        **UserDetailResponse.model_validate(current_user).model_dump(),
+        id_document_uploaded=uploaded or current_user.is_id_verified,
+    )
 
 
 @router.post("/verify_document", response_model=UserDetailResponse)
@@ -138,7 +146,7 @@ async def upload_id_document(
         max_size_mb=5,
     )
 
-    doc_url = upload_file_to_s3(
+    doc_url = await async_upload_file_to_s3(
         file_content=upload.content,
         filename=upload.filename,
         content_type=upload.content_type,

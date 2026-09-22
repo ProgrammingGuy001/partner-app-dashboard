@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { adminAPI, type IPUser } from '@/api/services';
@@ -82,6 +82,11 @@ const Workers: React.FC = () => {
 
   const workers = data || [];
   const pendingVerifyWorker = workers.find(worker => worker.phone_number === pendingVerifyPhone);
+  const { data: identityDocuments = [], isFetching: documentsLoading, isError: documentsError, refetch: reloadDocuments } = useQuery({
+    queryKey: ['ip-identity-documents', pendingVerifyWorker?.id],
+    queryFn: () => adminAPI.getIdentityDocuments(pendingVerifyWorker!.id),
+    enabled: Boolean(pendingVerifyWorker),
+  });
 
   const filteredWorkers = workers.filter(worker => {
     const matchesSearch =
@@ -283,7 +288,7 @@ const Workers: React.FC = () => {
       <Dialog open={pendingVerifyPhone !== null} onOpenChange={(open) => !open && setPendingVerifyPhone(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Verify Personnel</DialogTitle>
+            <DialogTitle>Review identity and approve</DialogTitle>
             <DialogDescription>
               Verify {pendingVerifyWorker ? `${pendingVerifyWorker.first_name} ${pendingVerifyWorker.last_name}` : 'this worker'} as an{' '}
               <span className="font-semibold text-foreground">
@@ -291,12 +296,21 @@ const Workers: React.FC = () => {
               </span>.
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-3 text-sm">
+            {documentsLoading ? <p role="status">Loading identity documents…</p> : documentsError ? (
+              <div className="space-y-2"><p role="alert" className="text-destructive">Identity documents could not be loaded.</p><Button variant="outline" onClick={() => reloadDocuments()}>Try again</Button></div>
+            ) : identityDocuments.length ? (
+              <><p className="text-muted-foreground">Open the document and confirm it belongs to this person before approving.</p>
+                {identityDocuments.map((document, index) => <a className="block font-semibold text-primary underline" key={document.id} href={document.url} target="_blank" rel="noreferrer">View identity document {index + 1}{index === 0 ? ' (latest)' : ''}</a>)}
+              </>
+            ) : <p className="text-muted-foreground">No identity document has been uploaded. Confirm this person’s identity through your existing verification process before approving.</p>}
+          </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setPendingVerifyPhone(null)}>
               Cancel
             </Button>
-            <Button onClick={confirmVerify} disabled={verifyMutation.isPending}>
-              {verifyMutation.isPending ? 'Verifying...' : 'Verify'}
+            <Button onClick={confirmVerify} disabled={verifyMutation.isPending || documentsLoading || documentsError || !pendingVerifyWorker}>
+              {verifyMutation.isPending ? 'Approving...' : 'Approve identity'}
             </Button>
           </DialogFooter>
         </DialogContent>

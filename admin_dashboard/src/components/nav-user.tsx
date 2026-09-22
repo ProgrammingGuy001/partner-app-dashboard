@@ -62,17 +62,14 @@ export function NavUser({
   const [submitting, setSubmitting] = useState(false)
 
   const handleLogout = async () => {
-    let revoked = true
     try {
       await authAPI.logout()
     } catch {
-      // Auth cookies are HttpOnly, so only the server can clear them. Still send the
-      // user to /login, but say so — on a shared machine the session is live.
-      revoked = false
+      toast.error('Could not sign out. Check your connection and try again.')
+      return
     }
     queryClient.clear()
     navigate('/login')
-    if (!revoked) toast.error('Signed out here, but the server session may still be active.')
   }
 
   const handleResetPassword = async () => {

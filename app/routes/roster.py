@@ -1,6 +1,10 @@
 from datetime import date, time, timedelta
+from io import BytesIO
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
@@ -14,7 +18,7 @@ from app.model.ip import IPAdminAssignment, ip
 from app.model.job import Job
 from app.model.roster import JobRosterEntry, RosterSlotSetting
 from app.model.user import User
-from app.utils.attendance_policy import now_ist, slot_check_in_window
+from app.utils.attendance_policy import now_ist, check_in_window
 from app.utils.ip_assignment import is_admin_allowed_for_ip
 from app.utils.roster_day import roster_entry_window
 
@@ -172,7 +176,7 @@ def _entry_status(
         return "missed"
     if entry.work_date > today:
         return "scheduled"
-    window_start, window_end = slot_check_in_window(span_start)
+    window_start, window_end = check_in_window(entry.job.type, span_start)
     if window_start <= now.time() <= window_end:
         return "check_in_open"
     return "scheduled" if now.time() < window_start else "missed"
@@ -310,6 +314,157 @@ def get_admin_roster(
         "ips": [_ip_payload(ip_user) for ip_user in mapped_ips],
         "entries": _serialize_entries(db, entries),
     }
+
+
+@admin_router.get("/export")
+def export_admin_roster(
+    admin_id: int | None = Query(default=None, gt=0),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    job_id: int | None = Query(default=None, gt=0),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Use the same scope, date validation and attendance state as the screen.
+    data = get_admin_roster(admin_id, date_from, date_to, current_user, db)
+    entries = [
+        entry
+        for entry in data["entries"]
+        if job_id is None or entry["job_id"] == job_id
+    ]
+    scheduled = {entry["job_id"] for entry in entries}
+    jobs = [
+        job
+        for job in data["jobs"]
+        if (job_id is None or job["id"] == job_id)
+        and (
+            job["status"] in {"created", "paused", "in_progress"}
+            or job["id"] in scheduled
+        )
+    ]
+    days = [
+        data["date_from"] + timedelta(days=offset)
+        for offset in range((data["date_to"] - data["date_from"]).days + 1)
+    ]
+    by_slot = {
+        (entry["job_id"], entry["work_date"], entry["slot_number"]): entry
+        for entry in entries
+    }
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "Roster"
+    sheet.append(
+        [
+            "Job ID",
+            "Job",
+            "Type",
+            "Job status",
+            "City",
+            "Start date",
+            "Delivery date",
+            "Default partner",
+        ]
+        + [
+            f"{day:%d %b %Y} · Slot {slot['slot_number']}\n{slot['start_time']}–{slot['end_time']}"
+            for day in days
+            for slot in data["slots"]
+        ]
+    )
+    for job in jobs:
+        row = [
+            job[key]
+            for key in (
+                "id",
+                "name",
+                "type",
+                "status",
+                "customer_city",
+                "start_date",
+                "delivery_date",
+                "assigned_ip_name",
+            )
+        ]
+        for day in days:
+            for slot in data["slots"]:
+                entry = by_slot.get((job["id"], day, slot["slot_number"]))
+                if entry:
+                    row.append(
+                        f"{entry['ip']['name']}\n{entry['slot_start']}–{entry['slot_end']} · {entry['status'].replace('_', ' ')}"
+                    )
+                else:
+                    unavailable = (
+                        job["status"] not in {"created", "paused", "in_progress"}
+                        or day < now_ist().date()
+                        or (job["start_date"] and day < job["start_date"])
+                        or (job["delivery_date"] and day > job["delivery_date"])
+                    )
+                    row.append("Unavailable" if unavailable else "Unassigned")
+        sheet.append(row)
+    details = book.create_sheet("Assignments")
+    details.append(
+        [
+            "Entry ID",
+            "Date",
+            "Slot",
+            "Start",
+            "End",
+            "Job ID",
+            "Job",
+            "Partner ID",
+            "Partner",
+            "Phone",
+            "Visit status",
+            "Assignment source",
+        ]
+    )
+    for entry in entries:
+        details.append(
+            [
+                entry["id"],
+                entry["work_date"],
+                entry["slot_number"],
+                entry["slot_start"],
+                entry["slot_end"],
+                entry["job_id"],
+                entry["job"]["name"],
+                entry["ip_user_id"],
+                entry["ip"]["name"],
+                entry["ip"]["phone_number"],
+                entry["status"],
+                "Job default" if entry["is_job_default"] else "Dated assignment",
+            ]
+        )
+    partners = book.create_sheet("Partner pool")
+    partners.append(["Partner ID", "Name", "Phone", "City"])
+    for partner in data["ips"]:
+        partners.append(
+            [partner[key] for key in ("id", "name", "phone_number", "city")]
+        )
+    for page in book:
+        page.freeze_panes = "C2" if page == sheet else "A2"
+        page.auto_filter.ref = page.dimensions
+        for row in page:
+            for cell in row:
+                # Names and phones are literal data, including values starting with '='.
+                if isinstance(cell.value, str):
+                    cell.data_type = "s"
+                if isinstance(cell.value, date):
+                    cell.number_format = "dd mmm yyyy"
+                cell.alignment = Alignment(vertical="top", wrap_text=True)
+        for cell in page[1]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="234E52")
+            page.column_dimensions[cell.column_letter].width = 25
+        page.row_dimensions[1].height = 36
+    output = BytesIO()
+    book.save(output)
+    return Response(
+        content=output.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="roster-{data["selected_admin_id"]}-{data["date_from"]}-{data["date_to"]}.xlsx"'
+        },
+    )
 
 
 @admin_router.post("/entries", status_code=201)

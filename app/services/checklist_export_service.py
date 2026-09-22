@@ -11,6 +11,7 @@ needs no binary beyond the wheel.
 
 import io
 from pathlib import Path
+from urllib.parse import urlsplit
 from xml.sax.saxutils import escape
 
 import requests
@@ -33,6 +34,7 @@ from reportlab.platypus import (
 )
 
 from app.services.document_automation_service import GeneratedDocument, _safe_name
+from app.config import settings
 from app.utils.attendance_policy import now_ist
 
 # A 12MP phone photo at full size would make a 40MB PDF; 900px wide is plenty for
@@ -61,12 +63,27 @@ def _fetch_image(url: str) -> bytes | None:
     degrade to a plain link in the document. One bad upload must not fail the export.
     """
     try:
-        with requests.get(url, timeout=FETCH_TIMEOUT_SECONDS, stream=True) as response:
+        # Evidence comes from our upload bucket. Never fetch arbitrary user URLs
+        # or follow a redirect into the server's private network.
+        parsed = urlsplit(url)
+        allowed_hosts = {
+            f"{settings.AWS_S3_BUCKET}.s3.{settings.AWS_REGION}.amazonaws.com",
+            f"{settings.AWS_S3_BUCKET}.s3.amazonaws.com",
+        }
+        if (parsed.scheme != "https" or parsed.hostname not in allowed_hosts
+                or parsed.port not in (None, 443) or parsed.username or parsed.password):
+            return None
+        with requests.get(url, timeout=FETCH_TIMEOUT_SECONDS, stream=True, allow_redirects=False) as response:
+            if response.status_code != 200:
+                return None
             response.raise_for_status()
             raw = response.raw.read(MAX_IMAGE_BYTES + 1, decode_content=True)
         if len(raw) > MAX_IMAGE_BYTES:
             return None
         img = Image.open(io.BytesIO(raw))
+        # ponytail: cap decoded photos at 25MP; downsample upstream if larger photos must embed.
+        if img.width * img.height > 25_000_000:
+            return None
         img.load()
         if img.width > PHOTO_MAX_WIDTH:
             height = round(img.height * PHOTO_MAX_WIDTH / img.width)

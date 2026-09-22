@@ -9,7 +9,7 @@ from app.core.security import get_current_user
 from app.model.media_document import MediaDocument
 from app.services.checklist_export_service import checklist_export_pdf
 from app.services.checklist_template_service import CHECKLIST_WORKBOOK, WORKBOOK_MEDIA_TYPE
-from app.services.s3_service import upload_file_to_s3
+from app.services.s3_service import async_upload_file_to_s3
 from app.services.upload_service import read_validated_upload
 from app.schemas.checklist import (
     ChecklistCreate,
@@ -158,7 +158,7 @@ async def upload_job_checklist_document(
         file,
         allowed_extensions=[".xlsx", ".pdf"] if is_ism_checklist(job_checklist) else None,
     )
-    file_url = upload_file_to_s3(
+    file_url = await async_upload_file_to_s3(
         file_content=upload.content,
         filename=upload.filename,
         content_type=upload.content_type,

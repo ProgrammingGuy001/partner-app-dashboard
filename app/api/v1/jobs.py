@@ -23,7 +23,7 @@ from app.schemas.checklist import (
 from app.schemas.job_status_log import JobStatusLogResponse, JobStatusLogCreate
 from app.api.deps import get_fully_verified_user
 from app.services.customer_otp_service import CustomerOTPService
-from app.services.s3_service import upload_file_to_s3
+from app.services.s3_service import async_upload_file_to_s3
 from app.services.upload_service import read_validated_upload
 from app.services.billing_service import BillingService
 from app.services.invoice_request_service import (
@@ -86,7 +86,7 @@ class ChecklistDocumentUpdate(BaseModel):
 router = APIRouter(prefix="/dashboard/jobs", tags=["Dashboard"])
 
 
-# ✅ Get all jobs (only if verified)
+#Get all jobs (only if verified)
 @router.get("", response_model=dict)
 def get_all_jobs(
     skip: int = Query(0, ge=0),
@@ -107,7 +107,7 @@ def get_all_jobs(
     }
 
 
-# ✅ Get single job by ID
+# Get single job by ID
 @router.get("/{job_id}", response_model=dict)
 def get_single_job(
     job_id: Annotated[int, Path(gt=0)],
@@ -378,7 +378,7 @@ async def upload_progress_update(
     get_ip_job_by_id(db, job_id, current_user.id)
     upload = await read_validated_upload(file)
 
-    file_url = upload_file_to_s3(
+    file_url = await async_upload_file_to_s3(
         file_content=upload.content,
         filename=upload.filename,
         content_type=upload.content_type,
@@ -423,7 +423,7 @@ async def upload_completion_document(
             else None
         ),
     )
-    file_url = upload_file_to_s3(
+    file_url = await async_upload_file_to_s3(
         file_content=upload.content,
         filename=upload.filename,
         content_type=upload.content_type,
@@ -464,7 +464,7 @@ async def upload_completion_document(
     }
 
 
-# ✅ Get job checklists (Metadata only)
+# Get job checklists (Metadata only)
 @router.get("/{job_id}/checklists", response_model=dict)
 def get_job_checklists(
     job_id: Annotated[int, Path(gt=0)],
@@ -672,7 +672,7 @@ async def upload_checklist_document(
     upload = await read_validated_upload(
         file, allowed_extensions=[".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx"]
     )
-    file_url = upload_file_to_s3(
+    file_url = await async_upload_file_to_s3(
         file_content=upload.content,
         filename=upload.filename,
         content_type=upload.content_type,
@@ -690,7 +690,7 @@ async def upload_checklist_document(
     return {"message": "Checklist document uploaded", "document_link": file_url}
 
 
-# ✅ Save checklist-level document link
+# Save checklist-level document link
 @router.put("/{job_id}/checklists/{checklist_id}/document", response_model=dict)
 def update_checklist_document(
     job_id: Annotated[int, Path(gt=0)],

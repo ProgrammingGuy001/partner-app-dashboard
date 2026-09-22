@@ -9,6 +9,8 @@ import { Separator } from "@/components/ui/separator"
 import { BreadcrumbNav } from "@/components/BreadcrumbNav"
 import { Loader2 } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { Button } from "@/components/ui/button"
+import axios from 'axios';
 
 import { RequisiteProvider } from '@/context/RequisiteContext';
 import './App.css';
@@ -42,7 +44,7 @@ const PageLoader = () => (
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { data: user, isLoading, isError } = useQuery({
+  const { data: user, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['auth', 'user'],
     queryFn: () => authAPI.getCurrentUser(),
     retry: false,
@@ -58,8 +60,21 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     );
   }
 
-  if (isError || !user) {
+  const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+  if (status === 401 || status === 403) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (error || !user) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-4 p-6" role="alert">
+        <h1 className="text-xl font-semibold">Could not connect</h1>
+        <p className="text-muted-foreground">Check your internet connection, then try again. Your work has not been submitted again.</p>
+        <Button onClick={() => void refetch()} disabled={isFetching}>
+          {isFetching ? 'Connecting…' : 'Try again'}
+        </Button>
+      </main>
+    );
   }
 
   return <>{children}</>;
