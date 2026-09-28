@@ -145,18 +145,32 @@ def _attach_generated_completion_document(
     return {"url": file_url, "filename": document.filename}
 
 
+@router.get("/lookup-so/{so_number}/matches", response_model=List[dict])
+def find_sales_order_matches(
+    so_number: Annotated[
+        str, Path(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
+    ],
+    current_user: models.User = Depends(get_current_user),
+):
+    """Find the companies that contain this Sales Order number."""
+    from app.services.odoo_service import OdooService
+
+    return OdooService.find_sales_orders(so_number)
+
+
 @router.get("/lookup-so/{so_number}", response_model=dict)
 def lookup_sales_order(
     so_number: Annotated[
         str, Path(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
     ],
+    company_id: Optional[int] = Query(None, gt=0),
     current_user: models.User = Depends(get_current_user),
 ):
     """Fetch customer and project details from Odoo by Sales Order number.
     Used to auto-populate job creation forms."""
     from app.services.odoo_service import OdooService
 
-    return OdooService.get_sales_order_details(so_number)
+    return OdooService.get_sales_order_details(so_number, company_id=company_id)
 
 
 @router.post("/resolve-map-url", response_model=MapUrlResolveResponse)

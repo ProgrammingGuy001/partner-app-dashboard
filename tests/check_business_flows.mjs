@@ -147,6 +147,7 @@ const superadminForm = renderToStaticMarkup(
 );
 assert.match(superadminForm, /Create New Job/);
 assert.match(superadminForm, /Add external IP/);
+assert.match(superadminForm, /Company/);
 const regularAdminForm = renderToStaticMarkup(
   <QueryClientProvider client={formClient}>
     <JobFormModal onClose={() => {}} onSuccess={() => {}} />

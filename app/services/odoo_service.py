@@ -866,7 +866,9 @@ class OdooService:
         return created
 
     @classmethod
-    def get_sales_order_details(cls, sales_order: str) -> Dict[str, Any]:
+    def get_sales_order_details(
+        cls, sales_order: str, company_id: Optional[int] = None
+    ) -> Dict[str, Any]:
         """
         Fetch customer and project details from a Sales Order number.
         Used to auto-populate job creation forms.
@@ -881,11 +883,13 @@ class OdooService:
         Raises:
             HTTPException: If sales order not found
         """
+        company_context = cls._company_context(company_id)
+
         # Fetch the sales order
         orders = cls._execute_kw(
             'sale.order',
             'search_read',
-            [[('name', '=', sales_order), cls._company_domain()]],
+            [[('name', '=', sales_order), cls._company_domain(company_id)]],
             {
                 'fields': [
                     'name', 'partner_id', 'partner_shipping_id',
@@ -894,7 +898,7 @@ class OdooService:
                 ],
                 'limit': 1,
             },
-            context=cls._company_context(),
+            context=company_context,
         )
 
         if not orders:
@@ -948,7 +952,7 @@ class OdooService:
                 'read',
                 [partner_ids],
                 {'fields': partner_fields},
-                context=cls._company_context(),
+                context=company_context,
             )
             partners = {p['id']: p for p in records}
             ship = partners.get(shipping_partner_id, {})
@@ -990,7 +994,7 @@ class OdooService:
                         'read',
                         [[parent_id]],
                         {'fields': partner_fields},
-                        context=cls._company_context(),
+                        context=company_context,
                     )
                     if parents:
                         parent = parents[0]

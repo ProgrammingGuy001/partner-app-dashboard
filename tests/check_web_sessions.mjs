@@ -37,6 +37,7 @@ for (const app of ['admin_dashboard', 'partnerfrontend']) {
           let authenticated = false;
           axios.post = async (_url, _body, config) => {
             refreshes++;
+            ${partner ? "assert.equal(_body, undefined, 'cookie refresh must not send an empty token payload');" : ''}
             assert.equal(config.timeout, 30000, 'refresh must have a bounded timeout');
             await new Promise(resolve => setTimeout(resolve, 10));
             authenticated = true;

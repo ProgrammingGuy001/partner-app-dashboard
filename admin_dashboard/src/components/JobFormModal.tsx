@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   type Job,
   type JobUpdate,
+  type SOCompanyMatch,
   type SOLookupResult,
   adminAPI,
   jobAPI,
@@ -200,6 +201,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
   const [soLoading, setSoLoading] = useState(false);
   const [soError, setSoError] = useState("");
   const [soResult, setSoResult] = useState<SOLookupResult | null>(null);
+  const [soMatches, setSoMatches] = useState<SOCompanyMatch[]>([]);
+  const [soCompanyId, setSoCompanyId] = useState("");
   const [soLookup, setSoLookup] = useState("");
 
   const [showNewRate, setShowNewRate] = useState(false);
@@ -423,43 +426,69 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
     );
   };
 
+  const applySalesOrder = (soNumber: string, result: SOLookupResult) => {
+    setSoResult(result);
+    setValue("sales_order", soNumber, { shouldValidate: true });
+    setSelectedCustomerId("");
+    setValue("customer_id", "");
+    if (result.customer_name)
+      setValue("customer_name", result.customer_name, { shouldValidate: true });
+    if (result.phone)
+      setValue("customer_phone", result.phone.replace(/[\s\-+]/g, "").slice(-10), {
+        shouldValidate: true,
+      });
+    if (result.address_line_1)
+      setValue("address_line_1", result.address_line_1, { shouldValidate: true });
+    if (result.address_line_2)
+      setValue("address_line_2", result.address_line_2, { shouldValidate: true });
+    if (result.city) setValue("city", result.city, { shouldValidate: true });
+    if (result.state) setValue("state", result.state, { shouldValidate: true });
+    if (result.pincode) setValue("pincode", result.pincode, { shouldValidate: true });
+  };
+
+  const loadSalesOrder = async (soNumber: string, companyId: number) => {
+    const result = await jobAPI.lookupSalesOrder(soNumber, companyId);
+    applySalesOrder(soNumber, result);
+  };
+
   const handleSOLookup = async () => {
     const soNumber = soLookup.trim();
     if (!soNumber) return;
     setSoLoading(true);
     setSoError("");
     setSoResult(null);
+    setSoMatches([]);
+    setSoCompanyId("");
     try {
-      const result = await jobAPI.lookupSalesOrder(soNumber);
-      setSoResult(result);
-      setValue("sales_order", soNumber, { shouldValidate: true });
-      // Auto-fill form fields from Odoo data
-      setSelectedCustomerId("");
-      setValue("customer_id", "");
-      if (result.customer_name)
-        setValue("customer_name", result.customer_name, {
-          shouldValidate: true,
-        });
-      if (result.phone) {
-        // Clean phone: remove +91, spaces, and take last 10 digits
-        const cleaned = result.phone.replace(/[\s\-+]/g, "").slice(-10);
-        setValue("customer_phone", cleaned, { shouldValidate: true });
+      const matches = (await jobAPI.findSalesOrders(soNumber)).filter(
+        (match) => match.company_id !== null,
+      );
+      if (!matches.length) {
+        setSoError(`Sales Order '${soNumber}' was not found in any company`);
+        return;
       }
-      if (result.address_line_1)
-        setValue("address_line_1", result.address_line_1, {
-          shouldValidate: true,
-        });
-      if (result.address_line_2)
-        setValue("address_line_2", result.address_line_2, {
-          shouldValidate: true,
-        });
-      if (result.city) setValue("city", result.city, { shouldValidate: true });
-      if (result.state)
-        setValue("state", result.state, { shouldValidate: true });
-      if (result.pincode)
-        setValue("pincode", result.pincode, { shouldValidate: true });
+      setSoMatches(matches);
+      if (matches.length === 1) {
+        const companyId = matches[0].company_id!;
+        setSoCompanyId(String(companyId));
+        await loadSalesOrder(soNumber, companyId);
+      }
     } catch (err: unknown) {
       setSoError(getApiErrorMessage(err, "Could not find that Sales Order"));
+    } finally {
+      setSoLoading(false);
+    }
+  };
+
+  const handleSOCompanyChange = async (value: string) => {
+    setSoCompanyId(value);
+    setSoLoading(true);
+    setSoError("");
+    setSoResult(null);
+    try {
+      await loadSalesOrder(soLookup.trim(), Number(value));
+    } catch (err: unknown) {
+      setSoError(getApiErrorMessage(err, "Could not fetch that Sales Order"));
     } finally {
       setSoLoading(false);
     }
@@ -572,6 +601,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
 
   const isLoading = createJobMutation.isPending || updateJobMutation.isPending;
   const isExistingCustomerSelected = !!selectedCustomerId;
+  const customerFieldsReadOnly = isExistingCustomerSelected && !(job && isSuperadmin);
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
@@ -616,42 +646,73 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                 <Label htmlFor="so_lookup" className="text-sm font-semibold text-info">
                   Look up a Sales Order in Odoo
                 </Label>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input
-                    id="so_lookup"
-                    placeholder="e.g. S00311"
-                    value={soLookup}
-                    onChange={(e) => setSoLookup(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleSOLookup();
-                      }
-                    }}
-                    className="flex-1"
-                  />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="so_lookup">SO number</Label>
+                    <Input
+                      id="so_lookup"
+                      placeholder="e.g. S00311"
+                      value={soLookup}
+                      onChange={(e) => {
+                        setSoLookup(e.target.value);
+                        setSoMatches([]);
+                        setSoCompanyId("");
+                        setSoResult(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleSOLookup();
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="so_company">Company</Label>
+                    <Select
+                      value={soCompanyId}
+                      onValueChange={handleSOCompanyChange}
+                      disabled={!soMatches.length || soLoading}
+                    >
+                      <SelectTrigger id="so_company">
+                        <SelectValue placeholder={soMatches.length ? "Select company" : "Find the SO first"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {soMatches.map((match) => (
+                          <SelectItem key={match.company_id} value={String(match.company_id)}>
+                            {match.company_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <Button
                     type="button"
                     variant="outline"
                     onClick={handleSOLookup}
                     disabled={soLoading || !soLookup.trim()}
-                    className="w-full shrink-0 sm:w-auto"
+                    className="w-full sm:col-span-2 sm:w-auto sm:justify-self-start"
                   >
                     {soLoading ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <Search className="h-4 w-4" />
                     )}
-                    {soLoading ? "Looking up..." : "Lookup"}
+                    {soLoading ? "Searching..." : "Find SO"}
                   </Button>
                 </div>
+                {soMatches.length > 1 && !soResult && !soError && (
+                  <p className="text-xs text-muted-foreground">
+                    This SO exists in more than one company. Select the company to load its details.
+                  </p>
+                )}
                 {soError && (
-                  <p className="text-xs text-destructive">{soError}</p>
+                  <p role="alert" className="text-xs text-destructive">{soError}</p>
                 )}
                 {soResult && (
                   <div className="flex items-center gap-2 text-sm text-success">
                     <CheckCircle2 className="h-4 w-4" />
-                    Found: {soResult.customer_name} — fields auto-filled below
+                    Found in {soMatches.find((match) => String(match.company_id) === soCompanyId)?.company_name}: {soResult.customer_name} — fields auto-filled below
                   </div>
                 )}
               </div>
@@ -692,6 +753,11 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                     ))}
                   </SelectContent>
                 </Select>
+                {job && isSuperadmin && isExistingCustomerSelected && (
+                  <p className="text-xs text-muted-foreground">
+                    Changes below update this customer anywhere they are used.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -699,8 +765,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                 <Input
                   id="customer_name"
                   {...register("customer_name")}
-                  readOnly={isExistingCustomerSelected}
-                  className={isExistingCustomerSelected ? "bg-muted" : ""}
+                  readOnly={customerFieldsReadOnly}
+                  className={customerFieldsReadOnly ? "bg-muted" : ""}
                   aria-invalid={!!errors.customer_name}
                 />
                 {errors.customer_name && (
@@ -717,8 +783,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                   type="tel"
                   placeholder="10-digit phone number"
                   {...register("customer_phone")}
-                  readOnly={isExistingCustomerSelected}
-                  className={isExistingCustomerSelected ? "bg-muted" : ""}
+                  readOnly={customerFieldsReadOnly}
+                  className={customerFieldsReadOnly ? "bg-muted" : ""}
                   aria-invalid={!!errors.customer_phone}
                 />
                 {errors.customer_phone && (
@@ -1045,8 +1111,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                 <Input
                   id="address_line_1"
                   {...register("address_line_1")}
-                  readOnly={isExistingCustomerSelected}
-                  className={isExistingCustomerSelected ? "bg-muted" : ""}
+                  readOnly={customerFieldsReadOnly}
+                  className={customerFieldsReadOnly ? "bg-muted" : ""}
                   aria-invalid={!!errors.address_line_1}
                   placeholder="Street, Building, Apartment"
                 />
@@ -1062,8 +1128,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                 <Input
                   id="address_line_2"
                   {...register("address_line_2")}
-                  readOnly={isExistingCustomerSelected}
-                  className={isExistingCustomerSelected ? "bg-muted" : ""}
+                  readOnly={customerFieldsReadOnly}
+                  className={customerFieldsReadOnly ? "bg-muted" : ""}
                   aria-invalid={!!errors.address_line_2}
                   placeholder="Landmark, Area (Optional)"
                 />
@@ -1099,8 +1165,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                 <Input
                   id="city"
                   {...register("city")}
-                  readOnly={isExistingCustomerSelected}
-                  className={isExistingCustomerSelected ? "bg-muted" : ""}
+                  readOnly={customerFieldsReadOnly}
+                  className={customerFieldsReadOnly ? "bg-muted" : ""}
                   aria-invalid={!!errors.city}
                 />
                 {errors.city && (
@@ -1115,8 +1181,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                 <Input
                   id="state"
                   {...register("state")}
-                  readOnly={isExistingCustomerSelected}
-                  className={isExistingCustomerSelected ? "bg-muted" : ""}
+                  readOnly={customerFieldsReadOnly}
+                  className={customerFieldsReadOnly ? "bg-muted" : ""}
                   aria-invalid={!!errors.state}
                   placeholder="State"
                 />
@@ -1133,8 +1199,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                   id="pincode"
                   type="number"
                   {...register("pincode")}
-                  readOnly={isExistingCustomerSelected}
-                  className={isExistingCustomerSelected ? "bg-muted" : ""}
+                  readOnly={customerFieldsReadOnly}
+                  className={customerFieldsReadOnly ? "bg-muted" : ""}
                   aria-invalid={!!errors.pincode}
                 />
                 {errors.pincode && (

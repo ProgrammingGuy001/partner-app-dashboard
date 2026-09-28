@@ -443,6 +443,15 @@ export interface SOLookupResult {
   project_name: string;
 }
 
+export interface SOCompanyMatch {
+  sale_order_id: number;
+  name: string;
+  company_id: number | null;
+  company_name: string;
+  customer_name: string;
+  state: string;
+}
+
 export interface Checklist {
   id: number;
   name: string;
@@ -723,8 +732,13 @@ export const jobAPI = {
     }).then(res => handleResponse(res));
   },
 
-  lookupSalesOrder: (soNumber: string): Promise<SOLookupResult> =>
-    axiosInstance.get(`/jobs/lookup-so/${encodeURIComponent(soNumber)}`).then(res => handleResponse(res)),
+  findSalesOrders: (soNumber: string): Promise<SOCompanyMatch[]> =>
+    axiosInstance.get(`/jobs/lookup-so/${encodeURIComponent(soNumber)}/matches`).then(res => handleResponse(res)),
+
+  lookupSalesOrder: (soNumber: string, companyId?: number): Promise<SOLookupResult> =>
+    axiosInstance.get(`/jobs/lookup-so/${encodeURIComponent(soNumber)}`, {
+      params: companyId ? { company_id: companyId } : undefined,
+    }).then(res => handleResponse(res)),
 
   getBilling: (id: number): Promise<BillingData> =>
     axiosInstance.get(`/jobs/${id}/billing`).then(res => handleResponse(res)),

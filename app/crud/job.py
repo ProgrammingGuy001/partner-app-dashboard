@@ -765,30 +765,28 @@ def update_job(
 
         customer_id_provided = "customer_id" in update_data
         customer_id = update_data.pop("customer_id", None)
-        if customer_id_provided:
-            db_job.customer_id = (
-                _get_customer_by_id(db, customer_id).id
-                if customer_id is not None
-                else None
+        customer_updates = {
+            field: update_data.pop(field, None)
+            for field in (
+                "customer_name",
+                "customer_phone",
+                "address_line_1",
+                "address_line_2",
+                "city",
+                "state",
+                "pincode",
             )
-            update_data.pop("customer_name", None)
-            update_data.pop("customer_phone", None)
-            update_data.pop("address_line_1", None)
-            update_data.pop("address_line_2", None)
-            update_data.pop("city", None)
-            update_data.pop("state", None)
-            update_data.pop("pincode", None)
+        }
+        if customer_id_provided:
+            customer = _get_customer_by_id(db, customer_id) if customer_id is not None else None
+            db_job.customer_id = customer.id if customer else None
+            if is_superadmin and customer:
+                _upsert_customer(db, existing_customer=customer, **customer_updates)
         else:
             customer = _upsert_customer(
                 db,
-                customer_name=update_data.pop("customer_name", None),
-                customer_phone=update_data.pop("customer_phone", None),
-                address_line_1=update_data.pop("address_line_1", None),
-                address_line_2=update_data.pop("address_line_2", None),
-                city=update_data.pop("city", None),
-                state=update_data.pop("state", None),
-                pincode=update_data.pop("pincode", None),
                 existing_customer=db_job.customer,
+                **customer_updates,
             )
             if customer:
                 db_job.customer_id = customer.id

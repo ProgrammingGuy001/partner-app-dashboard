@@ -11,7 +11,7 @@ import app.model  # noqa: F401 - register every referenced table
 from app.crud.job import _validate_ip_for_supervisor, create_job, update_job
 from app.database import Base
 from app.model.ip import IPAdminAssignment, ip
-from app.model.job import Job
+from app.model.job import Customer, Job
 from app.model.roster import JobRosterEntry, RosterSlotSetting
 from app.model.user import User
 from app.schemas.job import JobCreate, JobUpdate
@@ -201,3 +201,50 @@ def test_adding_an_external_ip_to_an_existing_job_updates_its_roster():
 
         entry = db.query(JobRosterEntry).filter_by(job_id=job.id).one()
         assert entry.ip_user_id == updated.assigned_ip_id
+
+
+def test_superadmin_can_edit_the_existing_customer_attached_to_a_job():
+    with _session() as db:
+        supervisor, superadmin = _admins(db)
+        customer = Customer(
+            name="Webhook Lead",
+            phone_number="919000000001",
+            address_line_1="Old address",
+            city="Pune",
+            state="MH",
+            pincode=411001,
+        )
+        job = Job(
+            customer=customer,
+            status="pending_approval",
+            job_type="grn",
+            admin_assigned=supervisor.id,
+            crm_lead_id=42,
+            crm_stage_id=16,
+        )
+        db.add(job)
+        db.commit()
+
+        updated = update_job(
+            db,
+            job.id,
+            JobUpdate(
+                customer_id=customer.id,
+                customer_name="Corrected Lead",
+                customer_phone="9876543210",
+                address_line_1="New address",
+                city="Mumbai",
+                state="Maharashtra",
+                pincode=400001,
+            ),
+            admin_id=superadmin.id,
+            is_superadmin=True,
+        )
+
+        assert updated.customer_id == customer.id
+        assert updated.customer.name == "Corrected Lead"
+        assert updated.customer.phone_number == "919876543210"
+        assert updated.customer.address_line_1 == "New address"
+        assert updated.customer.city == "Mumbai"
+        assert updated.customer.state == "Maharashtra"
+        assert updated.customer.pincode == 400001
