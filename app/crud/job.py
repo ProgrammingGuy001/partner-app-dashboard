@@ -12,7 +12,7 @@ from app.crud.checklist import (
     sync_job_checklists,
     validate_checklist_ids,
 )
-from app.model.ip import ip
+from app.model.ip import IPAdminAssignment, ip
 from app.model.job import (
     ChecklistItem,
     Customer,
@@ -311,6 +311,54 @@ def _validate_ip_for_supervisor(
     return ip_user
 
 
+def _resolve_external_ip(
+    db: Session,
+    details: dict,
+    supervisor_id: int | None,
+    *,
+    is_superadmin: bool,
+) -> ip:
+    if not is_superadmin:
+        raise HTTPException(
+            status_code=403, detail="Only a superadmin can add an external IP"
+        )
+    if supervisor_id is None:
+        raise HTTPException(
+            status_code=400, detail="Select a supervisor before adding an external IP"
+        )
+
+    ip_user = db.query(ip).filter(ip.phone_number == details["phone_number"]).first()
+    if ip_user and ip_user.is_internal:
+        raise HTTPException(
+            status_code=409,
+            detail="This contact number belongs to an internal IP. Select them from the list.",
+        )
+
+    first_name, _, last_name = details["name"].partition(" ")
+    if ip_user is None:
+        ip_user = ip(
+            phone_number=details["phone_number"],
+            first_name=first_name,
+            last_name=last_name,
+            city="",
+            is_internal=False,
+            is_id_verified=True,
+        )
+        db.add(ip_user)
+        db.flush()
+    else:
+        ip_user.first_name = first_name
+        ip_user.last_name = last_name
+        ip_user.is_id_verified = True
+
+    if not db.query(IPAdminAssignment.id).filter_by(
+        ip_id=ip_user.id, admin_id=supervisor_id
+    ).first():
+        db.add(IPAdminAssignment(ip_id=ip_user.id, admin_id=supervisor_id))
+        db.flush()
+    return ip_user
+
+
 def _drop_stale_roster_entries(
     db: Session, job_id: int, keep_ip_id: int | None
 ) -> None:
@@ -493,10 +541,20 @@ def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = 
                 status_code=400, detail="Select a supervisor for the job"
             )
         _validate_supervisor(db, supervisor_id)
-        if job.assigned_ip_id:
-            _validate_ip_for_supervisor(db, job.assigned_ip_id, supervisor_id)
+        assigned_ip_id = job.assigned_ip_id
+        if job.external_ip is not None:
+            assigned_ip_id = _resolve_external_ip(
+                db,
+                job.external_ip.model_dump(),
+                supervisor_id,
+                is_superadmin=is_superadmin,
+            ).id
+        if assigned_ip_id:
+            _validate_ip_for_supervisor(db, assigned_ip_id, supervisor_id)
 
         job_data = job.model_dump()
+        job_data.pop("external_ip", None)
+        job_data["assigned_ip_id"] = assigned_ip_id
         posted_checklist_ids = job_data.pop("checklist_ids", None)
         job_data.pop("checklist_id", None)
         job_data.pop("user_id", None)
@@ -629,11 +687,16 @@ def update_job(
         db_job = get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
 
         update_data = job_update.model_dump(exclude_unset=True)
+        external_ip = update_data.pop("external_ip", None)
+        if external_ip is not None and not is_superadmin:
+            raise HTTPException(
+                status_code=403, detail="Only a superadmin can add an external IP"
+            )
 
         if not is_superadmin:
             update_data.pop("admin_assigned", None)
             update_data.pop("status", None)
-        resync_roster = bool(
+        resync_roster = external_ip is not None or bool(
             {
                 "assigned_ip_id",
                 "admin_assigned",
@@ -664,6 +727,14 @@ def update_job(
                     )
                 _drop_stale_roster_entries(db, job_id, keep_ip_id=None)
                 db_job.assigned_ip_id = None
+
+        if external_ip is not None:
+            update_data["assigned_ip_id"] = _resolve_external_ip(
+                db,
+                external_ip,
+                new_supervisor_id,
+                is_superadmin=is_superadmin,
+            ).id
 
         if "assigned_ip_id" in update_data:
             new_ip_id = update_data["assigned_ip_id"]

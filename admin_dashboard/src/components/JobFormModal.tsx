@@ -107,6 +107,8 @@ const jobSchema = z
     // Regular admins choose their mapped IP here; superadmins choose the supervisor.
     assignee: z.string().optional(),
     ip_assignee: z.string().optional(),
+    external_ip_name: z.string().optional(),
+    external_ip_phone: z.string().optional(),
     start_date: z.string().min(1, "Start Date is required"),
     delivery_date: z.string().min(1, "Delivery Date is required"),
     drawing_document_link: z.string().optional(),
@@ -114,6 +116,23 @@ const jobSchema = z
     slot_end: z.string().optional(),
   })
   .superRefine((values, ctx) => {
+    if (values.ip_assignee === "external") {
+      if (!values.external_ip_name?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "External IP name is required",
+          path: ["external_ip_name"],
+        });
+      }
+      const phone = values.external_ip_phone?.replace(/\D/g, "") || "";
+      if (!(phone.length === 10 || (phone.length === 12 && phone.startsWith("91")))) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Enter a valid 10-digit Indian mobile number",
+          path: ["external_ip_phone"],
+        });
+      }
+    }
     // Ahead of the date guard below, which returns early.
     const slotless = SLOTLESS_TYPES.has((values.type || "").trim().toLowerCase());
     if (!slotless && !values.slot_start && !values.slot_end) {
@@ -246,6 +265,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
       size: "",
       assignee: "",
       ip_assignee: "",
+      external_ip_name: "",
+      external_ip_phone: "",
       start_date: "",
       delivery_date: "",
       drawing_document_link: "",
@@ -345,6 +366,8 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
         ip_assignee: isSuperadmin && job.assigned_ip_id
           ? `ip:${job.assigned_ip_id}`
           : "",
+        external_ip_name: "",
+        external_ip_phone: "",
         start_date: job.start_date || "",
         delivery_date: job.delivery_date || "",
         drawing_document_link: job.drawing_document_link || "",
@@ -503,6 +526,12 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
           : (data.assignee.startsWith("ip:")
               ? parseInt(data.assignee.slice(3), 10)
               : undefined),
+        external_ip: isSuperadmin && data.ip_assignee === "external"
+          ? {
+              name: data.external_ip_name!.trim(),
+              phone_number: data.external_ip_phone!.trim(),
+            }
+          : undefined,
         admin_assigned: isSuperadmin && data.assignee.startsWith("admin:")
           ? parseInt(data.assignee.slice(6), 10)
           : undefined,
@@ -1198,6 +1227,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="unassigned">No IP assigned</SelectItem>
+                      <SelectItem value="external">+ Add external IP</SelectItem>
                       {!mappedIpUsers.length ? (
                         <SelectItem value="no-mapped-ip" disabled>
                           No mapped IP available
@@ -1213,7 +1243,45 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">Only verified, mapped IPs are shown. Date and slot availability is checked when you save.</p>
+                  {ipAssignee === "external" && (
+                    <div className="grid gap-3 rounded-md border bg-muted/30 p-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="external-ip-name">External IP name *</Label>
+                        <Input
+                          id="external-ip-name"
+                          placeholder="e.g. Ravi Kumar"
+                          {...register("external_ip_name")}
+                          aria-invalid={!!errors.external_ip_name}
+                        />
+                        {errors.external_ip_name && (
+                          <p className="text-xs text-destructive">
+                            {errors.external_ip_name.message}
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="external-ip-phone">Contact number *</Label>
+                        <Input
+                          id="external-ip-phone"
+                          type="tel"
+                          placeholder="10-digit mobile number"
+                          {...register("external_ip_phone")}
+                          aria-invalid={!!errors.external_ip_phone}
+                        />
+                        {errors.external_ip_phone && (
+                          <p className="text-xs text-destructive">
+                            {errors.external_ip_phone.message}
+                          </p>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground sm:col-span-2">
+                        This partner will be mapped to the selected supervisor and assigned to this job.
+                      </p>
+                    </div>
+                  )}
+                  {ipAssignee !== "external" && (
+                    <p className="text-xs text-muted-foreground">Only verified, mapped IPs are shown. Date and slot availability is checked when you save.</p>
+                  )}
                 </div>
               )}
 

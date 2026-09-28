@@ -2,10 +2,28 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, condecimal, model_validator
+from pydantic import BaseModel, ConfigDict, Field, condecimal, field_validator, model_validator
 
 from app.schemas.checklist import JobChecklistResponse
+from app.schemas.ip import normalize_phone_number
 from app.utils.job_documents import normalize_job_type
+
+
+class ExternalIPCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    phone_number: str
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        if not (name := " ".join(value.split())):
+            raise ValueError("Enter the external IP's name")
+        return name
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone_number(cls, value: str) -> str:
+        return normalize_phone_number(value)
 
 
 class JobBase(BaseModel):
@@ -20,6 +38,7 @@ class JobBase(BaseModel):
     rate: Optional[Decimal] = Field(default=None, max_digits=10, decimal_places=2)
     size: Optional[int] = None
     assigned_ip_id: Optional[int] = None
+    external_ip: Optional[ExternalIPCreate] = None
     # The supervisor who owns the site. Some jobs are done by a supervisor with no IP,
     # so this is set independently of assigned_ip_id; it defaults to the creator.
     admin_assigned: Optional[int] = None
@@ -37,6 +56,12 @@ class JobBase(BaseModel):
     drawing_document_link: Optional[str] = None
     slot_start: Optional[time] = None
     slot_end: Optional[time] = None
+
+    @model_validator(mode="after")
+    def validate_ip_source(self) -> "JobBase":
+        if self.external_ip is not None and self.assigned_ip_id is not None:
+            raise ValueError("Choose an existing IP or add an external IP, not both")
+        return self
 
 DRAWING_REQUIRED_JOB_TYPES = {"site_validation", "installation"}
 # Installation runs the full shift and GRN is not a site visit, so neither is slotted.
@@ -104,6 +129,7 @@ class JobUpdate(BaseModel):
     rate: Optional[condecimal(max_digits=10, decimal_places=2)] = None
     size: Optional[int] = None
     assigned_ip_id: Optional[int] = None
+    external_ip: Optional[ExternalIPCreate] = None
     admin_assigned: Optional[int] = None
     customer_id: Optional[int] = None
     job_rate_id: Optional[int] = None
@@ -119,6 +145,12 @@ class JobUpdate(BaseModel):
     drawing_document_link: Optional[str] = None
     slot_start: Optional[time] = None
     slot_end: Optional[time] = None
+
+    @model_validator(mode="after")
+    def validate_ip_source(self) -> "JobUpdate":
+        if self.external_ip is not None and self.assigned_ip_id is not None:
+            raise ValueError("Choose an existing IP or add an external IP, not both")
+        return self
 
 class MapUrlResolveRequest(BaseModel):
     url: str = Field(min_length=1, max_length=2048)

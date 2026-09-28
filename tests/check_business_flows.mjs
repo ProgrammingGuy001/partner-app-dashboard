@@ -110,6 +110,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import JobWorkspace from './src/pages/JobWorkspace';
+import JobFormModal from './src/components/JobFormModal';
 function render(status, failure = false) {
   const client = new QueryClient({defaultOptions: {queries: {retry: false, retryOnMount: false, refetchOnMount: false, staleTime: Infinity}}});
   client.setQueryData(['jobs', 4], {id: 4, name: 'Test job', status, assigned_ip_id: 1});
@@ -132,13 +133,51 @@ const failed = render('created', true);
 assert.match(failed, /Start requirements could not be checked/);
 assert.match(failed, /Visit reports could not be loaded/);
 assert.doesNotMatch(failed, /Set up job checklist|No visit report has been filed|No checklist is attached/);
-console.log('Admin stage-specific next steps and unavailable-data checks passed');
+
+const formClient = new QueryClient({defaultOptions: {queries: {retry: false, refetchOnMount: false, staleTime: Infinity}}});
+formClient.setQueryData(['job-rates'], []);
+formClient.setQueryData(['ip-users', 'approved'], []);
+formClient.setQueryData(['customers', 500], []);
+formClient.setQueryData(['admin-users'], [{id: 7, name: 'Site Supervisor', email: 'site@example.com', is_superadmin: false}]);
+formClient.setQueryData(['roster', 'slot-settings'], {slots: []});
+const superadminForm = renderToStaticMarkup(
+  <QueryClientProvider client={formClient}>
+    <JobFormModal onClose={() => {}} onSuccess={() => {}} isSuperadmin />
+  </QueryClientProvider>
+);
+assert.match(superadminForm, /Create New Job/);
+assert.match(superadminForm, /Add external IP/);
+const regularAdminForm = renderToStaticMarkup(
+  <QueryClientProvider client={formClient}>
+    <JobFormModal onClose={() => {}} onSuccess={() => {}} />
+  </QueryClientProvider>
+);
+assert.doesNotMatch(regularAdminForm, /Add external IP/);
+formClient.clear();
+console.log('Admin stage-specific next steps, unavailable-data and external-IP form checks passed');
 `;
 
 for (const [folder, contents] of [['partnerfrontend', partnerChecks], ['admin_dashboard', adminChecks]]) {
   const root = fileURLToPath(new URL('../' + folder + '/', import.meta.url));
   const alias = Object.fromEntries(['components', 'pages', 'store', 'api', 'utils', 'hooks', 'assets'].map(name => ['@' + name, root + 'src/' + name]));
-  const result = await build({stdin: {contents, loader: 'tsx', resolveDir: root}, alias: {...alias, '@': root + 'src'}, bundle: true, write: false, platform: 'node', format: 'cjs', jsx: 'automatic', define: {'import.meta.env': '{}'}, loader: {'.css': 'empty', '.png': 'dataurl'}, logLevel: 'silent'});
+  const plugins = folder === 'admin_dashboard' ? [{
+    name: 'location-picker-stub',
+    setup(build) {
+      build.onResolve({filter: /LocationPicker$/}, () => ({path: 'LocationPicker', namespace: 'test'}));
+      build.onResolve({filter: /ui\/dialog$/}, () => ({path: 'Dialog', namespace: 'test'}));
+      build.onResolve({filter: /ui\/select$/}, () => ({path: 'Select', namespace: 'test'}));
+      build.onLoad({filter: /.*/, namespace: 'test'}, ({path}) => {
+        const wrappers = names => names.map(name => `export const ${name} = ({children, ...props}) => <div {...props}>{children}</div>;`).join('\n');
+        const contents = path === 'LocationPicker'
+          ? `export default function LocationPicker() { return <div>Location picker</div>; }`
+          : path === 'Dialog'
+            ? wrappers(['Dialog', 'DialogContent', 'DialogDescription', 'DialogFooter', 'DialogHeader', 'DialogTitle'])
+            : wrappers(['Select', 'SelectContent', 'SelectItem', 'SelectTrigger', 'SelectValue']);
+        return {loader: 'tsx', resolveDir: root, contents};
+      });
+    },
+  }] : [];
+  const result = await build({stdin: {contents, loader: 'tsx', resolveDir: root}, alias: {...alias, '@': root + 'src'}, plugins, bundle: true, write: false, platform: 'node', format: 'cjs', jsx: 'automatic', define: {'import.meta.env': '{}'}, loader: {'.css': 'empty', '.png': 'dataurl'}, logLevel: 'silent'});
   const check = spawnSync(process.execPath, ['--input-type=commonjs'], {input: result.outputFiles[0].text, encoding: 'utf8'});
   process.stdout.write(check.stdout);
   process.stderr.write(check.stderr);

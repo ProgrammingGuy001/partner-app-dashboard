@@ -34,6 +34,11 @@ export interface AssignedIPSummary {
   is_internal: boolean;
 }
 
+export interface ExternalIPCreate {
+  name: string;
+  phone_number: string;
+}
+
 export interface InvoiceRequest {
   id: number;
   status: 'pending' | 'approved' | 'rejected';
@@ -102,6 +107,8 @@ export interface Job {
   size?: number;
   // null on write clears the assignment, e.g. when a job moves from an IP to a supervisor.
   assigned_ip_id?: number | null;
+  // Write-only: superadmins can create/reuse and assign an external partner atomically.
+  external_ip?: ExternalIPCreate;
   assigned_ip_name?: string;
   assigned_ip?: AssignedIPSummary;
   is_ip_available?: boolean;
