@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { attendanceAPI, authAPI, sundayWorkRequestAPI } from '@/api/services';
+import { attendanceAPI, authAPI, devAPI, sundayWorkRequestAPI } from '@/api/services';
 import {
   useAttendance,
   useMyAdminAttendance,
@@ -39,6 +39,7 @@ import {
   IconMapPin,
   IconRefresh,
   IconSearch,
+  IconTrash,
   IconUser,
   IconX,
 } from '@tabler/icons-react';
@@ -100,6 +101,84 @@ function CoordinateLink({
   );
 }
 
+function DeleteAttendanceButton({
+  subjectType,
+  recordId,
+  label,
+}: Readonly<{
+  subjectType: 'ip' | 'admin';
+  recordId: number;
+  label: string;
+}>) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const deleteMutation = useMutation({
+    mutationFn: () => devAPI.deleteAttendance(subjectType, recordId, reason.trim()),
+    onSuccess: () => {
+      toast.success('Attendance deleted');
+      setOpen(false);
+      setReason('');
+      queryClient.invalidateQueries({ queryKey: ['admin-attendance'] });
+      queryClient.invalidateQueries({ queryKey: ['ip-attendance'] });
+      queryClient.invalidateQueries({ queryKey: ['dev', 'audit-log'] });
+    },
+    onError: (error) => toast.error(getApiErrorMessage(error, 'Failed to delete attendance')),
+  });
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="text-destructive hover:text-destructive"
+        onClick={() => setOpen(true)}
+        aria-label={`Delete attendance for ${label}`}
+      >
+        <IconTrash className="h-4 w-4" />
+      </Button>
+      <Dialog open={open} onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen && !deleteMutation.isPending) setReason('');
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete attendance?</DialogTitle>
+            <DialogDescription>
+              This removes the attendance for {label}. The reason and deleted record are retained in the Dev audit log.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor={`delete-attendance-reason-${subjectType}-${recordId}`}>Reason</Label>
+            <Textarea
+              id={`delete-attendance-reason-${subjectType}-${recordId}`}
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              maxLength={500}
+              rows={3}
+              placeholder="Why this attendance must be deleted"
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={deleteMutation.isPending}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => deleteMutation.mutate()}
+              disabled={reason.trim().length < 3 || deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete attendance'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 function formatDistance(meters: number) {
   return meters >= 1000 ? `${(meters / 1000).toFixed(2)} km` : `${Math.round(meters)} m`;
 }
@@ -126,9 +205,11 @@ function GeofenceBadge({
 function AttendanceTable({
   records,
   showAdmin,
+  canDelete = false,
 }: Readonly<{
   records: AdminAttendanceRecord[];
   showAdmin: boolean;
+  canDelete?: boolean;
 }>) {
   if (records.length === 0) {
     return (
@@ -139,7 +220,9 @@ function AttendanceTable({
     <>
       <div className="divide-y md:hidden">
         {records.map((r, idx) => (
-          <AdminAttendanceCard key={r.id} record={r} index={idx} showAdmin={showAdmin} />
+          <AdminAttendanceCard
+            key={r.id} record={r} index={idx} showAdmin={showAdmin} canDelete={canDelete}
+          />
         ))}
       </div>
       <div className="hidden overflow-x-auto md:block">
@@ -152,6 +235,7 @@ function AttendanceTable({
               <TableHead>Location</TableHead>
               <TableHead>Photo</TableHead>
               <TableHead>Notes</TableHead>
+              {canDelete && <TableHead className="w-20 text-right">Actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -211,6 +295,11 @@ function AttendanceTable({
                 <TableCell className="text-sm text-muted-foreground">
                   {r.notes || <span className="italic">—</span>}
                 </TableCell>
+                {canDelete && (
+                  <TableCell className="text-right">
+                    <DeleteAttendanceButton subjectType="admin" recordId={r.id} label={r.admin_email} />
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>
@@ -224,10 +313,12 @@ function AdminAttendanceCard({
   record,
   index,
   showAdmin,
+  canDelete,
 }: Readonly<{
   record: AdminAttendanceRecord;
   index: number;
   showAdmin: boolean;
+  canDelete: boolean;
 }>) {
   return (
     <article className="p-4">
@@ -236,7 +327,12 @@ function AdminAttendanceCard({
           <p className="text-sm font-semibold">{formatDateOnly(record.marked_at)}</p>
           <p className="text-xs text-muted-foreground">{formatDate(record.marked_at)}</p>
         </div>
-        <Badge variant="outline">#{index + 1}</Badge>
+        <div className="flex items-center gap-1">
+          <Badge variant="outline">#{index + 1}</Badge>
+          {canDelete && (
+            <DeleteAttendanceButton subjectType="admin" recordId={record.id} label={record.admin_email} />
+          )}
+        </div>
       </div>
 
       {showAdmin && (
@@ -282,7 +378,15 @@ function AdminAttendanceCard({
   );
 }
 
-function IPAttendanceTable({ records, phoneToName }: Readonly<{ records: DailyAttendance[]; phoneToName?: Map<string, string> }>) {
+function IPAttendanceTable({
+  records,
+  phoneToName,
+  canDelete = false,
+}: Readonly<{
+  records: DailyAttendance[];
+  phoneToName?: Map<string, string>;
+  canDelete?: boolean;
+}>) {
   if (records.length === 0) {
     return (
       <div className="p-8 text-center text-muted-foreground text-sm">No IP attendance records found.</div>
@@ -293,7 +397,9 @@ function IPAttendanceTable({ records, phoneToName }: Readonly<{ records: DailyAt
     <>
     <div className="divide-y md:hidden">
       {records.map((r, idx) => (
-        <IPAttendanceCard key={r.id} record={r} index={idx} phoneToName={phoneToName} />
+        <IPAttendanceCard
+          key={r.id} record={r} index={idx} phoneToName={phoneToName} canDelete={canDelete}
+        />
       ))}
     </div>
     <div className="hidden overflow-x-auto md:block">
@@ -307,6 +413,7 @@ function IPAttendanceTable({ records, phoneToName }: Readonly<{ records: DailyAt
           <TableHead>Date & Time</TableHead>
           <TableHead>Location</TableHead>
           <TableHead>Photo & Report</TableHead>
+          {canDelete && <TableHead className="w-20 text-right">Actions</TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -371,6 +478,15 @@ function IPAttendanceTable({ records, phoneToName }: Readonly<{ records: DailyAt
               ) : null}
               <ReportStatusBadge status={r.report_status} />
             </TableCell>
+            {canDelete && (
+              <TableCell className="text-right">
+                <DeleteAttendanceButton
+                  subjectType="ip"
+                  recordId={r.id}
+                  label={phoneToName?.get(r.phone) || r.phone}
+                />
+              </TableCell>
+            )}
           </TableRow>
         ))}
       </TableBody>
@@ -391,7 +507,17 @@ function ReportStatusBadge({ status }: Readonly<{ status: DailyAttendance['repor
   return null;
 }
 
-function IPAttendanceCard({ record, index, phoneToName }: Readonly<{ record: DailyAttendance; index: number; phoneToName?: Map<string, string> }>) {
+function IPAttendanceCard({
+  record,
+  index,
+  phoneToName,
+  canDelete,
+}: Readonly<{
+  record: DailyAttendance;
+  index: number;
+  phoneToName?: Map<string, string>;
+  canDelete: boolean;
+}>) {
   const displayName = phoneToName?.get(record.phone) || record.phone;
   return (
     <article className="p-4">
@@ -403,7 +529,12 @@ function IPAttendanceCard({ record, index, phoneToName }: Readonly<{ record: Dai
             {record.job_name || (record.job_id ? `Job #${record.job_id}` : 'Independent')}
           </p>
         </div>
-        <Badge variant="outline">#{index + 1}</Badge>
+        <div className="flex items-center gap-1">
+          <Badge variant="outline">#{index + 1}</Badge>
+          {canDelete && (
+            <DeleteAttendanceButton subjectType="ip" recordId={record.id} label={displayName} />
+          )}
+        </div>
       </div>
       <Badge variant="outline" className="mt-2">{record.attendance_type === 'check_out' ? 'Check Out' : 'Check In'}</Badge>
 
@@ -1089,7 +1220,7 @@ const AdminView: React.FC = () => {
   );
 };
 
-const SuperAdminView: React.FC = () => {
+const SuperAdminView: React.FC<{ canDelete: boolean }> = ({ canDelete }) => {
   const [activeTab, setActiveTab] = useState<'admin' | 'ip' | 'sunday'>('admin');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -1235,7 +1366,7 @@ const SuperAdminView: React.FC = () => {
               <div className="p-8 text-center text-muted-foreground">Loading...</div>
             ) : (
               <>
-                <AttendanceTable records={adminRecords} showAdmin />
+                <AttendanceTable records={adminRecords} showAdmin canDelete={canDelete} />
                 <AttendancePagination page={adminPage} total={adminTotal} onPageChange={setAdminPage} />
               </>
             )}
@@ -1257,7 +1388,7 @@ const SuperAdminView: React.FC = () => {
               <div className="p-8 text-center text-muted-foreground">Loading...</div>
             ) : (
               <>
-                <IPAttendanceTable records={ipRecords} phoneToName={phoneToName} />
+                <IPAttendanceTable records={ipRecords} phoneToName={phoneToName} canDelete={canDelete} />
                 <AttendancePagination page={ipPage} total={ipTotal} onPageChange={setIpPage} />
               </>
             )}
@@ -1279,7 +1410,9 @@ const Attendance: React.FC = () => {
     return <div className="p-8 text-center text-muted-foreground">Loading...</div>;
   }
 
-  return userData?.is_superadmin ? <SuperAdminView /> : <AdminView />;
+  return userData?.is_superadmin
+    ? <SuperAdminView canDelete={Boolean(userData.is_dev)} />
+    : <AdminView />;
 };
 
 export default Attendance;

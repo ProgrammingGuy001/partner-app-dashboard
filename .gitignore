@@ -77,3 +77,6 @@ CLAUDE.md
 tmp/*
 
 !tests/check_business_flows.mjs
+docs/superpowers/specs/2026-09-29-dev-attendance-management.md
+docs/superpowers/plans/2026-09-29-dev-attendance-management.md
+.gitignore

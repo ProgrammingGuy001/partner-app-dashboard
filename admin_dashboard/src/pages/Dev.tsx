@@ -25,7 +25,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { CalendarPlus, Loader2, ShieldAlert, UserPlus, Users } from 'lucide-react';
+import { CalendarPlus, Loader2, MapPin, ShieldAlert, UserPlus, Users } from 'lucide-react';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { useJobs } from '@/hooks/useJobs';
 
@@ -601,6 +601,10 @@ const BackfillAttendanceCard: React.FC = () => {
   const [attendanceType, setAttendanceType] = useState<'check_in' | 'check_out'>('check_in');
   const [attendanceDate, setAttendanceDate] = useState(today);
   const [reason, setReason] = useState('');
+  const [manualLocation, setManualLocation] = useState('');
+  const [latitude, setLatitude] = useState('');
+  const [longitude, setLongitude] = useState('');
+  const [locating, setLocating] = useState(false);
 
   const { data: ipUsers } = useQuery({ queryKey: DEV_IPS_KEY, queryFn: () => devAPI.listIPUsers() });
   const { data: admins } = useQuery({ queryKey: DEV_USERS_KEY, queryFn: () => devAPI.listUsers() });
@@ -618,7 +622,34 @@ const BackfillAttendanceCard: React.FC = () => {
     [admins],
   );
 
-  const reset = () => { setSubjectId(''); setJobId(''); setReason(''); };
+  const reset = () => {
+    setSubjectId('');
+    setJobId('');
+    setReason('');
+    setManualLocation('');
+    setLatitude('');
+    setLongitude('');
+  };
+
+  const captureLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error('Location is not supported in this browser');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLatitude(position.coords.latitude.toFixed(6));
+        setLongitude(position.coords.longitude.toFixed(6));
+        setLocating(false);
+      },
+      () => {
+        toast.error('Could not get location. Please allow location access.');
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  };
 
   const backfillMutation = useMutation({
     mutationFn: () => devAPI.backfillAttendance({
@@ -626,13 +657,17 @@ const BackfillAttendanceCard: React.FC = () => {
       subject_id: Number(subjectId),
       attendance_date: attendanceDate,
       reason: reason.trim(),
+      manual_location: manualLocation.trim(),
+      latitude: Number(latitude),
+      longitude: Number(longitude),
       ...(subjectType === 'ip' ? { job_id: Number(jobId), attendance_type: attendanceType } : {}),
     }),
     onSuccess: (result) => {
       toast.success(`Attendance recorded for ${result.record.subject_label}`);
       reset();
       queryClient.invalidateQueries({ queryKey: DEV_AUDIT_KEY });
-      queryClient.invalidateQueries({ queryKey: ['attendance'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-attendance'] });
+      queryClient.invalidateQueries({ queryKey: ['ip-attendance'] });
     },
     onError: (error) => toast.error(errorMessage(error, 'Failed to record attendance')),
   });
@@ -641,6 +676,12 @@ const BackfillAttendanceCard: React.FC = () => {
     e.preventDefault();
     if (!subjectId) return toast.error('Pick who the attendance is for');
     if (subjectType === 'ip' && !jobId) return toast.error('Pick the job the attendance belongs to');
+    if (!manualLocation.trim()) return toast.error('Enter the attendance location');
+    if (!latitude.trim() || !longitude.trim()) return toast.error('Add latitude and longitude');
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90) return toast.error('Latitude must be between -90 and 90');
+    if (!Number.isFinite(lng) || lng < -180 || lng > 180) return toast.error('Longitude must be between -180 and 180');
     if (reason.trim().length < 3) return toast.error('Give a reason — it goes in the audit log');
     backfillMutation.mutate();
   };
@@ -652,8 +693,8 @@ const BackfillAttendanceCard: React.FC = () => {
           <CalendarPlus className="h-5 w-5" /> Record missing attendance
         </CardTitle>
         <CardDescription>
-          For a day somebody genuinely worked but could not mark. This skips the check-in window,
-          the GPS fix and the photo, so the reason is recorded in the audit log.
+          For a day somebody genuinely worked but could not mark. The supplied location appears as
+          normal attendance; the correction reason stays in the Dev audit log.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -737,6 +778,43 @@ const BackfillAttendanceCard: React.FC = () => {
             <Input
               id="dev-attendance-date" type="date" value={attendanceDate} max={today}
               onChange={(e) => setAttendanceDate(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-2 sm:col-span-2">
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="dev-attendance-location">Location</Label>
+              <Button type="button" variant="outline" size="sm" onClick={captureLocation} disabled={locating}>
+                {locating
+                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Locating...</>
+                  : <><MapPin className="mr-2 h-4 w-4" /> Use current coordinates</>}
+              </Button>
+            </div>
+            <Input
+              id="dev-attendance-location"
+              value={manualLocation}
+              maxLength={255}
+              onChange={(e) => setManualLocation(e.target.value)}
+              placeholder="Office, client site, branch, or area"
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="dev-attendance-latitude">Latitude</Label>
+            <Input
+              id="dev-attendance-latitude" type="number" step="any" min={-90} max={90}
+              value={latitude} onChange={(e) => setLatitude(e.target.value)} placeholder="18.520430"
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="dev-attendance-longitude">Longitude</Label>
+            <Input
+              id="dev-attendance-longitude" type="number" step="any" min={-180} max={180}
+              value={longitude} onChange={(e) => setLongitude(e.target.value)} placeholder="73.856743"
+              required
             />
           </div>
 

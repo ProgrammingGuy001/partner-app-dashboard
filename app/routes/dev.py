@@ -4,6 +4,7 @@ The dev account owns the admin/superadmin lifecycle: creating accounts,
 enabling/disabling them, changing roles and revoking sessions. It replaces the
 public signup route, which created accounts nobody could approve.
 """
+import json
 from datetime import date, datetime, time, timedelta
 from typing import Literal
 
@@ -21,6 +22,7 @@ from app.model.ip import ip
 from app.model.job import Job
 from app.model.user import User
 from app.utils.attendance_policy import ATTENDANCE_TIMEZONE, attendance_business_date
+from app.utils.geo import geofence_status, nearest_job_status
 from app.utils.rate_limiter import limiter
 
 router = APIRouter(prefix="/dev", tags=["Dev"])
@@ -330,13 +332,32 @@ class DevAttendanceCreate(BaseModel):
     subject_id: int
     attendance_date: date
     reason: str = Field(min_length=3, max_length=500)
+    manual_location: str = Field(min_length=1, max_length=255)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
     # IP records hang off a job; admin records do not.
     job_id: int | None = None
     attendance_type: Literal["check_in", "check_out"] = "check_in"
 
+    @field_validator("reason", "manual_location")
+    @classmethod
+    def strip_required_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Value cannot be blank")
+        return value
 
-def _backfill_marker(reason: str) -> str:
-    return f"Dev backfill: {reason.strip()}"
+
+class DevAttendanceDelete(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def strip_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Reason cannot be blank")
+        return value
 
 
 @router.post("/attendance", status_code=201)
@@ -349,10 +370,9 @@ def backfill_attendance(
 ):
     """Record attendance on someone else's behalf for a past date.
 
-    This bypasses every gate the normal path enforces — the check-in window, the
-    GPS fix, the photo, the Sunday approval — so it is dev-only, needs a written
-    reason, and lands in the audit log. Future dates are refused: a backfill
-    explains a day that already happened.
+    This bypasses the normal check-in window, photo and Sunday approval, so it is
+    dev-only, needs a written reason, and lands in the audit log. Future dates are
+    refused: a correction explains a day that already happened.
     """
     today = attendance_business_date()
     if body.attendance_date > today:
@@ -380,15 +400,35 @@ def backfill_attendance(
         if duplicate:
             raise HTTPException(status_code=409, detail="Attendance already recorded for that date")
 
+        candidate_jobs = (
+            db.query(Job.id, Job.latitude, Job.longitude, Job.geofence_radius)
+            .filter(
+                Job.latitude.isnot(None),
+                Job.longitude.isnot(None),
+                Job.status != "completed",
+            )
+            .all()
+        )
+        matched_job_id, fence_distance, fence_within = nearest_job_status(
+            candidate_jobs, body.latitude, body.longitude
+        )
         record = AdminAttendance(
             admin_id=target.id,
             marked_at=marked_at,
-            notes=_backfill_marker(body.reason),
+            latitude=body.latitude,
+            longitude=body.longitude,
+            manual_location=body.manual_location,
+            matched_job_id=matched_job_id,
+            distance_meters=fence_distance,
+            within_geofence=fence_within,
         )
         db.add(record)
         log_dev_action(
             db, current_user, "backfill_attendance", target.email,
-            f"{body.attendance_date} admin — {body.reason.strip()}",
+            (
+                f"{body.attendance_date} admin at {body.manual_location} "
+                f"({body.latitude}, {body.longitude}) — {body.reason}"
+            ),
         )
         db.commit()
         db.refresh(record)
@@ -428,26 +468,33 @@ def backfill_attendance(
     if duplicate:
         raise HTTPException(status_code=409, detail="That check already exists for the date and job")
 
-    # ponytail: latitude/longitude are NOT NULL on daily_attendance, so a backfill
-    # borrows the job site's own coordinates instead of inventing a fix. Jobs
-    # without coordinates fall back to (0, 0) — the `manual_location` marker is
-    # what tells a reader the position was assumed, not measured. Make the columns
-    # nullable if a report ever needs to distinguish the two by itself.
+    fence_distance, fence_within = geofence_status(job, body.latitude, body.longitude)
+    recorded_at = datetime.combine(
+        body.attendance_date,
+        time(18, 0) if body.attendance_type == "check_out" else time(10, 0),
+        tzinfo=ATTENDANCE_TIMEZONE,
+    )
     record = DailyAttendance(
         job_id=job.id,
         ip_user_id=target_ip.id,
         phone=target_ip.phone_number,
         attendance_date=body.attendance_date,
         attendance_type=body.attendance_type,
-        latitude=job.latitude if job.latitude is not None else 0.0,
-        longitude=job.longitude if job.longitude is not None else 0.0,
-        manual_location=_backfill_marker(body.reason)[:255],
+        latitude=body.latitude,
+        longitude=body.longitude,
+        manual_location=body.manual_location,
+        distance_meters=fence_distance,
+        within_geofence=fence_within,
         checkout_source="manual" if body.attendance_type == "check_out" else None,
+        recorded_at=recorded_at,
     )
     db.add(record)
     log_dev_action(
         db, current_user, "backfill_attendance", target_ip.phone_number,
-        f"{body.attendance_date} {body.attendance_type} job#{job.id} — {body.reason.strip()}",
+        (
+            f"{body.attendance_date} {body.attendance_type} job#{job.id} "
+            f"at {body.manual_location} ({body.latitude}, {body.longitude}) — {body.reason}"
+        ),
     )
     db.commit()
     db.refresh(record)
@@ -463,6 +510,69 @@ def backfill_attendance(
             "notes": record.manual_location,
         },
     }
+
+
+@router.delete("/attendance/{subject_type}/{record_id}")
+@limiter.limit("30/minute")
+def delete_attendance(
+    request: Request,
+    subject_type: Literal["ip", "admin"],
+    record_id: int,
+    body: DevAttendanceDelete,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_dev),
+):
+    """Delete a mistaken attendance row while retaining its Dev audit snapshot."""
+    if record_id < 1:
+        raise HTTPException(status_code=422, detail="record_id must be positive")
+
+    if subject_type == "admin":
+        record = db.get(AdminAttendance, record_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Attendance record not found")
+        target = db.get(User, record.admin_id)
+        target_label = target.email if target else f"admin#{record.admin_id}"
+        snapshot = {
+            "id": record.id,
+            "subject_type": "admin",
+            "admin_id": record.admin_id,
+            "marked_at": record.marked_at,
+            "latitude": record.latitude,
+            "longitude": record.longitude,
+            "manual_location": record.manual_location,
+            "matched_job_id": record.matched_job_id,
+            "photo_url": record.photo_url,
+        }
+    else:
+        record = db.get(DailyAttendance, record_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Attendance record not found")
+        target_label = record.phone
+        snapshot = {
+            "id": record.id,
+            "subject_type": "ip",
+            "ip_user_id": record.ip_user_id,
+            "phone": record.phone,
+            "job_id": record.job_id,
+            "attendance_date": record.attendance_date,
+            "attendance_type": record.attendance_type,
+            "latitude": record.latitude,
+            "longitude": record.longitude,
+            "manual_location": record.manual_location,
+            "photo_url": record.photo_url,
+            "report_document_url": record.report_document_url,
+        }
+
+    log_dev_action(
+        db,
+        current_user,
+        "delete_attendance",
+        target_label,
+        json.dumps({"reason": body.reason, "record": snapshot}, default=str, sort_keys=True),
+    )
+    db.delete(record)
+    db.commit()
+    return {"message": "Attendance deleted", "record_id": record_id, "subject_type": subject_type}
 
 
 @router.get("/audit-log", response_model=list[DevAuditLogResponse])

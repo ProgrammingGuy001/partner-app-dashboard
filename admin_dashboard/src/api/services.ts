@@ -1287,6 +1287,9 @@ export interface DevAttendanceBackfill {
   subject_id: number;
   attendance_date: string;
   reason: string;
+  manual_location: string;
+  latitude: number;
+  longitude: number;
   job_id?: number;
   attendance_type?: 'check_in' | 'check_out';
 }
@@ -1348,6 +1351,15 @@ export const devAPI = {
     record: { id: number; subject_label: string; attendance_date: string };
   }> =>
     axiosInstance.post('/dev/attendance', data).then(res => handleResponse(res)),
+
+  deleteAttendance: (
+    subjectType: 'ip' | 'admin',
+    recordId: number,
+    reason: string,
+  ): Promise<{ message: string; record_id: number; subject_type: 'ip' | 'admin' }> =>
+    axiosInstance.delete(`/dev/attendance/${subjectType}/${recordId}`, {
+      data: { reason },
+    }).then(res => handleResponse(res)),
 
   getAuditLog: (): Promise<DevAuditEntry[]> =>
     axiosInstance.get('/dev/audit-log').then(res => handleResponse(res)),
