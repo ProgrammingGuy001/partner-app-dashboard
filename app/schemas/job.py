@@ -325,6 +325,8 @@ class JobResponse(BaseModel):
     slot_start: Optional[time] = None
     slot_end: Optional[time] = None
     assigned_admin_name: Optional[str] = None
+    # Set only by the single-job read; lists leave it False.
+    supervisor_rostered: bool = False
     job_checklists: List[JobChecklistResponse] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)

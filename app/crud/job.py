@@ -917,6 +917,16 @@ def delete_job(
         raise HTTPException(status_code=500, detail="Could not delete the job.") from e
 
 
+def has_supervisor_roster(db: Session, job_id: int) -> bool:
+    """A rostered supervisor visit can stand in for an IP when starting a job."""
+    return (
+        db.query(SupervisorRosterEntry.id)
+        .filter(SupervisorRosterEntry.job_id == job_id)
+        .first()
+        is not None
+    )
+
+
 def validate_job_start(
     db: Session,
     job_id: int,
@@ -945,10 +955,10 @@ def validate_job_start(
             detail=f"Job cannot be started. Current status: {db_job.status}",
         )
 
-    if not db_job.assigned_ip_id:
+    if not db_job.assigned_ip_id and not has_supervisor_roster(db, job_id):
         raise HTTPException(
             status_code=400,
-            detail="Cannot start job: assign a mapped IP first.",
+            detail="Cannot start job: assign a mapped IP or roster a supervisor first.",
         )
     if not db.query(JobChecklist.id).filter(JobChecklist.job_id == job_id).first():
         raise HTTPException(

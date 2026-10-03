@@ -46,6 +46,7 @@ from app.schemas.checklist import (
 )
 from app.crud.job import (
     get_job_by_id,
+    has_supervisor_roster,
     get_all_jobs,
     create_job,
     update_job,
@@ -416,7 +417,9 @@ def read_job(
     current_user: models.User = Depends(get_current_user),
 ):
     """Get a specific job by ID."""
-    return get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
+    job = get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
+    job.supervisor_rostered = has_supervisor_roster(db, job_id)
+    return job
 
 
 @router.post("/{job_id}/documents/project-ncr")

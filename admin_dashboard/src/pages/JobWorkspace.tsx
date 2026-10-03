@@ -68,10 +68,10 @@ export default function JobWorkspace() {
   const missingReports = attendance?.missing_reports || [];
   const startRequirements = [
     { label: "Supervisor assigned", met: Boolean(job.user_id || job.admin_assigned) },
-    { label: "Partner assigned", met: Boolean(job.assigned_ip_id) },
+    { label: "Partner assigned or supervisor rostered", met: Boolean(job.assigned_ip_id || job.supervisor_rostered) },
     { label: "Checklist mapped", met: checklists.length > 0 },
   ];
-  const readyToStart = Boolean(job.assigned_ip_id) && checklists.length > 0 && !checklistsLoading && !checklistsError;
+  const readyToStart = Boolean(job.assigned_ip_id || job.supervisor_rostered) && checklists.length > 0 && !checklistsLoading && !checklistsError;
   const canOpenStart = ["created", "paused"].includes(job.status);
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
   const scheduleDate = job.start_date && today < job.start_date ? job.start_date
@@ -138,7 +138,7 @@ export default function JobWorkspace() {
                 <Play className="mr-2 size-4" />{job.status === "paused" ? "Resume job" : "Start job"}
               </Button>
               <div className="mt-2 flex flex-wrap gap-2">
-                {!job.assigned_ip_id && <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Assign a partner</Button>}
+                {!job.assigned_ip_id && !job.supervisor_rostered && <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Assign a partner</Button>}
                 {!checklistsLoading && !checklistsError && !checklists.length && <Button asChild size="sm" variant="outline"><Link to="/dashboard/mappings">Set up job checklist</Link></Button>}
               </div>
               <p className="mt-3 text-xs text-muted-foreground">{job.customer_phone ? `Ask the customer for the code sent to ${job.customer_phone} when starting.` : "No customer phone is saved. Open Start job to follow the required approval steps."}</p>

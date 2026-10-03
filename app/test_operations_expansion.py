@@ -305,3 +305,28 @@ def test_dev_removes_accounts_preserving_jobs_and_audit():
                 db,
                 dev,
             )
+
+
+def test_rostered_supervisor_allows_start_without_ip():
+    from app.crud.job import validate_job_start
+
+    with session() as db:
+        sup, *_ = users(db)
+        db.add(RosterSlotSetting(slot_number=1, start_time=time(9), end_time=time(13)))
+        job = Job(admin_assigned=sup.id, status="created", job_type="installation")
+        db.add(job)
+        db.flush()
+        checklist = Checklist(name="Install")
+        db.add(checklist)
+        db.flush()
+        db.add(JobChecklist(job_id=job.id, checklist_id=checklist.id))
+        db.commit()
+        with pytest.raises(HTTPException) as error:
+            validate_job_start(db, job.id, admin_id=sup.id)
+        assert "roster a supervisor" in error.value.detail
+        create_supervisor_visit(
+            SupervisorVisitCreate(supervisor_id=sup.id, job_id=job.id,
+                                  work_date=now_ist().date(), slot_number=1),
+            current_user=sup, db=db,
+        )
+        assert validate_job_start(db, job.id, admin_id=sup.id).id == job.id

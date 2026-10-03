@@ -108,6 +108,7 @@ export interface Job {
   size?: number;
   // null on write clears the assignment, e.g. when a job moves from an IP to a supervisor.
   assigned_ip_id?: number | null;
+  supervisor_rostered?: boolean;
   // Write-only: superadmins can create/reuse and assign an external partner atomically.
   external_ip?: ExternalIPCreate;
   assigned_ip_name?: string;
