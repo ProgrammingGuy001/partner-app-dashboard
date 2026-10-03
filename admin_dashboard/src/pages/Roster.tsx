@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeftRight, CalendarDays, ChevronLeft, ChevronRight, Clock3, Download, GripVertical, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 
-import { authAPI, rosterAPI, type RosterEntry, type RosterIP, type RosterJob, type RosterSlot } from "@/api/services";
+import { authAPI, rosterAPI, type RosterEntry, type RosterJob, type RosterSlot } from "@/api/services";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge, type Status } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -53,23 +53,22 @@ const ROSTER_STATUS_LABEL: Record<string, string> = {
   auto_closed: "Auto closed",
 };
 const activeJobStatuses = new Set(["created", "in_progress", "paused"]);
-function DraggableIP({ ipUser }: { ipUser: RosterIP }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `ip-${ipUser.id}`,
-    data: { ipId: ipUser.id, ipName: ipUser.name },
-  });
+type DragItem = { kind: "ip" | "supervisor"; id: number; name: string; sub: string };
+
+function DraggablePerson({ item }: { item: DragItem }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: `${item.kind}-${item.id}`, data: item });
   return (
     <div
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      aria-label={`Assign ${ipUser.name}`}
+      aria-label={`Assign ${item.name}`}
       className={`flex touch-none items-center gap-2 rounded-md border bg-background p-3 text-left transition-[border-color,opacity] ease-out hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${isDragging ? "cursor-grabbing opacity-40" : "cursor-grab"}`}
     >
       <GripVertical className="size-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0">
-        <p className="truncate text-sm font-medium">{ipUser.name}</p>
-        <p className="truncate text-xs text-muted-foreground">{ipUser.phone_number}</p>
+        <p className="truncate text-sm font-medium">{item.name}</p>
+        <p className="truncate text-xs text-muted-foreground">{item.sub}</p>
       </div>
     </div>
   );
@@ -80,17 +79,21 @@ function RosterSlot({
   day,
   slot,
   entry,
+  visit,
   disabled,
   removing,
   onRemove,
+  onRemoveVisit,
 }: {
   job: RosterJob;
   day: string;
   slot: RosterSlot;
   entry?: RosterEntry;
+  visit?: { id: number; name: string };
   disabled: boolean;
   removing: boolean;
   onRemove: (id: number) => void;
+  onRemoveVisit: (id: number) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `job-${job.id}-${day}-${slot.slot_number}`,
@@ -124,6 +127,12 @@ function RosterSlot({
           {disabled ? "Unavailable" : isOver ? "Release to assign" : "Drop IP here"}
         </div>
       )}
+      {visit ? (
+        <div className="mt-2 flex items-center justify-between gap-1 border-t pt-1 text-xs">
+          <span className="truncate">Supervisor: {visit.name}</span>
+          <Button variant="ghost" size="icon" className="size-7" aria-label={`Remove supervisor ${visit.name}`} onClick={() => onRemoveVisit(visit.id)} disabled={removing || day < todayIst()}><Trash2 className="size-3.5" /></Button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -170,7 +179,7 @@ export default function Roster() {
     return /^\d{4}-\d{2}-\d{2}$/.test(requested) && !Number.isNaN(fromIso(requested).getTime()) ? requested : todayIst();
   });
   const [supervisorId, setSupervisorId] = useState(() => String(Number(searchParams.get("admin_id")) || ""));
-  const [draggedIpId, setDraggedIpId] = useState<number | null>(null);
+  const [dragged, setDragged] = useState<DragItem | null>(null);
   const weekEnd = addDays(weekStart, 6);
   const days = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart]);
   const { data: user } = useQuery({ queryKey: ["auth", "user"], queryFn: authAPI.getCurrentUser });
@@ -178,9 +187,12 @@ export default function Roster() {
     queryKey: ["roster", supervisorId, weekStart],
     queryFn: () => rosterAPI.get({ admin_id: supervisorId ? Number(supervisorId) : undefined, date_from: weekStart, date_to: weekEnd }),
   });
+  const { data: visits, isError: visitsError, refetch: refetchVisits } = useQuery({
+    queryKey: ["supervisor-roster", weekStart, weekEnd],
+    queryFn: () => rosterAPI.getSupervisors({ date_from: weekStart, date_to: weekEnd }),
+  });
   const activeSupervisorId = supervisorId || String(data?.selected_admin_id || "");
   const today = todayIst();
-  const draggedIp = data?.ips.find((ipUser) => ipUser.id === draggedIpId);
   const exportRoster = useMutation({
     mutationFn: () => rosterAPI.exportXlsx({ admin_id: activeSupervisorId ? Number(activeSupervisorId) : undefined, job_id: jobFilter, date_from: weekStart, date_to: weekEnd }),
     onError: (error) => toast.error(getApiErrorMessage(error, "Could not export the roster. Please try again.")),
@@ -204,6 +216,22 @@ export default function Roster() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["roster"] }),
     onError: (error) => toast.error(getApiErrorMessage(error, "Could not remove this assignment")),
   });
+  const createVisit = useMutation({
+    mutationFn: rosterAPI.createSupervisor,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["supervisor-roster"] }),
+    onError: (error) => toast.error(getApiErrorMessage(error, "Could not roster supervisor")),
+  });
+  const removeVisit = useMutation({
+    mutationFn: rosterAPI.deleteSupervisor,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["supervisor-roster"] }),
+    onError: (error) => toast.error(getApiErrorMessage(error, "Could not remove supervisor")),
+  });
+  const jobSupervisor = (jobId: number) => visits?.jobs.find((job) => job.id === jobId)?.admin_assigned;
+  const poolSupervisors = (visits?.supervisors || []).filter((supervisor) => !activeSupervisorId || String(supervisor.id) === activeSupervisorId);
+  const findVisit = (jobId: number, day: string, slot: number) => {
+    const visit = visits?.entries.find((entry) => entry.job_id === jobId && entry.work_date === day && entry.slot_number === slot);
+    return visit && { id: visit.id, name: visits?.supervisors.find((supervisor) => supervisor.id === visit.supervisor_id)?.name || `Supervisor #${visit.supervisor_id}` };
+  };
 
   const rosterJobs = (data?.jobs || []).filter((job) =>
     (!jobFilter || job.id === jobFilter) && (activeJobStatuses.has(job.status) || data?.entries.some((entry) => entry.job_id === job.id))
@@ -213,15 +241,25 @@ export default function Roster() {
   const isUnavailable = (job: RosterJob, day: string) =>
     !activeJobStatuses.has(job.status) || day < today || Boolean(job.start_date && day < job.start_date) || Boolean(job.delivery_date && day > job.delivery_date);
   const handleDragEnd = ({ active, over }: DragEndEvent) => {
-    setDraggedIpId(null);
-    if (!over || !data || create.isPending || replace.isPending) return;
-    const ipId = active.data.current?.ipId as number | undefined;
-    const ipName = active.data.current?.ipName as string | undefined;
+    setDragged(null);
+    if (!over || !data || create.isPending || replace.isPending || createVisit.isPending) return;
+    const item = active.data.current as DragItem | undefined;
     const jobId = over.data.current?.jobId as number | undefined;
     const day = over.data.current?.day as string | undefined;
     const slotNumber = over.data.current?.slotNumber as 1 | 2 | undefined;
     const entryId = over.data.current?.entryId as number | undefined;
-    if (!ipId || !jobId || !day || !slotNumber) return;
+    if (!item || !jobId || !day || !slotNumber) return;
+    if (item.kind === "supervisor") {
+      // ponytail: backend also enforces this; checked here only for a clearer message.
+      if (jobSupervisor(jobId) !== item.id) {
+        toast.error(`${item.name} is not the supervisor of this job`);
+        return;
+      }
+      createVisit.mutate({ supervisor_id: item.id, job_id: jobId, work_date: day, slot_number: slotNumber });
+      return;
+    }
+    const ipId = item.id;
+    const ipName = item.name;
     const currentEntry = entryId ? data.entries.find((entry) => entry.id === entryId) : undefined;
     if (currentEntry?.ip_user_id === ipId) return;
     // Only the slot clashes now: the same IP may hold both halves of one day on one
@@ -286,22 +324,24 @@ export default function Roster() {
         </details>
       ) : null}
 
-      <SupervisorVisits dateFrom={weekStart} dateTo={weekEnd} />
       <DndContext
         collisionDetection={closestCenter}
-        onDragStart={({ active }) => setDraggedIpId(active.data.current?.ipId as number)}
-        onDragCancel={() => setDraggedIpId(null)}
+        onDragStart={({ active }) => setDragged((active.data.current as DragItem) || null)}
+        onDragCancel={() => setDragged(null)}
         onDragEnd={handleDragEnd}
       >
         <div className="grid gap-4 xl:grid-cols-[240px_minmax(0,1fr)]">
           <Card className="h-fit xl:sticky xl:top-4">
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base"><Users className="size-4" />IP pool</CardTitle>
-              <CardDescription>Drop on an open slot to assign, or an occupied slot to swap that day only.</CardDescription>
+              <CardTitle className="flex items-center gap-2 text-base"><Users className="size-4" />IP &amp; supervisor pool</CardTitle>
+              <CardDescription>Drop an IP on an open slot to assign, or an occupied slot to swap that day only. Drop a supervisor on a slot of their job to roster a visit.</CardDescription>
             </CardHeader>
             <CardContent className="max-h-[65vh] space-y-2 overflow-y-auto">
-              {data?.ips.map((ipUser) => <DraggableIP key={ipUser.id} ipUser={ipUser} />)}
+              {data?.ips.map((ipUser) => <DraggablePerson key={`ip-${ipUser.id}`} item={{ kind: "ip", id: ipUser.id, name: ipUser.name, sub: ipUser.phone_number }} />)}
               {!isLoading && !isError && !data?.ips.length ? <p className="py-6 text-center text-sm text-muted-foreground">No verified IP is mapped to this supervisor.</p> : null}
+              {poolSupervisors.length ? <p className="pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Supervisors</p> : null}
+              {poolSupervisors.map((supervisor) => <DraggablePerson key={`supervisor-${supervisor.id}`} item={{ kind: "supervisor", id: supervisor.id, name: supervisor.name, sub: "Supervisor" }} />)}
+              {visitsError ? <div role="alert" className="space-y-2 py-2 text-xs text-muted-foreground"><p>Supervisor visits could not be loaded. IP roster is still usable.</p><Button variant="outline" size="sm" onClick={() => refetchVisits()}>Retry</Button></div> : null}
             </CardContent>
           </Card>
 
@@ -334,9 +374,11 @@ export default function Roster() {
                                 day={day}
                                 slot={slot}
                                 entry={findEntry(job.id, day, slot.slot_number)}
+                                visit={findVisit(job.id, day, slot.slot_number)}
                                 disabled={isUnavailable(job, day)}
-                                removing={remove.isPending}
+                                removing={remove.isPending || removeVisit.isPending}
                                 onRemove={remove.mutate}
+                                onRemoveVisit={removeVisit.mutate}
                               />
                             ))}
                           </div>
@@ -352,12 +394,12 @@ export default function Roster() {
           </Card>
         </div>
         <DragOverlay dropAnimation={null}>
-          {draggedIp ? (
+          {dragged ? (
             <div className="flex w-56 items-center gap-2 rounded-md border border-primary/50 bg-background p-3 shadow-xl">
               <GripVertical className="size-4 shrink-0 text-primary" />
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{draggedIp.name}</p>
-                <p className="truncate text-xs text-muted-foreground">{draggedIp.phone_number}</p>
+                <p className="truncate text-sm font-medium">{dragged.name}</p>
+                <p className="truncate text-xs text-muted-foreground">{dragged.sub}</p>
               </div>
             </div>
           ) : null}
@@ -365,37 +407,4 @@ export default function Roster() {
       </DndContext>
     </div>
   );
-}
-
-
-function SupervisorVisits({ dateFrom, dateTo }: { dateFrom: string; dateTo: string }) {
-  const client = useQueryClient();
-  const { data, isError, refetch } = useQuery({ queryKey: ['supervisor-roster', dateFrom, dateTo], queryFn: () => rosterAPI.getSupervisors({ date_from: dateFrom, date_to: dateTo }) });
-  const [supervisor, setSupervisor] = useState('');
-  const [job, setJob] = useState('');
-  const [date, setDate] = useState(todayIst());
-  const [slot, setSlot] = useState('1');
-  const selected = supervisor || String(data?.supervisors[0]?.id || '');
-  const refresh = () => client.invalidateQueries({ queryKey: ['supervisor-roster'] });
-  const create = useMutation({ mutationFn: () => rosterAPI.createSupervisor({ supervisor_id: Number(selected), job_id: Number(job), work_date: date, slot_number: Number(slot) }), onSuccess: () => { refresh(); toast.success('Supervisor rostered'); }, onError: e => toast.error(getApiErrorMessage(e, 'Could not roster supervisor')) });
-  const remove = useMutation({ mutationFn: rosterAPI.deleteSupervisor, onSuccess: refresh, onError: e => toast.error(getApiErrorMessage(e, 'Could not remove visit')) });
-  return <Card><CardHeader><CardTitle>Supervisor visits</CardTitle><CardDescription>Schedule yourself or a mapped supervisor for a job.</CardDescription></CardHeader><CardContent className="space-y-4">
-    {isError ? <div role="alert">Could not load visits. <Button variant="outline" onClick={() => refetch()}>Retry</Button></div> : <>
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-      <label className="space-y-1 text-sm">Supervisor<select className="h-9 w-full rounded-md border bg-background px-2" value={selected} onChange={e => { setSupervisor(e.target.value); setJob(''); }}>
-        {data?.supervisors.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-      </select></label>
-      <label className="space-y-1 text-sm">Job<select className="h-9 w-full rounded-md border bg-background px-2" value={job} onChange={e => setJob(e.target.value)}><option value="">Select job</option>
-        {data?.jobs.filter(j => j.admin_assigned === Number(selected)).map(j => <option key={j.id} value={j.id}>{j.name || `Job #${j.id}`}</option>)}
-      </select></label>
-      <label className="space-y-1 text-sm">Date<Input type="date" min={todayIst()} value={date} onChange={e => setDate(e.target.value)} /></label>
-      <label className="space-y-1 text-sm">Slot<select className="h-9 w-full rounded-md border bg-background px-2" value={slot} onChange={e => setSlot(e.target.value)}><option value="1">Slot 1</option><option value="2">Slot 2</option></select></label>
-      <Button className="self-end" disabled={!job || !selected || !date || create.isPending} onClick={() => create.mutate()}>Add visit</Button>
-    </div>
-    <div className="divide-y">{data?.entries.map(e => <div key={e.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
-      <span>{e.work_date} · Slot {e.slot_number} · {data.supervisors.find(u => u.id === e.supervisor_id)?.name} · {data.jobs.find(j => j.id === e.job_id)?.name || `Job #${e.job_id}`}</span>
-      <Button size="sm" variant="ghost" disabled={remove.isPending || e.work_date < todayIst()} onClick={() => remove.mutate(e.id)} aria-label={`Remove supervisor visit on ${e.work_date}, slot ${e.slot_number}`}>Remove</Button>
-    </div>)}{!data?.entries.length && <p className="py-3 text-sm text-muted-foreground">No supervisor visits in this date range.</p>}</div>
-    </>}
-  </CardContent></Card>;
 }
