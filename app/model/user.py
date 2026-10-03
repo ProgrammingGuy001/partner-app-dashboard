@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Boolean, DateTime, Integer, String, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 from typing import List
 from app.database import Base
@@ -19,6 +19,7 @@ class User(Base):
     is_superadmin: Mapped[bool] = mapped_column(Boolean, default=False)
     # Owns the account lifecycle (create/disable/promote admins). Kept as a flag
     # alongside is_superadmin rather than a role enum so existing checks stay valid.
+    is_city_ops: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     is_dev: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
@@ -31,3 +32,9 @@ class User(Base):
     ip_assignments: Mapped[List["IPAdminAssignment"]] = relationship(
         "IPAdminAssignment", back_populates="admin"
     )
+
+
+class CityOpsSupervisor(Base):
+    __tablename__ = "city_ops_supervisors"
+    city_ops_id: Mapped[int] = mapped_column(ForeignKey("admin.id", ondelete="CASCADE"), primary_key=True)
+    supervisor_id: Mapped[int] = mapped_column(ForeignKey("admin.id", ondelete="CASCADE"), primary_key=True)

@@ -1,3 +1,4 @@
+import CityOpsMapping from '@/components/CityOpsMapping';
 import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -231,7 +232,7 @@ const AccountsCard: React.FC<{ currentUserId: number }> = ({ currentUserId }) =>
                         <div className="flex flex-wrap gap-1">
                           {user.is_dev && <Badge>Dev</Badge>}
                           <Badge variant={user.is_superadmin ? 'default' : 'secondary'}>
-                            {user.is_superadmin ? 'Superadmin' : 'Admin'}
+                            {user.is_city_ops ? 'City Ops' : user.is_superadmin ? 'Superadmin' : 'Supervisor'}
                           </Badge>
                         </div>
                       </TableCell>
@@ -245,6 +246,12 @@ const AccountsCard: React.FC<{ currentUserId: number }> = ({ currentUserId }) =>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap justify-end gap-2">
+                          {!user.is_dev && <RemoveAccount type="admin" id={user.id} label={user.email || ""} />}
+                          {!user.is_dev && <Button size="sm" variant="outline" disabled={busy}
+                            onClick={() => updateMutation.mutate({ id: user.id, data: { is_superadmin: false, is_city_ops: !user.is_city_ops } })}>
+                            {user.is_city_ops ? 'Make supervisor' : 'Make City Ops'}
+                          </Button>}
+                          {user.is_city_ops && <CityOpsMapping user={user} users={users ?? []} />}
                           <Button size="sm" variant="outline" onClick={() => setEditTarget(user)}>
                             Edit profile
                           </Button>
@@ -264,7 +271,7 @@ const AccountsCard: React.FC<{ currentUserId: number }> = ({ currentUserId }) =>
                           )}
                           <Button
                             size="sm" variant="outline" disabled={busy}
-                            onClick={() => updateMutation.mutate({ id: user.id, data: { is_superadmin: !user.is_superadmin } })}
+                            onClick={() => updateMutation.mutate({ id: user.id, data: { is_superadmin: !user.is_superadmin, is_city_ops: false } })}
                           >
                             {user.is_superadmin ? 'Demote' : 'Promote'}
                           </Button>
@@ -470,6 +477,7 @@ const IPProfilesCard: React.FC = () => {
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
+                      <RemoveAccount type="ip" id={user.id} label={user.phone_number} />
                       <Button size="sm" variant="outline" onClick={() => setEditTarget(user)}>
                         Edit profile
                       </Button>
@@ -893,3 +901,20 @@ const AuditLogCard: React.FC = () => {
 };
 
 export default Dev;
+
+
+function RemoveAccount({ type, id, label }: { type: 'admin' | 'ip'; id: number; label: string }) {
+  const client = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [confirmation, setConfirmation] = useState('');
+  const [reason, setReason] = useState('');
+  const remove = useMutation({ mutationFn: () => devAPI.removeAccount(type, id, confirmation, reason),
+    onSuccess: () => { setOpen(false); client.invalidateQueries(); toast.success('Account removed'); },
+    onError: e => toast.error(getApiErrorMessage(e, 'Could not remove account')) });
+  return <><Button size="sm" variant="destructive" onClick={() => { setConfirmation(''); setReason(''); setOpen(true); }}>Remove account</Button>
+    <Dialog open={open} onOpenChange={setOpen}><DialogContent><DialogHeader><DialogTitle>Permanently remove {label}?</DialogTitle><DialogDescription>This deletes the account, attendance and mappings from the database. Jobs and documents remain with this account unassigned. The action is audited and cannot be undone.</DialogDescription></DialogHeader>
+      <label className="space-y-2 text-sm">Type {label} to confirm<Input value={confirmation} onChange={e => setConfirmation(e.target.value)} autoComplete="off" /></label>
+      <label className="space-y-2 text-sm">Reason<Textarea value={reason} onChange={e => setReason(e.target.value)} maxLength={500} /></label>
+      <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button variant="destructive" disabled={confirmation !== label || reason.trim().length < 3 || remove.isPending} onClick={() => remove.mutate()}>Permanently remove</Button></DialogFooter>
+    </DialogContent></Dialog></>;
+}

@@ -21,7 +21,7 @@ class PurchaseOrderRequest(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    requested_by_id: Mapped[int] = mapped_column(ForeignKey("admin.id"), nullable=False, index=True)
+    requested_by_id: Mapped[int] = mapped_column(ForeignKey("admin.id"), nullable=True, index=True)
     approved_by_id: Mapped[int | None] = mapped_column(ForeignKey("admin.id"), nullable=True)
     vendor_id: Mapped[int] = mapped_column(Integer, nullable=False)
     vendor_name: Mapped[str] = mapped_column(String(255), nullable=False)

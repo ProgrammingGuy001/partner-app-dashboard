@@ -1,3 +1,4 @@
+from app.utils.admin_scope import is_global, is_manager, supervisor_ids, require_supervisor
 from datetime import date, time, timedelta
 from io import BytesIO
 
@@ -16,7 +17,7 @@ from app.database import get_db
 from app.model.attendance import DailyAttendance
 from app.model.ip import IPAdminAssignment, ip
 from app.model.job import Job
-from app.model.roster import JobRosterEntry, RosterSlotSetting
+from app.model.roster import JobRosterEntry, RosterSlotSetting, SupervisorRosterEntry
 from app.model.user import User
 from app.utils.attendance_policy import now_ist, check_in_window
 from app.utils.ip_assignment import is_admin_allowed_for_ip
@@ -64,8 +65,9 @@ def _date_range(date_from: date | None, date_to: date | None) -> tuple[date, dat
 
 def _job_query(db: Session, current_user: User):
     query = db.query(Job).options(joinedload(Job.customer))
-    if not current_user.is_superadmin:
-        query = query.filter(Job.admin_assigned == current_user.id)
+    ids = supervisor_ids(db, current_user)
+    if ids is not None:
+        query = query.filter(Job.admin_assigned.in_(ids))
     return query
 
 
@@ -240,14 +242,19 @@ def get_admin_roster(
         db.query(User)
         .filter(
             User.is_superadmin.is_(False),
+            User.is_dev.is_(False),
+            User.is_city_ops.is_(False),
             User.is_active.is_(True),
             User.is_approved.is_(True),
         )
         .order_by(User.name, User.email)
         .all()
     )
-    if current_user.is_superadmin:
-        selected_admin_id = admin_id or (supervisors[0].id if supervisors else None)
+    allowed_ids = supervisor_ids(db, current_user)
+    if allowed_ids is not None:
+        supervisors = [item for item in supervisors if item.id in allowed_ids]
+    if is_manager(current_user):
+        selected_admin_id = admin_id
         if selected_admin_id and not any(
             item.id == selected_admin_id for item in supervisors
         ):
@@ -259,14 +266,15 @@ def get_admin_roster(
             )
         selected_admin_id = current_user.id
 
-    jobs = (
+    jobs_query = (
         db.query(Job)
         .options(joinedload(Job.customer), joinedload(Job.assigned_ip))
-        .filter(Job.admin_assigned == selected_admin_id)
-        .all()
-        if selected_admin_id
-        else []
     )
+    if allowed_ids is not None:
+        jobs_query = jobs_query.filter(Job.admin_assigned.in_(allowed_ids))
+    if selected_admin_id:
+        jobs_query = jobs_query.filter(Job.admin_assigned == selected_admin_id)
+    jobs = jobs_query.all()
     mapped_ips = _ip_query(db, selected_admin_id).all() if selected_admin_id else []
 
     entries = (
@@ -290,6 +298,7 @@ def get_admin_roster(
         for job in jobs
         if job.id in scheduled_job_ids
         or (
+            not is_manager(current_user) and
             (job.start_date is None or job.start_date <= end)
             and (job.delivery_date is None or job.delivery_date >= start)
         )
@@ -301,7 +310,7 @@ def get_admin_roster(
             {"id": item.id, "name": item.name or item.email, "email": item.email}
             for item in supervisors
         ]
-        if current_user.is_superadmin
+        if is_manager(current_user)
         else [],
         "selected_admin_id": selected_admin_id,
         "slots": [
@@ -555,7 +564,7 @@ def replace_roster_entry_ip(
         .first()
     )
     if not entry or (
-        not current_user.is_superadmin and entry.job.admin_assigned != current_user.id
+        not is_global(current_user) and entry.job.admin_assigned not in supervisor_ids(db, current_user)
     ):
         raise HTTPException(
             status_code=404, detail="Roster entry not found in your admin scope"
@@ -637,7 +646,7 @@ def delete_roster_entry(
         .first()
     )
     if not entry or (
-        not current_user.is_superadmin and entry.job.admin_assigned != current_user.id
+        not is_global(current_user) and entry.job.admin_assigned not in supervisor_ids(db, current_user)
     ):
         raise HTTPException(
             status_code=404, detail="Roster entry not found in your admin scope"
@@ -725,3 +734,67 @@ def get_my_roster(
         ],
         "entries": _serialize_entries(db, entries),
     }
+
+
+class SupervisorVisitCreate(BaseModel):
+    supervisor_id: int = Field(gt=0)
+    job_id: int = Field(gt=0)
+    work_date: date
+    slot_number: int = Field(ge=1, le=2)
+
+
+@admin_router.get("/supervisors")
+def get_supervisor_roster(date_from: date | None = None, date_to: date | None = None,
+                          current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    start, end = _date_range(date_from, date_to)
+    ids = supervisor_ids(db, current_user)
+    users = db.query(User).filter(User.is_active.is_(True), User.is_approved.is_(True),
+                                 User.is_superadmin.is_(False), User.is_dev.is_(False), User.is_city_ops.is_(False))
+    entries = db.query(SupervisorRosterEntry).filter(SupervisorRosterEntry.work_date.between(start, end))
+    if ids is not None:
+        users = users.filter(User.id.in_(ids))
+        entries = entries.filter(SupervisorRosterEntry.supervisor_id.in_(ids))
+    jobs = _job_query(db, current_user).filter(Job.status.in_(["created", "in_progress", "paused"])).all()
+    return {
+        "supervisors": [{"id": u.id, "name": u.name or u.email} for u in users],
+        "jobs": [{"id": j.id, "name": j.name, "admin_assigned": j.admin_assigned} for j in jobs],
+        "entries": [{"id": e.id, "supervisor_id": e.supervisor_id, "job_id": e.job_id,
+                     "work_date": e.work_date, "slot_number": e.slot_number} for e in entries],
+    }
+
+
+@admin_router.post("/supervisors", status_code=201)
+def create_supervisor_visit(payload: SupervisorVisitCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    require_supervisor(db, current_user, payload.supervisor_id)
+    supervisor = db.get(User, payload.supervisor_id)
+    if not supervisor or is_manager(supervisor) or not supervisor.is_active or not supervisor.is_approved:
+        raise HTTPException(status_code=422, detail="Select an active supervisor")
+    job = _job_query(db, current_user).filter(Job.id == payload.job_id).first()
+    if not job or job.admin_assigned != payload.supervisor_id:
+        raise HTTPException(status_code=403, detail="Select a job mapped to this supervisor")
+    if job.status not in {"created", "in_progress", "paused"}:
+        raise HTTPException(status_code=409, detail="This job cannot be scheduled")
+    if payload.work_date < now_ist().date() or (job.start_date and payload.work_date < job.start_date) or (job.delivery_date and payload.work_date > job.delivery_date):
+        raise HTTPException(status_code=422, detail="Select a future or current date within the job dates")
+    if not db.get(RosterSlotSetting, payload.slot_number):
+        raise HTTPException(status_code=409, detail="Roster slot settings are incomplete")
+    entry = SupervisorRosterEntry(**payload.model_dump(), created_by_admin_id=current_user.id)
+    db.add(entry)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Supervisor already rostered in this slot") from exc
+    return {"id": entry.id}
+
+
+@admin_router.delete("/supervisors/{entry_id}", status_code=204)
+def delete_supervisor_visit(entry_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    entry = db.get(SupervisorRosterEntry, entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Supervisor visit not found")
+    require_supervisor(db, current_user, entry.supervisor_id)
+    if entry.work_date < now_ist().date():
+        raise HTTPException(status_code=409, detail="Past visits cannot be removed")
+    db.delete(entry)
+    db.commit()

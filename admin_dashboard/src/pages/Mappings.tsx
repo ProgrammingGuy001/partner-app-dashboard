@@ -3,7 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, ChevronDown, Link2, Users } from "lucide-react";
 import { toast } from "sonner";
 
-import { adminAPI, authAPI, checklistAPI, jobRateAPI } from "@/api/services";
+import { adminAPI, authAPI, checklistAPI, devAPI, jobRateAPI } from "@/api/services";
+import CityOpsMapping from "@/components/CityOpsMapping";
+import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,8 +48,13 @@ export default function Mappings() {
   const { data: admins = [] } = useQuery({
     queryKey: ["admin-users"],
     queryFn: adminAPI.getAdminUsers,
-    enabled: Boolean(user?.is_superadmin),
+    enabled: Boolean(user?.is_superadmin || user?.is_dev || user?.is_city_ops),
     staleTime: 5 * 60 * 1000,
+  });
+  const { data: accounts = [], isLoading: accountsLoading, isError: accountsError, refetch: refetchAccounts } = useQuery({
+    queryKey: ["dev", "users"],
+    queryFn: devAPI.listUsers,
+    enabled: Boolean(user?.is_dev),
   });
   const { data: ips = [] } = useQuery({
     queryKey: IP_USERS_QUERY_KEY,
@@ -68,13 +75,13 @@ export default function Mappings() {
   const { data: checklists = [] } = useChecklists();
 
   const supervisors = useMemo(
-    () => admins.filter((admin) => !admin.is_superadmin),
+    () => admins.filter((admin) => !admin.is_superadmin && !admin.is_city_ops && !admin.is_dev),
     [admins],
   );
   const verifiedIps = useMemo(() => ips.filter((ip) => ip.is_id_verified), [ips]);
   const activeSupervisorId = supervisorId || String(supervisors[0]?.id || "");
   const mappedIpIds = verifiedIps
-    .filter((ip) => !user?.is_superadmin || ip.assigned_admin_ids?.includes(Number(activeSupervisorId)))
+    .filter((ip) => !(user?.is_superadmin || user?.is_dev || user?.is_city_ops) || ip.assigned_admin_ids?.includes(Number(activeSupervisorId)))
     .map((ip) => ip.id);
   const selectedIpIds = ipDraft?.supervisorId === activeSupervisorId ? ipDraft.ipIds : mappedIpIds;
   const jobTypes = useMemo(() => {
@@ -140,15 +147,32 @@ export default function Mappings() {
         </p>
       </header>
 
+      {user?.is_dev && <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg"><Users className="size-5" />City Ops and supervisors</CardTitle>
+          <CardDescription>Select Map supervisors beside a City Ops account, choose its supervisors, then save.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {accountsLoading ? <p role="status" className="text-sm text-muted-foreground">Loading City Ops accounts…</p>
+            : accountsError ? <div role="alert" className="flex items-center gap-3 text-sm">Could not load accounts.<Button variant="outline" onClick={() => refetchAccounts()}>Retry</Button></div>
+            : accounts.some(account => account.is_city_ops) ? <div className="divide-y">
+              {accounts.filter(account => account.is_city_ops).map(account => <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                <div className="min-w-0"><p className="font-medium">{account.name || account.email}</p><p className="text-sm text-muted-foreground">{account.email}</p></div>
+                <CityOpsMapping user={account} users={accounts} />
+              </div>)}
+            </div> : <p className="text-sm text-muted-foreground">No City Ops accounts yet. <Link className="font-medium text-primary underline underline-offset-4" to="/dashboard/dev">Set an account’s role to City Ops in Dev</Link>, then return here to map supervisors.</p>}
+        </CardContent>
+      </Card>}
+
       <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg"><Users className="size-5" />{user?.is_superadmin ? "Supervisor and IP" : "Your IP mapping"}</CardTitle>
-            <CardDescription>{user?.is_superadmin ? "Choose a supervisor first, then select the verified IPs they can assign to jobs." : "These are the verified IPs mapped to you and available for your jobs and roster."}</CardDescription>
+            <CardTitle className="flex items-center gap-2 text-lg"><Users className="size-5" />{(user?.is_superadmin || user?.is_dev || user?.is_city_ops) ? "Supervisor and IP" : "Your IP mapping"}</CardTitle>
+            <CardDescription>{(user?.is_superadmin || user?.is_dev || user?.is_city_ops) ? "Choose a supervisor first, then select the verified IPs they can assign to jobs." : "These are the verified IPs mapped to you and available for your jobs and roster."}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
             <div className="space-y-2">
-              <Label>{user?.is_superadmin ? "Supervisor" : "Mapped supervisor"}</Label>
-              {user?.is_superadmin ? (
+              <Label>{(user?.is_superadmin || user?.is_dev || user?.is_city_ops) ? "Supervisor" : "Mapped supervisor"}</Label>
+              {(user?.is_superadmin || user?.is_dev || user?.is_city_ops) ? (
                 <Select value={activeSupervisorId} onValueChange={(value) => { setSupervisorId(value); setIpDraft(null); }}>
                   <SelectTrigger><SelectValue placeholder="Choose a supervisor" /></SelectTrigger>
                   <SelectContent>
@@ -169,7 +193,7 @@ export default function Mappings() {
                     <Checkbox
                       id={`mapping-ip-${ip.id}`}
                       checked={selectedIpIds.includes(ip.id)}
-                      disabled={!user?.is_superadmin}
+                      disabled={!(user?.is_superadmin || user?.is_dev || user?.is_city_ops)}
                       onCheckedChange={() => setIpDraft({
                         supervisorId: activeSupervisorId,
                         ipIds: selectedIpIds.includes(ip.id)
@@ -185,7 +209,7 @@ export default function Mappings() {
                 ))}
                 {!verifiedIps.length ? <p className="p-3 text-sm text-muted-foreground">No verified IP personnel available.</p> : null}
               </div>
-              {user?.is_superadmin ? <Button onClick={() => saveIpMapping.mutate()} disabled={!activeSupervisorId || saveIpMapping.isPending}>
+              {(user?.is_superadmin || user?.is_dev || user?.is_city_ops) ? <Button onClick={() => saveIpMapping.mutate()} disabled={!activeSupervisorId || saveIpMapping.isPending}>
                 {saveIpMapping.isPending ? "Saving…" : "Save IP mapping"}
               </Button> : null}
             </div>

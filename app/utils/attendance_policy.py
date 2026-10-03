@@ -1,14 +1,9 @@
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import HTTPException, status
-
-from app.utils.job_documents import normalize_job_type
 
 ATTENDANCE_TIMEZONE = ZoneInfo("Asia/Kolkata")
-CHECK_IN_CUTOFF = time(10, 30)
 CHECK_OUT_CUTOFF = time(19, 0)
-SLOT_CHECK_IN_GRACE = timedelta(minutes=30)
 
 
 def now_ist() -> datetime:
@@ -23,26 +18,9 @@ def is_sunday(business_date) -> bool:
     return business_date.weekday() == 6
 
 
-def slot_check_in_window(slot_start: time) -> tuple[time, time]:
-    """The check-in window a job slot opens: its start plus 30 minutes."""
-    end = (datetime.combine(date.min, slot_start) + SLOT_CHECK_IN_GRACE).time()
-    # ponytail: a slot past 23:30 would wrap into the next day; clamp instead, since
-    # daily_attendance stores a single attendance_date with no time-of-day column.
-    if end <= slot_start:
-        end = time(23, 59, 59)
-    return slot_start, end
-
-
 def check_in_window(job_type: str | None, slot_start: time | None) -> tuple[time, time]:
-    """When check-in is open today.
-
-    Installation runs every day until the job is finished, so it keeps the 10:30 cutoff
-    whatever the roster says. Every other job is slotted, and opens for 30 minutes from
-    its slot start.
-    """
-    if slot_start is None or normalize_job_type(job_type) == "installation":
-        return time(0, 0), CHECK_IN_CUTOFF
-    return slot_check_in_window(slot_start)
+    """Attendance is available throughout the scheduled business day."""
+    return time.min, time.max
 
 
 def ensure_attendance_window_open(
@@ -50,26 +28,30 @@ def ensure_attendance_window_open(
     job_type: str | None = None,
     slot_start: time | None = None,
 ) -> None:
-    """Check-in only. Check-out is never gated — the midnight sweep
-    (services/attendance_autoclose) closes whatever is left open."""
-    if attendance_type != "check_in":
-        return
-    window_start, window_end = check_in_window(job_type, slot_start)
-    current_time = now_ist().time()
-    if window_start <= current_time <= window_end:
-        return
-    if window_start == time(0, 0):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Check-in can only be marked until {window_end.strftime('%H:%M')} IST.",
-        )
-    raise HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        detail=(
-            f"Check-in for this job is open from {window_start.strftime('%H:%M')} "
-            f"to {window_end.strftime('%H:%M')} IST."
-        ),
-    )
+    """No time-of-day restriction; callers still enforce assignment and date rules."""
+    return None
+
+
+def filter_attendance_time(query, column, time_from: time | None, time_to: time | None):
+    """Filter recorded time in IST, including ranges crossing midnight."""
+    from sqlalchemy import Time, cast, func, or_
+
+    if time_from is None and time_to is None:
+        return query
+    if query.session.get_bind().dialect.name == "sqlite":
+        local_time = func.strftime("%H:%M:%S", column, "+5 hours", "+30 minutes")
+        start = time_from.isoformat(timespec="seconds") if time_from else None
+        end = time_to.isoformat(timespec="seconds") if time_to else None
+    else:
+        local_time = cast(func.timezone("Asia/Kolkata", column), Time)
+        start, end = time_from, time_to
+    if start is not None and end is not None and start > end:
+        return query.filter(or_(local_time >= start, local_time <= end))
+    if start is not None:
+        query = query.filter(local_time >= start)
+    if end is not None:
+        query = query.filter(local_time <= end)
+    return query
 
 
 def to_ist_date(value: datetime):
@@ -78,7 +60,9 @@ def to_ist_date(value: datetime):
     return value.astimezone(ATTENDANCE_TIMEZONE).date()
 
 
-def build_attendance_completion(registered_at: datetime | None, attendance_times: list[datetime]) -> dict:
+def build_attendance_completion(
+    registered_at: datetime | None, attendance_times: list[datetime]
+) -> dict:
     start = registered_at or now_ist()
     if attendance_times:
         earliest_attendance = min(attendance_times)

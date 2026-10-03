@@ -195,7 +195,7 @@ export default function PurchaseOrders() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>{currentUser?.is_superadmin ? 'All RFQ requests' : 'My RFQ requests'}</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{(currentUser?.is_superadmin || currentUser?.is_dev || currentUser?.is_city_ops) ? 'All RFQ requests' : 'My RFQ requests'}</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : requests.length === 0 ? (
             <p className="text-sm text-muted-foreground">No RFQ requests yet.</p>
@@ -233,7 +233,7 @@ export default function PurchaseOrders() {
                 {request.odoo_status_error && <p className="mt-1 text-sm text-destructive">Odoo billing status unavailable: {sanitizeErrorText(request.odoo_status_error)}</p>}
               </div>
               <div className="flex flex-col items-start gap-2 lg:items-end">
-                {currentUser?.is_superadmin && request.status === 'pending' && (
+                {(currentUser?.is_superadmin || currentUser?.is_dev || currentUser?.is_city_ops) && request.status === 'pending' && (
                   <Button onClick={() => approveRequest.mutate(request.id)} disabled={approveRequest.isPending}>
                     <CheckCircle2 className="mr-2 h-4 w-4" /> Approve and push to Odoo
                   </Button>
@@ -247,12 +247,12 @@ export default function PurchaseOrders() {
                       Request vendor bill
                     </Button>
                   )}
-                {request.bill_status === 'pending' && currentUser?.is_superadmin && (
+                {request.bill_status === 'pending' && (currentUser?.is_superadmin || currentUser?.is_dev || currentUser?.is_city_ops) && (
                   <Button onClick={() => approveBill.mutate(request.id)} disabled={approveBill.isPending}>
                     <CheckCircle2 className="mr-2 h-4 w-4" /> Approve and create draft bill
                   </Button>
                 )}
-                {request.bill_status === 'pending' && !currentUser?.is_superadmin && (
+                {request.bill_status === 'pending' && !(currentUser?.is_superadmin || currentUser?.is_dev || currentUser?.is_city_ops) && (
                   <p className="text-xs text-muted-foreground">Awaiting superadmin bill approval</p>
                 )}
                 {request.status === 'approved'

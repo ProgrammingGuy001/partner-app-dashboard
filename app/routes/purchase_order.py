@@ -1,3 +1,4 @@
+from app.utils.admin_scope import is_manager, is_global, supervisor_ids, require_supervisor
 from datetime import datetime
 import logging
 from uuid import uuid4
@@ -16,14 +17,15 @@ from app.schemas.purchase_order import (
 )
 from app.services.odoo_service import OdooService
 
-router = APIRouter(prefix="/admin/purchase-orders", tags=["Admin Purchase Orders"])
 from app.utils.error_text import sync_error_summary
+
+router = APIRouter(prefix="/admin/purchase-orders", tags=["Admin Purchase Orders"])
 
 logger = logging.getLogger(__name__)
 
 
 def _require_superadmin(current_user: User = Depends(get_current_user)) -> User:
-    if not current_user.is_superadmin:
+    if not is_manager(current_user):
         raise HTTPException(status_code=403, detail="Superadmin approval required")
     return current_user
 
@@ -128,8 +130,8 @@ def list_purchase_order_requests(
         selectinload(PurchaseOrderRequest.bill_requested_by),
         selectinload(PurchaseOrderRequest.bill_approved_by),
     )
-    if not current_user.is_superadmin:
-        query = query.filter(PurchaseOrderRequest.requested_by_id == current_user.id)
+    if not is_global(current_user):
+        query = query.filter(PurchaseOrderRequest.requested_by_id.in_(supervisor_ids(db, current_user) + [current_user.id]))
     requests = (
         query.order_by(PurchaseOrderRequest.requested_at.desc())
         .offset(offset)
@@ -157,6 +159,7 @@ def approve_purchase_order_request(
     )
     if not request:
         raise HTTPException(status_code=404, detail="Purchase order request not found")
+    require_supervisor(db, current_user, request.requested_by_id)
     if request.status == "approved":
         return _serialize(request)
 
@@ -202,8 +205,10 @@ def request_vendor_bill(
         .with_for_update()
         .first()
     )
-    if not request or (not current_user.is_superadmin and request.requested_by_id != current_user.id):
+    if not request:
         raise HTTPException(status_code=404, detail="Purchase order request not found")
+    if request.requested_by_id != current_user.id:
+        require_supervisor(db, current_user, request.requested_by_id)
     if request.status != "approved" or not request.odoo_purchase_order_id:
         raise HTTPException(status_code=409, detail="Create the Odoo RFQ before requesting a bill")
 
@@ -240,6 +245,7 @@ def approve_vendor_bill_request(
     )
     if not request:
         raise HTTPException(status_code=404, detail="Purchase order request not found")
+    require_supervisor(db, current_user, request.requested_by_id)
     if request.bill_status == "approved":
         status = OdooService.get_purchase_order_billing_status(request.odoo_purchase_order_id)
         return _serialize(request, status)

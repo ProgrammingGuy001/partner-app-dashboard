@@ -78,7 +78,7 @@ const ProfileForm: React.FC<{ currentUser: User }> = ({ currentUser }) => {
         <Label>Role</Label>
         <div>
           <Badge variant={currentUser.is_superadmin ? 'default' : 'secondary'}>
-            {currentUser.is_superadmin ? 'Superadmin' : 'Admin'}
+            {currentUser.is_dev ? 'Dev' : currentUser.is_city_ops ? 'City Ops' : currentUser.is_superadmin ? 'Superadmin' : 'Supervisor'}
           </Badge>
         </div>
       </div>

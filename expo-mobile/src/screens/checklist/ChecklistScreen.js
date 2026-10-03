@@ -131,6 +131,7 @@ const ChecklistScreen = ({ navigation, route }) => {
 
         {(error || warning) ? <Notice tone={error ? "danger" : "warning"} title={error ? "Checklist update failed" : "Checklist partly updated"} message={error || warning} className="mb-4" /> : null}
 
+        {checklist.completed_by_pdf ? <Notice tone="success" title="Checklist completed" message="The uploaded PDF replaces in-app checklist filling." /> : <>
         <ChecklistStats />
         <Card className="mt-6 overflow-hidden" padded={false}>
           <View className="px-5 bg-card border-b border-border flex-row items-center gap-2 py-3.5">
@@ -152,6 +153,7 @@ const ChecklistScreen = ({ navigation, route }) => {
           </View>
         </Card>
 
+        </>}
         {/* Checklist Document Upload Section */}
         <ChecklistDocumentUpload checklistId={Number(checklistId)} jobId={Number(jobId)} />
       </ScrollView>

@@ -73,8 +73,8 @@ class JobRosterEntry(Base):
     # historical attendance expectations.
     slot_start: Mapped[time] = mapped_column(Time, nullable=False)
     slot_end: Mapped[time] = mapped_column(Time, nullable=False)
-    created_by_admin_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("admin.id"), nullable=False
+    created_by_admin_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("admin.id"), nullable=True
     )
     # True when this row mirrors the job's default IP/date/slot. A dated swap turns it
     # false so later edits to the job do not overwrite that explicit override.
@@ -103,3 +103,14 @@ class JobRosterEntry(Base):
     attendance_records: Mapped[List["DailyAttendance"]] = relationship(
         "DailyAttendance", back_populates="roster_entry"
     )
+
+
+class SupervisorRosterEntry(Base):
+    __tablename__ = "supervisor_roster_entries"
+    __table_args__ = (UniqueConstraint("supervisor_id", "work_date", "slot_number", name="uq_supervisor_date_slot"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supervisor_id: Mapped[int] = mapped_column(ForeignKey("admin.id"), nullable=False)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), nullable=False)
+    work_date: Mapped[date] = mapped_column(Date, nullable=False)
+    slot_number: Mapped[int] = mapped_column(ForeignKey("roster_slot_settings.slot_number"), nullable=False)
+    created_by_admin_id: Mapped[Optional[int]] = mapped_column(ForeignKey("admin.id"), nullable=True)

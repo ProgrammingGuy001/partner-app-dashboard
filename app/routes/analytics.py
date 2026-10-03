@@ -1,3 +1,4 @@
+from app.utils.admin_scope import is_manager, supervisor_ids
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -12,7 +13,7 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 def _require_superadmin(current_user: User = Depends(get_current_user)) -> User:
     """Analytics expose global payout/IP data — superadmin only."""
-    if not getattr(current_user, "is_superadmin", False):
+    if not is_manager(current_user):
         raise HTTPException(status_code=403, detail="Superadmin access required")
     return current_user
 
@@ -45,7 +46,7 @@ def get_payout_report(
     - Job count and payout by status
     - Job count and payout by IP
     """
-    return get_payout_analytics(db, period, year, month, quarter, week)
+    return get_payout_analytics(db, period, year, month, quarter, week, supervisor_ids(db, current_user))
 
 
 @router.get("/job-stages", response_model=List[JobStageCount])
@@ -57,7 +58,7 @@ def get_job_stages(
     Get current count of jobs in each stage (all time).
     Shows how many jobs are created, in_progress, paused, completed.
     """
-    return get_job_stage_summary(db)
+    return get_job_stage_summary(db, supervisor_ids(db, current_user))
 
 
 @router.get("/ip-performance", response_model=List[PayoutByIP])
@@ -69,4 +70,4 @@ def get_all_ip_performance(
     Get performance metrics for all IPs (all time).
     Shows total jobs and total payout per IP.
     """
-    return get_ip_performance(db)
+    return get_ip_performance(db, supervisor_ids(db, current_user))

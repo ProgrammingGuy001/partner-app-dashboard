@@ -54,6 +54,7 @@ interface ChecklistWithStatus {
   description?: string;
   document_link?: string | null;
   template_available?: boolean;
+  completed_by_pdf?: boolean;
   items: ChecklistItem[];
 }
 
@@ -960,6 +961,8 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                                 )}
                                 Download blank workbook
                               </Button>
+                              </>
+                            )}
                               <label htmlFor={`checklist-upload-${checklist.id}`} className="inline-flex">
                                 <input
                                   id={`checklist-upload-${checklist.id}`}
@@ -979,15 +982,14 @@ const JobActionsModal: React.FC<JobActionsModalProps> = ({ job, onClose, onSucce
                                   ) : (
                                     <Upload size={14} className="mr-1" />
                                   )}
-                                  Upload completed file
+                                  Upload completed PDF
                                 </span>
                               </label>
-                              </>
-                            )}
+                            {checklist.completed_by_pdf && <span className="text-sm text-primary">Completed by uploaded PDF</span>}
                           </div>
                         </div>
                         <div className="divide-y">
-                          {checklist.items.map((item) => {
+                          {!checklist.completed_by_pdf && checklist.items.map((item) => {
                             const statusMeta = getItemStatusMeta(item);
                             const hasSubmission = Boolean(
                               item.status?.checked ||

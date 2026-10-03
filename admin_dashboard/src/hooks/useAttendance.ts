@@ -8,6 +8,8 @@ export const useAttendance = (filters?: {
   phone?: string;
   date_from?: string;
   date_to?: string;
+  time_from?: string;
+  time_to?: string;
   skip?: number;
   limit?: number;
 }) => {
@@ -30,6 +32,8 @@ export const useAllAdminAttendance = (filters?: {
   admin_id?: number;
   date_from?: string;
   date_to?: string;
+  time_from?: string;
+  time_to?: string;
   skip?: number;
   limit?: number;
 }) => {

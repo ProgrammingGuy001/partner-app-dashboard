@@ -1,4 +1,5 @@
-from datetime import datetime, date
+from app.utils.admin_scope import is_global, is_manager, supervisor_ids, require_supervisor
+from datetime import datetime, date, time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status, Path, Query
 from fastapi.responses import JSONResponse
@@ -7,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from typing import Annotated, List, Optional
 from app.database import get_db
 from app.crud.checklist import checklist_items_pending
-from app.crud.ip import verify_ip_user, get_ip_by_phone, get_all_ips, get_approved_ips
+from app.crud.ip import verify_ip_user, get_ip_by_phone
 from app.core.security import get_current_user
 from app.model.user import User
 from app.model.ip import ip, IPAdminAssignment
@@ -15,7 +16,6 @@ from app.model.media_document import MediaDocument
 from app.model.attendance import DailyAttendance
 from app.model.job import Customer, Job
 from app.model.admin_attendance import AdminAttendance
-from app.model.sunday_work_request import SundayWorkRequest
 from app.services.attendance_export import build_attendance_workbook
 from app.services.s3_service import async_upload_file_to_s3
 from app.services.sunday_attendance import (
@@ -29,6 +29,7 @@ from app.utils.attendance_policy import (
     attendance_business_date,
     build_attendance_completion,
     ensure_attendance_window_open,
+    filter_attendance_time,
     is_sunday,
     now_ist,
 )
@@ -53,6 +54,8 @@ class AdminUserResponse(BaseModel):
     isActive: bool
     isApproved: bool
     is_superadmin: bool
+    is_city_ops: bool = False
+    is_dev: bool = False
 
     class Config:
         from_attributes = True
@@ -60,9 +63,9 @@ class AdminUserResponse(BaseModel):
 
 def _visible_ip_users(db: Session, current_user: User, phone: Optional[str] = None) -> list[ip]:
     query = db.query(ip)
-    if not getattr(current_user, "is_superadmin", False):
+    if not is_global(current_user):
         query = query.join(IPAdminAssignment, IPAdminAssignment.ip_id == ip.id).filter(
-            IPAdminAssignment.admin_id == current_user.id
+            IPAdminAssignment.admin_id.in_(supervisor_ids(db, current_user))
         )
     if phone:
         query = query.filter(ip.phone_number.ilike(f"%{phone.strip()}%"))
@@ -247,12 +250,12 @@ def verify_ip(
 @router.get("/ips")
 def get_ips(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get all IPs with their assigned admin IDs"""
-    is_superadmin = getattr(current_user, 'is_superadmin', False)
+    is_superadmin = is_global(current_user)
 
     if is_superadmin:
         ips = db.query(ip).all()
     else:
-        ips = get_all_ips(db, admin_id=current_user.id)
+        ips = _visible_ip_users(db, current_user)
 
     return [_serialize_ip_user(ip_user) for ip_user in ips]
 
@@ -262,14 +265,14 @@ def get_approved_ips_list(db: Session = Depends(get_db), current_user: User = De
     """Get only approved/verified IPs for job assignment dropdown.
     Superadmins see all approved IPs, regular admins only see IPs assigned to them.
     """
-    is_superadmin = getattr(current_user, 'is_superadmin', False)
+    is_superadmin = is_global(current_user)
 
     if is_superadmin:
         # Superadmins see all approved IPs
-        approved_ips = db.query(ip).filter(ip.is_id_verified == True).all()
+        approved_ips = db.query(ip).filter(ip.is_id_verified.is_(True)).all()
     else:
         # Regular admins only see IPs assigned to them that are approved
-        approved_ips = get_approved_ips(db, admin_id=current_user.id)
+        approved_ips = [u for u in _visible_ip_users(db, current_user) if u.is_id_verified]
 
     return [_serialize_ip_user(ip_user) for ip_user in approved_ips]
 
@@ -277,7 +280,10 @@ def get_approved_ips_list(db: Session = Depends(get_db), current_user: User = De
 @router.get("/admin-users", response_model=List[AdminUserResponse])
 def get_admin_users(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get list of admin users for IP assignment dropdown"""
-    return db.query(User).filter(User.isActive == True, User.isApproved == True).all()
+    query = db.query(User).filter(User.isActive.is_(True), User.isApproved.is_(True))
+    if not is_global(current_user):
+        query = query.filter(User.id.in_(supervisor_ids(db, current_user)))
+    return query.all()
 
 
 @router.put("/admin-users/{admin_id}/ips")
@@ -288,13 +294,18 @@ def assign_ips_to_admin(
     current_user: User = Depends(get_current_user),
 ):
     """Replace one supervisor's IP mapping without disturbing other supervisors."""
-    if not current_user.is_superadmin:
+    if not is_manager(current_user):
         raise HTTPException(status_code=403, detail="Only superadmins can change IP mappings")
+    require_supervisor(db, current_user, admin_id)
     supervisor = db.get(User, admin_id)
-    if not supervisor or supervisor.is_superadmin or not supervisor.is_active or not supervisor.is_approved:
+    if not supervisor or is_manager(supervisor) or not supervisor.is_active or not supervisor.is_approved:
         raise HTTPException(status_code=404, detail="Active supervisor not found")
 
     ip_ids = list(dict.fromkeys(request.ip_ids))
+    if getattr(current_user, "is_city_ops", False):
+        for ip_id in ip_ids:
+            if not is_admin_allowed_for_ip(db, ip_id, current_user.id):
+                raise HTTPException(status_code=403, detail="IP is outside your mapped scope")
     found = {
         row.id
         for row in db.query(ip.id).filter(
@@ -334,9 +345,13 @@ def assign_admins_to_ip(
         raise HTTPException(status_code=404, detail="IP not found")
 
     # Check if current user is superadmin
-    if not current_user.is_superadmin:
+    if not is_manager(current_user):
         raise HTTPException(status_code=403, detail="Only superadmins can assign admins to IPs")
 
+    if not is_global(current_user):
+        existing = db.query(IPAdminAssignment).filter_by(ip_id=ip_id).all()
+        for supervisor_id in set(request.admin_ids) | {row.admin_id for row in existing}:
+            require_supervisor(db, current_user, supervisor_id)
     current_admin_ids = {
         row.admin_id
         for row in db.query(IPAdminAssignment.admin_id).filter(
@@ -373,9 +388,14 @@ def get_ip_admins(
     if not ip_user:
         raise HTTPException(status_code=404, detail="IP not found")
 
+    if not is_global(current_user) and not is_admin_allowed_for_ip(db, ip_id, current_user.id):
+        raise HTTPException(status_code=403, detail="IP is outside your mapped scope")
     assignments = db.query(IPAdminAssignment).filter(IPAdminAssignment.ip_id == ip_id).all()
     admin_ids = [a.admin_id for a in assignments]
 
+    allowed = supervisor_ids(db, current_user)
+    if allowed is not None:
+        admin_ids = [id for id in admin_ids if id in allowed]
     admins = db.query(User).filter(User.id.in_(admin_ids)).all() if admin_ids else []
 
     return [AdminUserResponse.model_validate(admin) for admin in admins]
@@ -404,6 +424,8 @@ def get_all_attendance(
     phone: Optional[str] = Query(None, min_length=3, max_length=15),
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
+    time_from: Annotated[time | None, Query()] = None,
+    time_to: Annotated[time | None, Query()] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
     current_user: User = Depends(get_current_user),
@@ -414,7 +436,7 @@ def get_all_attendance(
     visible_phones = [ip_user.phone_number for ip_user in visible_ips if ip_user.phone_number]
 
     query = db.query(DailyAttendance).join(Job, Job.id == DailyAttendance.job_id, isouter=True)
-    if not getattr(current_user, "is_superadmin", False):
+    if not is_global(current_user):
         if not visible_phones:
             query = query.filter(DailyAttendance.id == -1)
         else:
@@ -430,6 +452,7 @@ def get_all_attendance(
         from datetime import time as dtime
         query = query.filter(DailyAttendance.recorded_at <= datetime.combine(date_to, dtime(23, 59, 59)))
 
+    query = filter_attendance_time(query, DailyAttendance.recorded_at, time_from, time_to)
     total = query.count()
     records = query.order_by(DailyAttendance.recorded_at.desc()).offset(skip).limit(limit).all()
     attendance_rows = query.with_entities(
@@ -512,11 +535,13 @@ def export_attendance_workbook(
     admin_id: Optional[int] = Query(None, gt=0),
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
+    time_from: Annotated[time | None, Query()] = None,
+    time_to: Annotated[time | None, Query()] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Download attendance as XLSX, including each record's geofence result."""
-    is_superadmin = getattr(current_user, "is_superadmin", False)
+    is_superadmin = is_global(current_user)
     visible_ips = _visible_ip_users(db, current_user, phone=phone)
     # Superadmins are unscoped; everyone else is limited to their own IPs, exactly as
     # GET /admin/attendance already does.
@@ -535,13 +560,16 @@ def export_attendance_workbook(
         db,
         visible_phones=visible_phones,
         phone_to_name=phone_to_name,
-        include_supervisors=is_superadmin,
+        include_supervisors=is_manager(current_user),
+        supervisor_scope=supervisor_ids(db, current_user),
         report_status=_report_status,
         job_id=job_id,
         phone=phone,
         admin_id=admin_id,
         date_from=date_from,
         date_to=date_to,
+        time_from=time_from,
+        time_to=time_to,
     )
     filename = f"attendance_{now_ist().date().isoformat()}.xlsx"
     return Response(
@@ -809,16 +837,21 @@ def get_all_admin_attendance(
     admin_id: Optional[int] = Query(None, gt=0),
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
+    time_from: Annotated[time | None, Query()] = None,
+    time_to: Annotated[time | None, Query()] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Superadmin: view all admin attendance records."""
-    if not current_user.is_superadmin:
+    if not is_manager(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Superadmin only")
 
     query = db.query(AdminAttendance)
+    ids = supervisor_ids(db, current_user)
+    if ids is not None:
+        query = query.filter(AdminAttendance.admin_id.in_(ids))
     if admin_id is not None:
         query = query.filter(AdminAttendance.admin_id == admin_id)
     if date_from:
@@ -827,11 +860,14 @@ def get_all_admin_attendance(
         from datetime import time as dtime
         query = query.filter(AdminAttendance.marked_at <= datetime.combine(date_to, dtime(23, 59, 59)))
 
-    admin_query = db.query(User).filter(User.is_superadmin == False)
+    admin_query = db.query(User).filter(User.is_superadmin.is_(False))
+    if ids is not None:
+        admin_query = admin_query.filter(User.id.in_(ids))
     if admin_id is not None:
         admin_query = admin_query.filter(User.id == admin_id)
     admins = admin_query.all()
 
+    query = filter_attendance_time(query, AdminAttendance.marked_at, time_from, time_to)
     total = query.count()
     records = query.order_by(AdminAttendance.marked_at.desc()).offset(skip).limit(limit).all()
 

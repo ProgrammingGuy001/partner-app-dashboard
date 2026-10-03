@@ -16,6 +16,7 @@ from app.model.admin_attendance import AdminAttendance
 from app.model.attendance import DailyAttendance
 from app.model.job import Job
 from app.model.user import User
+from app.utils.attendance_policy import filter_attendance_time
 
 IP_HEADERS = [
     "Date",
@@ -83,6 +84,8 @@ def _ip_rows(
     date_to: date | None,
     phone_to_name: dict,
     report_status,
+    time_from: dtime | None = None,
+    time_to: dtime | None = None,
 ) -> list[list]:
     query = db.query(DailyAttendance)
     # visible_phones is None for a superadmin (no scoping); an empty list means the
@@ -100,6 +103,7 @@ def _ip_rows(
     if date_to:
         query = query.filter(DailyAttendance.recorded_at <= _end_of_day(date_to))
 
+    query = filter_attendance_time(query, DailyAttendance.recorded_at, time_from, time_to)
     records = query.order_by(DailyAttendance.recorded_at.desc()).all()
     job_ids = {r.job_id for r in records if r.job_id}
     job_names = {
@@ -134,8 +138,13 @@ def _supervisor_rows(
     admin_id: int | None,
     date_from: date | None,
     date_to: date | None,
+    supervisor_scope: list[int] | None = None,
+    time_from: dtime | None = None,
+    time_to: dtime | None = None,
 ) -> list[list]:
     query = db.query(AdminAttendance)
+    if supervisor_scope is not None:
+        query = query.filter(AdminAttendance.admin_id.in_(supervisor_scope))
     if admin_id is not None:
         query = query.filter(AdminAttendance.admin_id == admin_id)
     if date_from:
@@ -143,6 +152,7 @@ def _supervisor_rows(
     if date_to:
         query = query.filter(AdminAttendance.marked_at <= _end_of_day(date_to))
 
+    query = filter_attendance_time(query, AdminAttendance.marked_at, time_from, time_to)
     records = query.order_by(AdminAttendance.marked_at.desc()).all()
     admin_ids = {r.admin_id for r in records}
     admins = {
@@ -188,6 +198,9 @@ def build_attendance_workbook(
     admin_id: int | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    supervisor_scope: list[int] | None = None,
+    time_from: dtime | None = None,
+    time_to: dtime | None = None,
 ) -> bytes:
     """Both sheets in one file. Supervisor rows are superadmin-only, matching the
     permissions on GET /admin/all-attendance — a plain admin gets a header-only sheet."""
@@ -206,6 +219,8 @@ def build_attendance_workbook(
             date_to=date_to,
             phone_to_name=phone_to_name,
             report_status=report_status,
+            time_from=time_from,
+            time_to=time_to,
         ),
     )
 
@@ -213,7 +228,7 @@ def build_attendance_workbook(
     _write_sheet(
         supervisor_sheet,
         SUPERVISOR_HEADERS,
-        _supervisor_rows(db, admin_id=admin_id, date_from=date_from, date_to=date_to)
+        _supervisor_rows(db, admin_id=admin_id, date_from=date_from, date_to=date_to, time_from=time_from, time_to=time_to, supervisor_scope=supervisor_scope)
         if include_supervisors
         else [],
     )

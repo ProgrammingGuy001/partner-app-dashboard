@@ -169,7 +169,7 @@ export default function Roster() {
     const requested = searchParams.get("date_from") || "";
     return /^\d{4}-\d{2}-\d{2}$/.test(requested) && !Number.isNaN(fromIso(requested).getTime()) ? requested : todayIst();
   });
-  const [supervisorId, setSupervisorId] = useState(searchParams.get("admin_id") || "");
+  const [supervisorId, setSupervisorId] = useState(() => String(Number(searchParams.get("admin_id")) || ""));
   const [draggedIpId, setDraggedIpId] = useState<number | null>(null);
   const weekEnd = addDays(weekStart, 6);
   const days = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart]);
@@ -264,14 +264,14 @@ export default function Roster() {
       </div>
       {isError && <div role="alert" className="flex items-center gap-3 rounded-lg border p-4"><p>The roster could not be loaded.</p><Button variant="outline" onClick={() => refetch()}>Retry</Button></div>}
 
-      {user?.is_superadmin ? (
+      {(user?.is_superadmin || user?.is_dev || user?.is_city_ops) ? (
         <Card>
           <CardContent className="flex flex-col gap-4 pt-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="w-full max-w-sm space-y-2">
               <label className="text-sm font-medium">Supervisor</label>
-              <Select value={activeSupervisorId} onValueChange={(value) => { setSupervisorId(value); setSearchParams((params) => { params.delete("job"); params.set("admin_id", value); return params; }); }}>
+              <Select value={activeSupervisorId || "all"} onValueChange={(value) => { setSupervisorId(value === "all" ? "" : value); setSearchParams((params) => { params.delete("job"); params.set("admin_id", value); return params; }); }}>
                 <SelectTrigger><SelectValue placeholder="Choose a supervisor" /></SelectTrigger>
-                <SelectContent>{data?.admins.map((admin) => <SelectItem key={admin.id} value={String(admin.id)}>{admin.name}</SelectItem>)}</SelectContent>
+                <SelectContent><SelectItem value="all">All mapped supervisors</SelectItem>{data?.admins.map((admin) => <SelectItem key={admin.id} value={String(admin.id)}>{admin.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <p className="text-sm text-muted-foreground">{data?.ips.length || 0} mapped IPs · {data?.jobs.length || 0} jobs</p>
@@ -286,6 +286,7 @@ export default function Roster() {
         </details>
       ) : null}
 
+      <SupervisorVisits dateFrom={weekStart} dateTo={weekEnd} />
       <DndContext
         collisionDetection={closestCenter}
         onDragStart={({ active }) => setDraggedIpId(active.data.current?.ipId as number)}
@@ -364,4 +365,37 @@ export default function Roster() {
       </DndContext>
     </div>
   );
+}
+
+
+function SupervisorVisits({ dateFrom, dateTo }: { dateFrom: string; dateTo: string }) {
+  const client = useQueryClient();
+  const { data, isError, refetch } = useQuery({ queryKey: ['supervisor-roster', dateFrom, dateTo], queryFn: () => rosterAPI.getSupervisors({ date_from: dateFrom, date_to: dateTo }) });
+  const [supervisor, setSupervisor] = useState('');
+  const [job, setJob] = useState('');
+  const [date, setDate] = useState(todayIst());
+  const [slot, setSlot] = useState('1');
+  const selected = supervisor || String(data?.supervisors[0]?.id || '');
+  const refresh = () => client.invalidateQueries({ queryKey: ['supervisor-roster'] });
+  const create = useMutation({ mutationFn: () => rosterAPI.createSupervisor({ supervisor_id: Number(selected), job_id: Number(job), work_date: date, slot_number: Number(slot) }), onSuccess: () => { refresh(); toast.success('Supervisor rostered'); }, onError: e => toast.error(getApiErrorMessage(e, 'Could not roster supervisor')) });
+  const remove = useMutation({ mutationFn: rosterAPI.deleteSupervisor, onSuccess: refresh, onError: e => toast.error(getApiErrorMessage(e, 'Could not remove visit')) });
+  return <Card><CardHeader><CardTitle>Supervisor visits</CardTitle><CardDescription>Schedule yourself or a mapped supervisor for a job.</CardDescription></CardHeader><CardContent className="space-y-4">
+    {isError ? <div role="alert">Could not load visits. <Button variant="outline" onClick={() => refetch()}>Retry</Button></div> : <>
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <label className="space-y-1 text-sm">Supervisor<select className="h-9 w-full rounded-md border bg-background px-2" value={selected} onChange={e => { setSupervisor(e.target.value); setJob(''); }}>
+        {data?.supervisors.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+      </select></label>
+      <label className="space-y-1 text-sm">Job<select className="h-9 w-full rounded-md border bg-background px-2" value={job} onChange={e => setJob(e.target.value)}><option value="">Select job</option>
+        {data?.jobs.filter(j => j.admin_assigned === Number(selected)).map(j => <option key={j.id} value={j.id}>{j.name || `Job #${j.id}`}</option>)}
+      </select></label>
+      <label className="space-y-1 text-sm">Date<Input type="date" min={todayIst()} value={date} onChange={e => setDate(e.target.value)} /></label>
+      <label className="space-y-1 text-sm">Slot<select className="h-9 w-full rounded-md border bg-background px-2" value={slot} onChange={e => setSlot(e.target.value)}><option value="1">Slot 1</option><option value="2">Slot 2</option></select></label>
+      <Button className="self-end" disabled={!job || !selected || !date || create.isPending} onClick={() => create.mutate()}>Add visit</Button>
+    </div>
+    <div className="divide-y">{data?.entries.map(e => <div key={e.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+      <span>{e.work_date} · Slot {e.slot_number} · {data.supervisors.find(u => u.id === e.supervisor_id)?.name} · {data.jobs.find(j => j.id === e.job_id)?.name || `Job #${e.job_id}`}</span>
+      <Button size="sm" variant="ghost" disabled={remove.isPending || e.work_date < todayIst()} onClick={() => remove.mutate(e.id)} aria-label={`Remove supervisor visit on ${e.work_date}, slot ${e.slot_number}`}>Remove</Button>
+    </div>)}{!data?.entries.length && <p className="py-3 text-sm text-muted-foreground">No supervisor visits in this date range.</p>}</div>
+    </>}
+  </CardContent></Card>;
 }

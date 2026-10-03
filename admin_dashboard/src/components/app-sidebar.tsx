@@ -119,7 +119,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   });
 
   const user = {
-    name: userData?.name || (userData?.is_superadmin ? "Super Admin" : "Admin"),
+    name: userData?.name || (userData?.is_dev ? "Dev" : userData?.is_city_ops ? "City Ops" : userData?.is_superadmin ? "Superadmin" : "Supervisor"),
     email: userData?.email || "user@example.com",
     avatar: "/avatars/shadcn.jpg",
     is_superadmin: userData?.is_superadmin || false,

@@ -289,7 +289,7 @@ const useChecklistStore = create(
       // Update the checklist with the new document link
       const updatedChecklist = {
         ...get().checklist,
-        document_link: response.document_link,
+        completed_by_pdf: response.completed_by_pdf, document_link: response.document_link,
       };
 
       const key = cacheKey(jobId, checklistId);

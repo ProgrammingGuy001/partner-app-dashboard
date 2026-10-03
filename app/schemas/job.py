@@ -65,7 +65,7 @@ class JobBase(BaseModel):
 
 DRAWING_REQUIRED_JOB_TYPES = {"site_validation", "installation"}
 # Installation runs the full shift and GRN is not a site visit, so neither is slotted.
-# Every other type has to name its slot: the slot is what opens their check-in window.
+# Every other type names its planned visit slot; attendance is not time-gated.
 SLOT_EXCLUDED_JOB_TYPES = {"installation", "grn"}
 
 
@@ -85,6 +85,7 @@ def validate_job_slot(job_type: Optional[str], slot_start, slot_end) -> None:
 
 
 class JobCreate(JobBase):
+    crm_lead_id: int | None = Field(default=None, gt=0)
     checklist_ids: Optional[list[int]] = None
     user_id: Optional[int] = None
 
@@ -286,6 +287,7 @@ class JobRateResponse(JobRateBase):
 
 
 class JobResponse(BaseModel):
+    crm_lead_id: int | None = None
     id: int
     name: Optional[str] = None
     customer_id: Optional[int] = None

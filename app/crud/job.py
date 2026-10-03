@@ -1,3 +1,5 @@
+from app.utils.admin_scope import supervisor_ids, actor_scope_id, require_supervisor, is_manager
+from app.services.odoo_service import OdooService
 import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -24,7 +26,7 @@ from app.model.job import (
 from app.model.attendance import DailyAttendance
 from app.model.job_status_log import JobStatusLog
 from app.model.media_document import MediaDocument
-from app.model.roster import JobRosterEntry, RosterSlotSetting
+from app.model.roster import JobRosterEntry, RosterSlotSetting, SupervisorRosterEntry
 from app.model.user import User
 from app.schemas.job import JobCreate, JobUpdate, validate_job_slot
 from app.utils.attendance_policy import now_ist
@@ -150,7 +152,9 @@ def get_job_by_id(db: Session, job_id: int, user_id: int = None):
             raise HTTPException(
                 status_code=404, detail=f"Job with ID {job_id} not found"
             )
-        if user_id is not None and job.user_id != user_id:
+        actor = db.get(User, user_id) if user_id is not None else None
+        allowed = supervisor_ids(db, actor) if actor else ([user_id] if user_id is not None else None)
+        if allowed is not None and job.user_id not in allowed:
             raise HTTPException(
                 status_code=403, detail="Not authorized to access this job"
             )
@@ -178,7 +182,10 @@ def get_all_jobs(
     try:
         stmt = select(Job).options(*JOB_LOAD_OPTIONS)
         if user_id is not None:
-            stmt = stmt.where(Job.user_id == user_id)
+            actor = db.get(User, user_id)
+            allowed = supervisor_ids(db, actor) if actor else [user_id]
+            if allowed is not None:
+                stmt = stmt.where(Job.user_id.in_(allowed))
         if status:
             stmt = stmt.where(Job.status == status)
         else:
@@ -284,7 +291,7 @@ def _validate_supervisor(db: Session, admin_id: int | None) -> None:
         raise HTTPException(
             status_code=404, detail=f"Supervisor with ID {admin_id} not found"
         )
-    if supervisor.is_superadmin:
+    if is_manager(supervisor):
         raise HTTPException(
             status_code=400, detail="A superadmin cannot be assigned as supervisor"
         )
@@ -535,11 +542,16 @@ def sync_job_roster_defaults(
 def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = False):
     """Create a job draft; regular admins require superadmin approval before it becomes active."""
     try:
+        if job.crm_lead_id is not None:
+            OdooService.lookup_crm_lead(job.crm_lead_id)
         supervisor_id = job.admin_assigned if is_superadmin else user_id
         if is_superadmin and supervisor_id is None:
             raise HTTPException(
                 status_code=400, detail="Select a supervisor for the job"
             )
+        actor = db.get(User, user_id)
+        if actor:
+            require_supervisor(db, actor, supervisor_id)
         _validate_supervisor(db, supervisor_id)
         assigned_ip_id = job.assigned_ip_id
         if job.external_ip is not None:
@@ -619,6 +631,7 @@ def create_job(db: Session, job: JobCreate, user_id: int, is_superadmin: bool = 
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
         db_job = Job(
+            crm_lead_id=job_data.pop("crm_lead_id", None),
             customer_id=customer.id if customer else None,
             assigned_ip_id=job_data.pop("assigned_ip_id", None),
             status=initial_status,
@@ -684,7 +697,7 @@ def update_job(
 ):
     """Update job details, customer, and manual type/rate fields."""
     try:
-        db_job = get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
+        db_job = get_job_by_id(db, job_id, user_id=actor_scope_id(db, admin_id, is_superadmin))
 
         update_data = job_update.model_dump(exclude_unset=True)
         external_ip = update_data.pop("external_ip", None)
@@ -868,7 +881,7 @@ def delete_job(
 ):
     """Delete a job and related runtime mappings."""
     try:
-        db_job = get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
+        db_job = get_job_by_id(db, job_id, user_id=actor_scope_id(db, admin_id, is_superadmin))
 
         if db_job.assigned_ip_id:
             unassign_ip(
@@ -880,6 +893,7 @@ def delete_job(
                 excluding_job_id=job_id,
             )
 
+        db.query(SupervisorRosterEntry).filter(SupervisorRosterEntry.job_id == job_id).delete(synchronize_session=False)
         db.query(JobChecklist).filter(JobChecklist.job_id == job_id).delete(
             synchronize_session=False
         )
@@ -917,7 +931,7 @@ def validate_job_start(
     db_job = (
         get_ip_job_by_id(db, job_id, ip_id)
         if ip_id is not None
-        else get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
+        else get_job_by_id(db, job_id, user_id=actor_scope_id(db, admin_id, is_superadmin))
     )
 
     if db_job.status == "pending_approval":
@@ -1005,7 +1019,7 @@ def pause_job(
 ):
     """Pause a job and unassign its IP."""
     try:
-        db_job = get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
+        db_job = get_job_by_id(db, job_id, user_id=actor_scope_id(db, admin_id, is_superadmin))
         if db_job.status != "in_progress":
             raise HTTPException(
                 status_code=400,
@@ -1062,7 +1076,7 @@ def validate_job_completion(
     db_job = (
         get_ip_job_by_id(db, job_id, ip_id)
         if ip_id is not None
-        else get_job_by_id(db, job_id, user_id=None if is_superadmin else admin_id)
+        else get_job_by_id(db, job_id, user_id=actor_scope_id(db, admin_id, is_superadmin))
     )
     if db_job.status != "in_progress":
         raise HTTPException(
@@ -1142,7 +1156,7 @@ def validate_job_completion(
         for (item_id,) in (
             db.query(ChecklistItem.id)
             .join(JobChecklist, JobChecklist.checklist_id == ChecklistItem.checklist_id)
-            .filter(JobChecklist.job_id == job_id)
+            .filter(JobChecklist.job_id == job_id, JobChecklist.completed_by_pdf.is_(False))
             .all()
         )
     ]

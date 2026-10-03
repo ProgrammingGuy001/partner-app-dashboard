@@ -12,7 +12,7 @@ class DevAuditLog(Base):
     __tablename__ = "dev_audit_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
-    actor_id: Mapped[int] = mapped_column(Integer, ForeignKey("admin.id"), nullable=False, index=True)
+    actor_id: Mapped[int] = mapped_column(Integer, ForeignKey("admin.id"), nullable=True, index=True)
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     target_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)

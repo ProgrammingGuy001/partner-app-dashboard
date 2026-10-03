@@ -45,7 +45,7 @@ def checklist_items_pending(db: Session, job_ids) -> dict[int, int]:
     assigned = (
         db.query(JobChecklist.job_id, ChecklistItem.id)
         .join(ChecklistItem, ChecklistItem.checklist_id == JobChecklist.checklist_id)
-        .filter(JobChecklist.job_id.in_(job_ids))
+        .filter(JobChecklist.job_id.in_(job_ids), JobChecklist.completed_by_pdf.is_(False))
         .all()
     )
     for job_id, item_id in assigned:
@@ -443,6 +443,7 @@ def get_job_checklists_status(db: Session, job_id: int, checklist_id: int | None
 
         checklist_dict = checklist.__dict__.copy()
         checklist_dict["document_link"] = jc.document_link
+        checklist_dict["completed_by_pdf"] = jc.completed_by_pdf
         checklist_dict["template_available"] = is_ism_checklist(jc)
         checklist_dict["items"] = items_with_status
         result.append(checklist_dict)

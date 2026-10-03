@@ -1224,9 +1224,13 @@ const SuperAdminView: React.FC<{ canDelete: boolean }> = ({ canDelete }) => {
   const [activeTab, setActiveTab] = useState<'admin' | 'ip' | 'sunday'>('admin');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [timeFrom, setTimeFrom] = useState('');
+  const [timeTo, setTimeTo] = useState('');
   const [appliedFilters, setAppliedFilters] = useState<{
     date_from?: string;
     date_to?: string;
+    time_from?: string;
+    time_to?: string;
   }>({});
   const [adminPage, setAdminPage] = useState(0);
   const [ipPage, setIpPage] = useState(0);
@@ -1264,12 +1268,16 @@ const SuperAdminView: React.FC<{ canDelete: boolean }> = ({ canDelete }) => {
     setAppliedFilters({
       date_from: dateFrom || undefined,
       date_to: dateTo || undefined,
+      time_from: timeFrom || undefined,
+      time_to: timeTo || undefined,
     });
   }
 
   function clearFilters() {
     setDateFrom('');
     setDateTo('');
+    setTimeFrom('');
+    setTimeTo('');
     setAdminPage(0);
     setIpPage(0);
     setAppliedFilters({});
@@ -1309,6 +1317,14 @@ const SuperAdminView: React.FC<{ canDelete: boolean }> = ({ canDelete }) => {
             <div className="flex flex-col gap-1">
               <Label className="text-xs text-muted-foreground font-medium">To date</Label>
               <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-full lg:w-40" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="attendance-time-from">From time (IST)</Label>
+              <Input id="attendance-time-from" type="time" value={timeFrom} onChange={e => setTimeFrom(e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="attendance-time-to">To time (IST)</Label>
+              <Input id="attendance-time-to" type="time" value={timeTo} onChange={e => setTimeTo(e.target.value)} />
             </div>
             <Button onClick={applyFilters} size="sm" className="w-full lg:w-auto">
               <IconSearch className="h-4 w-4 mr-2" />
@@ -1410,7 +1426,7 @@ const Attendance: React.FC = () => {
     return <div className="p-8 text-center text-muted-foreground">Loading...</div>;
   }
 
-  return userData?.is_superadmin
+  return (userData?.is_superadmin || userData?.is_dev || userData?.is_city_ops)
     ? <SuperAdminView canDelete={Boolean(userData.is_dev)} />
     : <AdminView />;
 };

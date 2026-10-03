@@ -1,3 +1,4 @@
+from app.utils.admin_scope import is_global
 from typing import Annotated, List
 
 from fastapi import APIRouter, Depends, File, HTTPException, Path, Response, UploadFile
@@ -62,7 +63,7 @@ def _require_superadmin(current_user = Depends(get_current_user)):
 
 
 def _authorize_job(db: Session, job_id: int, current_user):
-    user_id = None if getattr(current_user, "is_superadmin", False) else current_user.id
+    user_id = None if is_global(current_user) else current_user.id
     return get_job_by_id(db, job_id, user_id=user_id)
 
 
@@ -163,6 +164,7 @@ async def upload_job_checklist_document(
         filename=upload.filename,
         content_type=upload.content_type,
     )
+    job_checklist.completed_by_pdf = upload.content_type == "application/pdf"
     job_checklist.document_link = file_url
     db.add(
         MediaDocument(
@@ -173,7 +175,7 @@ async def upload_job_checklist_document(
         )
     )
     db.commit()
-    return {"message": "Checklist document uploaded", "document_link": file_url}
+    return {"message": "Checklist document uploaded", "document_link": file_url, "completed_by_pdf": job_checklist.completed_by_pdf}
 
 
 @router.get("/{checklist_id}", response_model=ChecklistWithItemsResponse)

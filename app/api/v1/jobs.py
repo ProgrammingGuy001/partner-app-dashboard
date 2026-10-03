@@ -518,6 +518,7 @@ def get_job_checklist_items(
             "name": checklist.name,
             "description": checklist.description,
             "document_link": job_checklist.document_link if job_checklist else None,
+            "completed_by_pdf": bool(job_checklist and job_checklist.completed_by_pdf),
             "template_available": bool(
                 job_checklist and checklist_pdf_template(checklist.name)
             ),
@@ -677,6 +678,7 @@ async def upload_checklist_document(
         filename=upload.filename,
         content_type=upload.content_type,
     )
+    job_checklist.completed_by_pdf = upload.content_type == "application/pdf"
     job_checklist.document_link = file_url
     db.add(
         MediaDocument(
@@ -687,7 +689,7 @@ async def upload_checklist_document(
         )
     )
     db.commit()
-    return {"message": "Checklist document uploaded", "document_link": file_url}
+    return {"message": "Checklist document uploaded", "document_link": file_url, "completed_by_pdf": job_checklist.completed_by_pdf}
 
 
 # Save checklist-level document link
@@ -704,6 +706,7 @@ def update_checklist_document(
 
     job_checklist = get_assigned_job_checklist(db, job_id, checklist_id)
 
+    job_checklist.completed_by_pdf = False
     job_checklist.document_link = body.document_link
     db.commit()
 

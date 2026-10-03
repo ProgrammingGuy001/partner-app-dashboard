@@ -12,6 +12,7 @@ class UserBase(BaseModel):
     isApproved:bool=False
     is_superadmin:bool=False
     is_dev:bool=False
+    is_city_ops:bool=False
     name: str | None = None
 
 class UserCreate(UserBase):

@@ -112,6 +112,7 @@ class ChecklistItemWithStatusResponse(ChecklistItemResponse):
     status: Optional[JobChecklistItemStatusResponse] = None
 
 class ChecklistWithItemsAndStatusResponse(ChecklistResponse):
+    completed_by_pdf: bool = False
     document_link: Optional[str] = None
     template_available: bool = False
     items: List[ChecklistItemWithStatusResponse] = Field(default_factory=list)

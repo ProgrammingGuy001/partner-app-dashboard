@@ -70,6 +70,26 @@ def _build_odoo_transport(url: str | None, context: ssl.SSLContext):
 class OdooService:
     """Service class for interacting with Odoo XML-RPC API"""
 
+    @classmethod
+    def lookup_crm_lead(cls, lead_id: int) -> dict:
+        rows = cls._execute_kw("crm.lead", "read", [[lead_id]], {"fields": [
+            "id", "name", "contact_name", "phone", "street", "street2", "city", "state_id", "zip",
+        ]})
+        if not rows:
+            raise HTTPException(status_code=404, detail="CRM lead not found")
+        lead = rows[0]
+        state = lead.get("state_id")
+        return {
+            "crm_lead_id": lead["id"],
+            "customer_name": lead.get("contact_name") or lead.get("name") or "",
+            "phone": lead.get("phone") or "",
+            "address_line_1": lead.get("street") or "",
+            "address_line_2": lead.get("street2") or "",
+            "city": lead.get("city") or "",
+            "state": state[1] if isinstance(state, (list, tuple)) else "",
+            "pincode": int(lead["zip"]) if str(lead.get("zip", "")).isdigit() else None,
+        }
+
     # Odoo connection settings from environment
     URL = settings.ODOO_URL
     DB = settings.ODOO_DB

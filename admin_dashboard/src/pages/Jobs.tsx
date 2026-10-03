@@ -183,7 +183,7 @@ const Jobs: React.FC = () => {
     queryFn: () => authAPI.getCurrentUser(),
     staleTime: 1000 * 60 * 5,
   });
-  const isSuperadmin = Boolean(currentUser?.is_superadmin);
+  const isSuperadmin = Boolean(currentUser?.is_superadmin || currentUser?.is_dev || currentUser?.is_city_ops);
   const {
     data: pendingInvoiceData,
     isLoading: pendingInvoicesLoading,

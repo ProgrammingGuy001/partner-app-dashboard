@@ -36,7 +36,7 @@ const Dashboard: React.FC = () => {
     queryFn: () => authAPI.getCurrentUser(),
     staleTime: 5 * 60 * 1000,
   });
-  const isSuperadmin = Boolean(currentUser?.is_superadmin);
+  const isSuperadmin = Boolean((currentUser?.is_superadmin || currentUser?.is_dev || currentUser?.is_city_ops));
   const [payoutPeriod, setPayoutPeriod] = useState<'week' | 'month' | 'quarter' | 'year'>('month');
   const payoutQuery = usePayoutReport({ period: payoutPeriod }, isSuperadmin);
   const stagesQuery = useJobStages(isSuperadmin);

@@ -1,3 +1,6 @@
+from app.utils.admin_scope import is_manager, supervisor_ids
+from app.model.ip import IPAdminAssignment
+from sqlalchemy import or_, select
 from datetime import datetime
 from typing import List, Optional
 
@@ -26,7 +29,7 @@ def _require_admin(current_user=Depends(get_current_user)) -> User:
 
 
 def _require_superadmin(current_user: User = Depends(_require_admin)) -> User:
-    if not current_user.is_superadmin:
+    if not is_manager(current_user):
         raise HTTPException(status_code=403, detail="Only superadmins can review Sunday work requests")
     return current_user
 
@@ -41,6 +44,14 @@ def _load(db: Session, request_id: int) -> SundayWorkRequest:
     if not request:
         raise HTTPException(status_code=404, detail="Sunday work request not found")
     return request
+
+
+def _scope_requests(db, user, query):
+    ids = supervisor_ids(db, user)
+    if ids is not None:
+        query = query.filter(or_(SundayWorkRequest.admin_id.in_(ids), SundayWorkRequest.ip_user_id.in_(
+            select(IPAdminAssignment.ip_id).where(IPAdminAssignment.admin_id.in_(ids)))))
+    return query
 
 
 # ─── IP: request approval to work (check in) on a Sunday ──────────────────────
@@ -132,6 +143,7 @@ def list_sunday_work_requests(
     query = db.query(SundayWorkRequest).options(
         selectinload(SundayWorkRequest.ip_user), selectinload(SundayWorkRequest.admin)
     )
+    query = _scope_requests(db, current_user, query)
     if status_filter:
         query = query.filter(SundayWorkRequest.status == status_filter)
     return (
@@ -149,6 +161,8 @@ def approve_sunday_work_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(_require_superadmin),
 ):
+    if not _scope_requests(db, current_user, db.query(SundayWorkRequest)).filter(SundayWorkRequest.id == request_id).first():
+        raise HTTPException(status_code=404, detail="Sunday request not found in your scope")
     request = _load(db, request_id)
     if request.status != "pending":
         raise HTTPException(status_code=400, detail=f"Request is already {request.status}")
@@ -171,6 +185,8 @@ def reject_sunday_work_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(_require_superadmin),
 ):
+    if not _scope_requests(db, current_user, db.query(SundayWorkRequest)).filter(SundayWorkRequest.id == request_id).first():
+        raise HTTPException(status_code=404, detail="Sunday request not found in your scope")
     request = _load(db, request_id)
     if request.status != "pending":
         raise HTTPException(status_code=400, detail=f"Request is already {request.status}")

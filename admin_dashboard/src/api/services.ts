@@ -90,6 +90,7 @@ export interface BillingData {
 }
 
 export interface Job {
+  crm_lead_id?: number;
   id?: number;
   // Read-only: the server serves the customer's name. Never send this.
   name?: string | null;
@@ -134,8 +135,7 @@ export interface Job {
   site_report_document_link?: string | null;
   drawing_document_link?: string | null;
   sales_order?: string | null;
-  // Optional attendance slot as "HH:MM:SS". When set, check-in opens at slot_start and
-  // closes 30 min later instead of the 10:30 cutoff. slot_end is informational.
+  // Planned visit hours as "HH:MM:SS"; attendance remains available all day.
   slot_start?: string | null;
   slot_end?: string | null;
   user_id?: number | null;
@@ -365,6 +365,7 @@ export interface Customer {
 }
 
 export interface AdminUser {
+  is_city_ops?: boolean;
   id: number;
   email: string;
   isActive: boolean;
@@ -381,6 +382,7 @@ export interface User {
   isApproved: boolean;
   is_superadmin: boolean;
   is_dev: boolean;
+  is_city_ops: boolean;
   name?: string | null;
 }
 
@@ -603,6 +605,8 @@ export const authAPI = {
 
 // Job APIs with pagination support
 export const jobAPI = {
+  lookupCrmLead: (id: number): Promise<SOLookupResult & { crm_lead_id: number }> =>
+    axiosInstance.get(`/jobs/lookup-lead/${id}`).then(res => handleResponse(res)),
   getAll: async (params?: {
     page?: number;
     limit?: number;
@@ -840,7 +844,15 @@ export const adminAPI = {
 
 };
 
+export interface SupervisorRoster {
+  supervisors: { id: number; name: string }[];
+  jobs: { id: number; name: string; admin_assigned: number }[];
+  entries: { id: number; supervisor_id: number; job_id: number; work_date: string; slot_number: number }[];
+}
 export const rosterAPI = {
+  getSupervisors: (params: { date_from: string; date_to: string }): Promise<SupervisorRoster> => axiosInstance.get('/admin/roster/supervisors', { params }).then(res => handleResponse(res)),
+  createSupervisor: (data: { supervisor_id: number; job_id: number; work_date: string; slot_number: number }) => axiosInstance.post('/admin/roster/supervisors', data).then(res => handleResponse(res)),
+  deleteSupervisor: (id: number) => axiosInstance.delete(`/admin/roster/supervisors/${id}`),
   get: (params: { admin_id?: number; date_from: string; date_to: string }): Promise<AdminRoster> =>
     axiosInstance.get('/admin/roster', { params }).then(res => handleResponse(res)),
 
@@ -976,6 +988,8 @@ export const attendanceAPI = {
     phone?: string;
     date_from?: string;
     date_to?: string;
+  time_from?: string;
+  time_to?: string;
     skip?: number;
     limit?: number;
   }): Promise<AttendanceListResponse> =>
@@ -987,6 +1001,8 @@ export const attendanceAPI = {
     admin_id?: number;
     date_from?: string;
     date_to?: string;
+  time_from?: string;
+  time_to?: string;
   }): Promise<void> => {
     const response = await axiosInstance.get<Blob>('/admin/attendance/export', {
       params,
@@ -1040,6 +1056,8 @@ export const adminAttendanceAPI = {
     admin_id?: number;
     date_from?: string;
     date_to?: string;
+  time_from?: string;
+  time_to?: string;
     skip?: number;
     limit?: number;
   }): Promise<AdminAttendanceListResponse & { skip: number; limit: number }> =>
@@ -1268,6 +1286,7 @@ export interface DevUser {
   isApproved: boolean;
   is_superadmin: boolean;
   is_dev: boolean;
+  is_city_ops: boolean;
   created_at?: string | null;
 }
 
@@ -1304,6 +1323,9 @@ export interface DevAuditEntry {
 }
 
 export const devAPI = {
+  removeAccount: (type: "admin" | "ip", id: number, confirmation: string, reason: string) => axiosInstance.delete(`/dev/accounts/${type}/${id}`, { data: { confirmation, reason } }),
+  getSupervisors: (id: number): Promise<{ supervisor_ids: number[] }> => axiosInstance.get(`/dev/users/${id}/supervisors`).then(res => handleResponse(res)),
+  setSupervisors: (id: number, supervisor_ids: number[]) => axiosInstance.put(`/dev/users/${id}/supervisors`, { supervisor_ids }).then(res => handleResponse(res)),
   listUsers: (): Promise<DevUser[]> =>
     axiosInstance.get('/dev/users').then(res => handleResponse(res)),
 
@@ -1321,6 +1343,7 @@ export const devAPI = {
       isActive?: boolean;
       isApproved?: boolean;
       is_superadmin?: boolean;
+      is_city_ops?: boolean;
       name?: string | null;
       email?: string;
     },

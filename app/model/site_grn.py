@@ -25,7 +25,7 @@ class SiteGRN(Base):
     odoo_picking_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     ip_user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ip_user.id"), nullable=True, index=True)
     job_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("jobs.id"), nullable=True, index=True)
-    created_by_admin_id: Mapped[int] = mapped_column(Integer, ForeignKey("admin.id"), nullable=False)
+    created_by_admin_id: Mapped[int] = mapped_column(Integer, ForeignKey("admin.id"), nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
     has_missing: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     odoo_sync_error: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)

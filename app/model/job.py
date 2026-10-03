@@ -113,8 +113,7 @@ class Job(Base):
     latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     geofence_radius: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=100)
-    # Optional attendance slot. When set, check-in opens at slot_start and closes 30 min
-    # later instead of the 10:30 cutoff. slot_end is recorded for the supervisor, not gated.
+    # Planned visit hours; attendance remains available throughout the business day.
     slot_start: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     slot_end: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     start_otp_verified: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -247,6 +246,7 @@ class JobChecklist(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), index=True)
     checklist_id: Mapped[int] = mapped_column(ForeignKey("checklists.id"), index=True)
+    completed_by_pdf: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     document_link: Mapped[Optional[str]] = mapped_column(String, nullable=True)#! why is this needed, as we can get the document link from the checklist item status table
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
 

@@ -73,12 +73,15 @@ def get_payout_analytics(
     month: int = None,
     quarter: int = None,
     week: int = None,
+    admin_ids: list[int] | None = None,
 ):
     """Get payout analytics for the given period."""
     try:
         start_date, end_date = get_date_range(period, year, month, quarter, week)
 
         base_filter = [Job.delivery_date >= start_date, Job.delivery_date <= end_date]
+        if admin_ids is not None:
+            base_filter.append(Job.admin_assigned.in_(admin_ids))
 
         total_jobs = db.query(Job).filter(*base_filter).count()
 
@@ -166,7 +169,7 @@ def get_payout_analytics(
         raise HTTPException(status_code=500, detail="Could not load analytics.") from e
 
 
-def get_job_stage_summary(db: Session):
+def get_job_stage_summary(db: Session, admin_ids: list[int] | None = None):
     """Get job count/payout by stage."""
     try:
         job_stages = (
@@ -178,6 +181,7 @@ def get_job_stage_summary(db: Session):
             )
             .select_from(Job)
             .outerjoin(JobRate, Job.job_rate_id == JobRate.id)
+            .filter(Job.admin_assigned.in_(admin_ids) if admin_ids is not None else True)
             .group_by(Job.status)
             .all()
         )
@@ -196,7 +200,7 @@ def get_job_stage_summary(db: Session):
         raise HTTPException(status_code=500, detail="Could not load the job stage summary.") from e
 
 
-def get_ip_performance(db: Session):
+def get_ip_performance(db: Session, admin_ids: list[int] | None = None):
     """Get all-time IP performance (completed jobs only)."""
     try:
         ip_stats = (
@@ -210,6 +214,7 @@ def get_ip_performance(db: Session):
             .select_from(ip)
             .outerjoin(Job, and_(Job.assigned_ip_id == ip.id, Job.status == "completed"))
             .outerjoin(JobRate, Job.job_rate_id == JobRate.id)
+            .filter(Job.admin_assigned.in_(admin_ids) if admin_ids is not None else True)
             .group_by(ip.id, ip.first_name, ip.last_name)
             .all()
         )

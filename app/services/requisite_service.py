@@ -98,6 +98,7 @@ class RequisiteService:
         db: Session,
         data: SiteRequisiteSubmit,
         user_id: int | None = None,
+        admin_ids: list[int] | None = None,
     ):
         """Submit site requisite with all bucket items."""
         from app.services.odoo_service import OdooService
@@ -155,7 +156,7 @@ class RequisiteService:
         return RequisiteService._sync_to_odoo(db, so_detail)
 
     @staticmethod
-    def retry_odoo_sync(db: Session, so_id: int, user_id: int | None = None) -> SODetail:
+    def retry_odoo_sync(db: Session, so_id: int, user_id: int | None = None, admin_ids: list[int] | None = None) -> SODetail:
         query = (
             db.query(SODetail)
             .options(selectinload(SODetail.site_requisites))
@@ -163,6 +164,9 @@ class RequisiteService:
         )
         if user_id is not None:
             query = query.filter(SODetail.ip_user_id == user_id)
+        if admin_ids is not None:
+            from app.model.job import Job
+            query = query.filter(SODetail.sales_order.in_(db.query(Job.sales_order).filter(Job.admin_assigned.in_(admin_ids))))
         so_detail = query.first()
         if not so_detail:
             raise HTTPException(status_code=404, detail="Requisite not found")
@@ -176,11 +180,15 @@ class RequisiteService:
         limit: int = 50,
         offset: int = 0,
         user_id: int | None = None,
+        admin_ids: list[int] | None = None,
     ) -> List[SODetail]:
         """Get site requisite history. Scoped to user_id when provided."""
         query = db.query(SODetail).options(selectinload(SODetail.site_requisites))
         if user_id is not None:
             query = query.filter(SODetail.ip_user_id == user_id)
+        if admin_ids is not None:
+            from app.model.job import Job
+            query = query.filter(SODetail.sales_order.in_(db.query(Job.sales_order).filter(Job.admin_assigned.in_(admin_ids))))
         return query.order_by(SODetail.created_date.desc()).offset(offset).limit(limit).all()
 
     @staticmethod
@@ -189,10 +197,11 @@ class RequisiteService:
         limit: int = 50,
         offset: int = 0,
         user_id: int | None = None,
+        admin_ids: list[int] | None = None,
     ) -> List[SODetail]:
         from app.services.odoo_service import OdooService
 
-        history = RequisiteService.get_history(db, limit, offset, user_id)
+        history = RequisiteService.get_history(db, limit, offset, user_id, admin_ids)
         states = OdooService.get_repair_order_states([
             item.odoo_repair_order_id
             for item in history
@@ -207,6 +216,7 @@ class RequisiteService:
         db: Session,
         sales_order: str,
         user_id: int | None = None,
+        admin_ids: list[int] | None = None,
     ) -> List[SODetail]:
         """Get all requisites for a sales order. Enforces ownership when user_id is provided."""
         query = (
@@ -216,14 +226,20 @@ class RequisiteService:
         )
         if user_id is not None:
             query = query.filter(SODetail.ip_user_id == user_id)
+        if admin_ids is not None:
+            from app.model.job import Job
+            query = query.filter(SODetail.sales_order.in_(db.query(Job.sales_order).filter(Job.admin_assigned.in_(admin_ids))))
         return query.order_by(SODetail.created_date.desc()).all()
 
     @staticmethod
-    def update_status(db: Session, so_id: int, status: str, user_id: int | None = None):
+    def update_status(db: Session, so_id: int, status: str, user_id: int | None = None, admin_ids: list[int] | None = None):
         """Update SO status."""
         query = db.query(SODetail).filter(SODetail.id == so_id)
         if user_id is not None:
             query = query.filter(SODetail.ip_user_id == user_id)
+        if admin_ids is not None:
+            from app.model.job import Job
+            query = query.filter(SODetail.sales_order.in_(db.query(Job.sales_order).filter(Job.admin_assigned.in_(admin_ids))))
         so_detail = query.first()
         if so_detail:
             so_detail.status = status
@@ -240,6 +256,7 @@ class RequisiteService:
         db: Session,
         so_id: int,
         user_id: int | None = None,
+        admin_ids: list[int] | None = None,
     ) -> bytes:
         """Generate a Repair Order xlsx for a specific requisite record."""
         from openpyxl import load_workbook
@@ -251,6 +268,9 @@ class RequisiteService:
         )
         if user_id is not None:
             query = query.filter(SODetail.ip_user_id == user_id)
+        if admin_ids is not None:
+            from app.model.job import Job
+            query = query.filter(SODetail.sales_order.in_(db.query(Job.sales_order).filter(Job.admin_assigned.in_(admin_ids))))
         so_detail = query.first()
         if not so_detail:
             raise HTTPException(status_code=404, detail="Requisite not found")

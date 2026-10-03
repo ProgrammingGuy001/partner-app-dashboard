@@ -234,7 +234,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
   });
   // Superadmins never run a site, so they aren't offerable as the assignee.
   const supervisors = useMemo(
-    () => (admins ?? []).filter((a) => !a.is_superadmin),
+    () => (admins ?? []).filter((a) => !a.is_superadmin && !a.is_city_ops && !a.is_dev),
     [admins],
   );
 
@@ -333,7 +333,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
     if (!DRAWING_REQUIRED_TYPES.has(normalizedJobType)) {
       setValue("drawing_document_link", "", { shouldValidate: true });
     }
-    // Installation keeps the 10:30 cutoff and GRN is not a site visit: neither is slotted.
+    // Installation spans the day and GRN is not a site visit: neither is slotted.
     if (SLOTLESS_TYPES.has(normalizedJobType)) {
       setValue("slot_start", "", { shouldValidate: true });
       setValue("slot_end", "", { shouldValidate: true });
@@ -424,6 +424,28 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
       selectedCustomer.pincode ? String(selectedCustomer.pincode) : "",
       { shouldValidate: true },
     );
+  };
+
+  const [leadLookup, setLeadLookup] = useState("");
+  const [loadedLeadId, setLoadedLeadId] = useState<number>();
+  const [leadLoading, setLeadLoading] = useState(false);
+  const [leadError, setLeadError] = useState("");
+  const handleLeadLookup = async () => {
+    const id = Number(leadLookup);
+    if (!Number.isSafeInteger(id) || id <= 0) return;
+    setLeadLoading(true);
+    setLeadError("");
+    setLoadedLeadId(undefined);
+    try {
+      const result = await jobAPI.lookupCrmLead(id);
+      applySalesOrder("", result);
+      setSoResult(null);
+      setLoadedLeadId(result.crm_lead_id);
+    } catch (error) {
+      setLeadError(getApiErrorMessage(error, "Could not load CRM lead"));
+    } finally {
+      setLeadLoading(false);
+    }
   };
 
   const applySalesOrder = (soNumber: string, result: SOLookupResult) => {
@@ -532,6 +554,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
     }
     try {
       const payload: JobUpdate = {
+        ...(!job && loadedLeadId ? { crm_lead_id: loadedLeadId } : {}),
         customer_id: data.customer_id
           ? parseInt(data.customer_id, 10)
           : undefined,
@@ -639,6 +662,18 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                 {...register("sales_order")}
               />
             </div>
+
+            {!job && <div className="space-y-2 rounded-lg border p-4">
+              <Label htmlFor="crm-lead-id">Odoo CRM lead ID</Label>
+              <div className="flex gap-2">
+                <Input id="crm-lead-id" type="number" min="1" step="1" value={leadLookup}
+                  onChange={e => { setLeadLookup(e.target.value); setLoadedLeadId(undefined); }} />
+                <Button type="button" variant="outline" disabled={leadLoading || !leadLookup}
+                  onClick={handleLeadLookup}>{leadLoading ? "Loading…" : "Load lead"}</Button>
+              </div>
+              {loadedLeadId && <p role="status" className="text-sm text-primary">Lead #{loadedLeadId} loaded. Complete the job details below.</p>}
+              {leadError && <p role="alert" className="text-sm text-destructive">{leadError}</p>}
+            </div>}
 
             {/* Its own box and its own state: this one searches Odoo, it is not the
                 field above. A hit fills the field above along with the customer. */}
@@ -972,9 +1007,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Check-in opens at the slot start and closes 30 minutes
-                    later. Installation and GRN jobs use the 10:30 AM cutoff
-                    instead.
+                    Slots plan the visit. Attendance can be recorded at any time on the scheduled day.
                   </p>
                   {(errors.slot_start || errors.slot_end) && (
                     <p className="text-xs text-destructive">

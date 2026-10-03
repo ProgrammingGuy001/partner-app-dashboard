@@ -39,7 +39,7 @@ const ChecklistDocumentUpload = ({ checklistId, jobId }) => {
 
   return (
     <Card className="mt-6 gap-4">
-      <SectionTitle title="Checklist document" subtitle="Upload the completed on-site copy" />
+      <SectionTitle title="Checklist document" subtitle="Upload a completed PDF to replace in-app checklist filling" />
 
       <View className="gap-4">
         {/* File selected — show confirmation before upload */}

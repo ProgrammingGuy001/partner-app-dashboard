@@ -1,3 +1,5 @@
+from app.utils.admin_scope import is_global, is_manager, supervisor_ids, require_supervisor
+from app.services.odoo_service import OdooService
 from fastapi import (
     APIRouter,
     Depends,
@@ -91,7 +93,7 @@ router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
 
 def _scoped_admin_id(current_user: models.User) -> int | None:
-    return None if getattr(current_user, "is_superadmin", False) else current_user.id
+    return None if is_global(current_user) else current_user.id
 
 
 def _attach_generated_completion_document(
@@ -143,6 +145,14 @@ def _attach_generated_completion_document(
     setattr(job, f"{document_type}_document_link", file_url)
     db.commit()
     return {"url": file_url, "filename": document.filename}
+
+
+@router.get("/lookup-lead/{lead_id}")
+def lookup_crm_lead(
+    lead_id: Annotated[int, Path(gt=0)],
+    current_user: models.User = Depends(get_current_user),
+):
+    return OdooService.lookup_crm_lead(lead_id)
 
 
 @router.get("/lookup-so/{so_number}/matches", response_model=List[dict])
@@ -206,7 +216,7 @@ def create_new_job(
     current_user: models.User = Depends(get_current_user),
 ):
     """Create a job. Regular admins submit it for superadmin approval before it becomes active."""
-    is_superadmin = getattr(current_user, "is_superadmin", False)
+    is_superadmin = is_manager(current_user)
     return create_job(db, job, user_id=current_user.id, is_superadmin=is_superadmin)
 
 
@@ -221,8 +231,7 @@ def read_jobs(
     current_user: models.User = Depends(get_current_user),
 ):
     """Get all jobs with pagination. Superadmins see all jobs, regular admins see only their jobs."""
-    is_superadmin = getattr(current_user, "is_superadmin", False)
-    user_id = None if is_superadmin else current_user.id
+    user_id = _scoped_admin_id(current_user)
     return get_all_jobs(
         db,
         skip=skip,
@@ -245,6 +254,8 @@ def get_customers(
 ):
     """Get customers for job creation dropdown."""
     query = db.query(models.Customer)
+    if getattr(current_user, "is_city_ops", False):
+        query = query.filter(models.Customer.id.in_(db.query(models.Job.customer_id).filter(models.Job.admin_assigned.in_(supervisor_ids(db, current_user)))))
     if search:
         q = f"%{search.strip()}%"
         query = query.filter(
@@ -269,7 +280,7 @@ def list_pending_approval_jobs(
     current_user: models.User = Depends(get_current_user),
 ):
     """List all jobs pending superadmin approval."""
-    if not getattr(current_user, "is_superadmin", False):
+    if not is_manager(current_user):
         raise HTTPException(
             status_code=403, detail="Only superadmins can view pending approval jobs"
         )
@@ -281,6 +292,7 @@ def list_pending_approval_jobs(
         sa_select(Job)
         .options(*JOB_LOAD_OPTIONS)
         .where(Job.status == "pending_approval")
+        .where(Job.admin_assigned.in_(supervisor_ids(db, current_user)) if not is_global(current_user) else True)
         .order_by(Job.created_at.desc())
         .offset(offset)
         .limit(limit)
@@ -295,10 +307,11 @@ def approve_job_creation_route(
     current_user: models.User = Depends(get_current_user),
 ):
     """Superadmin approves a pending job, making it active."""
-    if not getattr(current_user, "is_superadmin", False):
+    if not is_manager(current_user):
         raise HTTPException(
             status_code=403, detail="Only superadmins can approve job creation"
         )
+    get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
     return approve_job_creation(db, job_id, admin_id=current_user.id)
 
 
@@ -388,10 +401,11 @@ def reject_job_creation_route(
     current_user: models.User = Depends(get_current_user),
 ):
     """Superadmin rejects a pending job with an optional reason."""
-    if not getattr(current_user, "is_superadmin", False):
+    if not is_manager(current_user):
         raise HTTPException(
             status_code=403, detail="Only superadmins can reject job creation"
         )
+    get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
     return reject_job_creation(db, job_id, reason, admin_id=current_user.id)
 
 
@@ -447,7 +461,9 @@ def update_existing_job(
 ):
     """Update a job; roster sync validates the IP's dates and slots."""
     get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
-    is_superadmin = getattr(current_user, "is_superadmin", False)
+    if job_update.admin_assigned is not None:
+        require_supervisor(db, current_user, job_update.admin_assigned)
+    is_superadmin = is_manager(current_user)
     return update_job(
         db, job_id, job_update, admin_id=current_user.id, is_superadmin=is_superadmin
     )
@@ -461,7 +477,7 @@ def delete_existing_job(
 ):
     """Delete a job and unassign its IP."""
     get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
-    is_superadmin = getattr(current_user, "is_superadmin", False)
+    is_superadmin = is_manager(current_user)
     return delete_job(db, job_id, admin_id=current_user.id, is_superadmin=is_superadmin)
 
 
@@ -476,7 +492,7 @@ def request_start_otp(
     current_user: models.User = Depends(get_current_user),
 ):
     """Send OTP to customer phone for job start verification"""
-    is_superadmin = getattr(current_user, "is_superadmin", False)
+    is_superadmin = is_manager(current_user)
     job = validate_job_start(
         db,
         job_id,
@@ -514,7 +530,7 @@ def verify_start_otp_and_start(
         if not CustomerOTPService.verify_start_otp(db, job_id, otp_data.otp):
             raise HTTPException(status_code=400, detail="Invalid or expired OTP")
 
-    is_superadmin = getattr(current_user, "is_superadmin", False)
+    is_superadmin = is_manager(current_user)
     return start_job(
         db,
         job_id,
@@ -565,7 +581,7 @@ def verify_end_otp_and_finish(
             db,
             job_id,
             admin_id=current_user.id,
-            is_superadmin=getattr(current_user, "is_superadmin", False),
+            is_superadmin=is_manager(current_user),
             handover_document_link=otp_data.handover_document_link,
             ncr_document_link=otp_data.ncr_document_link,
             project_report_document_link=otp_data.project_report_document_link,
@@ -574,7 +590,7 @@ def verify_end_otp_and_finish(
         if not CustomerOTPService.verify_end_otp(db, job_id, otp_data.otp):
             raise HTTPException(status_code=400, detail="Invalid or expired OTP")
 
-    is_superadmin = getattr(current_user, "is_superadmin", False)
+    is_superadmin = is_manager(current_user)
     return finish_job(
         db,
         job_id,
@@ -594,7 +610,7 @@ def verify_end_otp_and_finish(
 def _require_superadmin(
     current_user: models.User = Depends(get_current_user),
 ) -> models.User:
-    if not getattr(current_user, "is_superadmin", False):
+    if not is_manager(current_user):
         raise HTTPException(
             status_code=403, detail="Only superadmins can review job approval requests"
         )
@@ -653,7 +669,9 @@ def list_pending_job_approval_requests(
             selectinload(JobApprovalRequest.job),
             selectinload(JobApprovalRequest.requested_by),
         )
+        .join(models.Job, models.Job.id == JobApprovalRequest.job_id)
         .filter(JobApprovalRequest.status == "pending")
+        .filter(models.Job.admin_assigned.in_(supervisor_ids(db, current_user)) if not is_global(current_user) else True)
         .order_by(JobApprovalRequest.requested_at.desc())
         .all()
     )
@@ -672,7 +690,7 @@ def create_job_approval_request(
     request that could never be approved. A superadmin needs no second approver, so their
     own request is approved and executed in this same call.
     """
-    is_superadmin = getattr(current_user, "is_superadmin", False)
+    is_superadmin = is_manager(current_user)
     admin_id = _scoped_admin_id(current_user)
     if data.action == "start":
         validate_job_start(db, job_id, admin_id=admin_id, is_superadmin=is_superadmin)
@@ -758,6 +776,7 @@ def approve_job_approval_request(
 ):
     """Approve the request and perform the start/finish it was raised for."""
     request = _load_approval_request(db, request_id)
+    get_job_by_id(db, request.job_id, user_id=_scoped_admin_id(current_user))
     if request.status != "pending":
         raise HTTPException(
             status_code=400, detail=f"Request is already {request.status}"
@@ -785,6 +804,7 @@ def reject_job_approval_request(
 ):
     """Reject the request, leaving the job untouched."""
     request = _load_approval_request(db, request_id)
+    get_job_by_id(db, request.job_id, user_id=_scoped_admin_id(current_user))
     if request.status != "pending":
         raise HTTPException(
             status_code=400, detail=f"Request is already {request.status}"
@@ -816,7 +836,7 @@ def start_existing_job(
             status_code=400,
             detail="This job requires OTP verification. Use /request-start-otp then /verify-start-otp",
         )
-    is_superadmin = getattr(current_user, "is_superadmin", False)
+    is_superadmin = is_manager(current_user)
     return start_job(
         db,
         job_id,
@@ -835,7 +855,7 @@ def pause_existing_job(
 ):
     """Pause a job. Changes status to 'paused' and tracks paused_date. Logs the action with optional notes."""
     get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
-    is_superadmin = getattr(current_user, "is_superadmin", False)
+    is_superadmin = is_manager(current_user)
     return pause_job(
         db,
         job_id,
@@ -860,7 +880,7 @@ def finish_existing_job(
             status_code=400,
             detail="This job requires OTP verification. Use /request-end-otp then /verify-end-otp",
         )
-    is_superadmin = getattr(current_user, "is_superadmin", False)
+    is_superadmin = is_manager(current_user)
     return finish_job(
         db,
         job_id,
@@ -1077,11 +1097,12 @@ def download_invoice_bill(
     current_user: models.User = Depends(get_current_user),
 ):
     """Download approved invoice bill using the project billing template."""
+    get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
     xlsx_bytes = BillingService.generate_invoice_xlsx(
         db,
         job_id,
         admin_id=current_user.id,
-        is_superadmin=getattr(current_user, "is_superadmin", False),
+        is_superadmin=is_manager(current_user),
     )
     filename = f"billing_invoice_{job_id}.xlsx"
     return Response(
@@ -1101,11 +1122,12 @@ def download_invoice_request_bill(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    get_job_by_id(db, job_id, user_id=_scoped_admin_id(current_user))
     xlsx_bytes = BillingService.generate_invoice_xlsx(
         db,
         job_id,
         admin_id=current_user.id,
-        is_superadmin=getattr(current_user, "is_superadmin", False),
+        is_superadmin=is_manager(current_user),
         invoice_request_id=invoice_request_id,
     )
     return Response(
@@ -1126,9 +1148,7 @@ def list_pending_invoice_requests(
     """List all pending invoice requests visible to the current admin."""
     from app.model.invoice_request import InvoiceRequest
 
-    is_superadmin = getattr(current_user, "is_superadmin", False)
-
-    if is_superadmin:
+    if is_global(current_user):
         reqs = db.query(InvoiceRequest).filter(InvoiceRequest.status == "pending").all()
     else:
         # Admins see pending requests for jobs they own
@@ -1137,7 +1157,7 @@ def list_pending_invoice_requests(
             .join(models.Job, InvoiceRequest.job_id == models.Job.id)
             .filter(
                 InvoiceRequest.status == "pending",
-                models.Job.admin_assigned == current_user.id,
+                models.Job.admin_assigned.in_(supervisor_ids(db, current_user)),
             )
             .all()
         )

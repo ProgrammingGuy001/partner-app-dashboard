@@ -1,3 +1,4 @@
+from app.utils.admin_scope import supervisor_ids, is_global
 import logging
 from datetime import datetime, timezone
 from typing import List
@@ -9,6 +10,7 @@ from app.api.deps import get_current_user
 from app.database import get_db
 from app.model.site_grn import GRNPackage, SiteGRN
 from app.model.user import User
+from app.model.job import Job
 from app.schemas.site_grn import (
     GRNCreate,
     GRNResponse,
@@ -184,6 +186,14 @@ def create_grn(
     db: Session = Depends(get_db),
     current_user: User = Depends(_require_admin),
 ):
+    if getattr(current_user, "is_city_ops", False):
+        from app.crud.job import get_job_by_id
+        from app.utils.ip_assignment import is_admin_allowed_for_ip
+        if not data.job_id:
+            raise HTTPException(status_code=422, detail="City Ops must select a mapped job")
+        get_job_by_id(db, data.job_id, user_id=current_user.id)
+        if data.ip_user_id and not is_admin_allowed_for_ip(db, data.ip_user_id, current_user.id):
+            raise HTTPException(status_code=403, detail="IP is outside your mapped supervisors")
     if not data.assign_to_self:
         from app.model.ip import ip as IPUser
         if not db.query(IPUser.id).filter(IPUser.id == data.ip_user_id).first():
@@ -290,6 +300,8 @@ def list_grns(
             selectinload(SiteGRN.job),
         )
     )
+    if getattr(current_user, "is_city_ops", False):
+        query = query.filter(SiteGRN.job_id.in_(db.query(Job.id).filter(Job.admin_assigned.in_(supervisor_ids(db, current_user)))))
     if job_id is not None:
         query = query.filter(SiteGRN.job_id == job_id)
     return query.order_by(SiteGRN.created_at.desc()).offset(offset).limit(limit).all()
@@ -304,7 +316,7 @@ def get_job_paperwork_as_supervisor(
     """The SO, RO and GRNs behind a GRN job, as its supervisor sees them."""
     from app.crud.job import get_job_by_id
 
-    job = get_job_by_id(db, job_id, user_id=None if current_user.is_superadmin else current_user.id)
+    job = get_job_by_id(db, job_id, user_id=None if is_global(current_user) else current_user.id)
     return _job_paperwork(db, job)
 
 
@@ -317,6 +329,11 @@ def get_grn(
     current_user: User = Depends(_require_admin),
 ):
     grn = _load_grn(db, grn_id)
+    if getattr(current_user, "is_city_ops", False):
+        from app.crud.job import get_job_by_id
+        if not grn.job_id:
+            raise HTTPException(status_code=403, detail="GRN is not linked to a mapped job")
+        get_job_by_id(db, grn.job_id, user_id=current_user.id)
     return grn
 
 
@@ -327,6 +344,11 @@ def retry_grn_sync(
     current_user: User = Depends(_require_admin),
 ):
     grn = _load_grn(db, grn_id)
+    if getattr(current_user, "is_city_ops", False):
+        from app.crud.job import get_job_by_id
+        if not grn.job_id:
+            raise HTTPException(status_code=403, detail="GRN is not linked to a mapped job")
+        get_job_by_id(db, grn.job_id, user_id=current_user.id)
     if grn.status == "pending":
         raise HTTPException(status_code=409, detail="Submit the GRN before retrying Odoo sync")
     _sync_grn_to_odoo(grn)
@@ -342,6 +364,11 @@ def submit_grn_as_supervisor(
     current_user: User = Depends(_require_admin),
 ):
     grn = _load_grn(db, grn_id)
+    if getattr(current_user, "is_city_ops", False):
+        from app.crud.job import get_job_by_id
+        if not grn.job_id:
+            raise HTTPException(status_code=403, detail="GRN is not linked to a mapped job")
+        get_job_by_id(db, grn.job_id, user_id=current_user.id)
     _complete_grn(db, grn, data)
     return _load_grn(db, grn_id)
 

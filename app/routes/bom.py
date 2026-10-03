@@ -1,3 +1,4 @@
+from app.utils.admin_scope import supervisor_ids, require_sales_order
 import logging
 from typing import Annotated, List, Literal
 
@@ -30,6 +31,7 @@ def submit_site_requisite(
     """
     try:
         logger.info(f"[BOM Submit] Admin User: {current_user.email}, SO: {data.sales_order}, Items: {len(data.items)}")
+        require_sales_order(db, current_user, data.sales_order)
         result = RequisiteService.submit_site_requisite(db, data)
         logger.info(f"[BOM Submit] Admin Success - SO ID: {result.id}")
         return result
@@ -52,7 +54,7 @@ def get_requisite_history(
     """
     try:
         logger.info(f"[BOM History] Fetching history for Admin user: {current_user.email}")
-        history = RequisiteService.get_history(db, limit, offset)
+        history = RequisiteService.get_history(db, limit, offset, admin_ids=supervisor_ids(db, current_user) if getattr(current_user, "is_city_ops", False) else None)
         logger.info(f"[BOM History] Admin Returned {len(history)} records")
         return history
     except Exception as e:
@@ -69,7 +71,7 @@ def refresh_requisite_history(
 ):
     """Refresh and return the raw repair.order state from Odoo."""
     try:
-        return RequisiteService.get_history_with_odoo_states(db, limit, offset)
+        return RequisiteService.get_history_with_odoo_states(db, limit, offset, admin_ids=supervisor_ids(db, current_user) if getattr(current_user, "is_city_ops", False) else None)
     except HTTPException:
         raise
     except Exception as exc:
@@ -82,7 +84,7 @@ def retry_requisite_sync(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return RequisiteService.retry_odoo_sync(db, so_id)
+    return RequisiteService.retry_odoo_sync(db, so_id, admin_ids=supervisor_ids(db, current_user) if getattr(current_user, "is_city_ops", False) else None)
 
 @router.get("/history/by-sales-order/{sales_order}", response_model=List[SODetailResponse])
 def get_requisites_by_sales_order(
@@ -94,7 +96,7 @@ def get_requisites_by_sales_order(
     Get all requisites for a specific sales order (Admin) — may return multiple records
     """
     try:
-        results = RequisiteService.get_history_by_sales_order(db, sales_order)
+        results = RequisiteService.get_history_by_sales_order(db, sales_order, admin_ids=supervisor_ids(db, current_user) if getattr(current_user, "is_city_ops", False) else None)
         return results
     except Exception as e:
         logger.exception("Error")
@@ -111,7 +113,7 @@ def update_requisite_status(
     Update site requisite status (Admin)
     """
     try:
-        result = RequisiteService.update_status(db, so_id, status)
+        result = RequisiteService.update_status(db, so_id, status, admin_ids=supervisor_ids(db, current_user) if getattr(current_user, "is_city_ops", False) else None)
         if not result:
             raise HTTPException(status_code=404, detail="SO not found")
         return {"message": "Status updated successfully", "data": result}
@@ -133,7 +135,7 @@ def download_repair_order(
     try:
         logger.info(f"[BOM Download Admin] Admin: {current_user.email}, SO ID: {so_id}")
 
-        xlsx_bytes = RequisiteService.generate_repair_order_xlsx(db, so_id)
+        xlsx_bytes = RequisiteService.generate_repair_order_xlsx(db, so_id, admin_ids=supervisor_ids(db, current_user) if getattr(current_user, "is_city_ops", False) else None)
 
         filename = f"repair_order_{so_id}.xlsx"
         return Response(

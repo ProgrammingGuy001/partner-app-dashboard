@@ -152,7 +152,7 @@ export default function JobWorkspace() {
           ) : job.status === "pending_approval" ? (
             <>
               <p className="mt-3 text-sm text-muted-foreground">A superadmin must approve this job before work can start.</p>
-              {user?.is_superadmin && <Button asChild className="mt-5 w-full"><Link to="/dashboard/jobs#job-approvals">Review pending jobs</Link></Button>}
+              {(user?.is_superadmin || user?.is_dev || user?.is_city_ops) && <Button asChild className="mt-5 w-full"><Link to="/dashboard/jobs#job-approvals">Review pending jobs</Link></Button>}
             </>
           ) : job.status === "creation_rejected" ? (
             <>
@@ -237,7 +237,7 @@ export default function JobWorkspace() {
         </CardContent>
       </Card>}
 
-      {editing && <Suspense fallback={<p role="status">Opening job form…</p>}><JobFormModal job={job} onClose={() => setEditing(false)} onSuccess={handleSuccess} isSuperadmin={Boolean(user?.is_superadmin)} /></Suspense>}
+      {editing && <Suspense fallback={<p role="status">Opening job form…</p>}><JobFormModal job={job} onClose={() => setEditing(false)} onSuccess={handleSuccess} isSuperadmin={Boolean((user?.is_superadmin || user?.is_dev || user?.is_city_ops))} /></Suspense>}
 
       {modalTab ? (
         <JobActionsModal
@@ -245,7 +245,7 @@ export default function JobWorkspace() {
           initialTab={modalTab}
           onClose={() => setModalTab(null)}
           onSuccess={handleSuccess}
-          isSuperadmin={Boolean(user?.is_superadmin)}
+          isSuperadmin={Boolean((user?.is_superadmin || user?.is_dev || user?.is_city_ops))}
         />
       ) : null}
     </div>

@@ -20,7 +20,7 @@ from app.model.attendance import DailyAttendance
 from app.model.dev_audit_log import DevAuditLog
 from app.model.ip import ip
 from app.model.job import Job
-from app.model.user import User
+from app.model.user import User, CityOpsSupervisor
 from app.utils.attendance_policy import ATTENDANCE_TIMEZONE, attendance_business_date
 from app.utils.geo import geofence_status, nearest_job_status
 from app.utils.rate_limiter import limiter
@@ -59,6 +59,7 @@ def _serialize(user: User) -> dict:
         "isApproved": bool(user.is_approved),
         "is_superadmin": bool(user.is_superadmin),
         "is_dev": bool(user.is_dev),
+        "is_city_ops": bool(user.is_city_ops),
         "created_at": user.created_at,
     }
 
@@ -71,6 +72,7 @@ class DevUserResponse(BaseModel):
     isApproved: bool
     is_superadmin: bool
     is_dev: bool
+    is_city_ops: bool
     created_at: datetime | None = None
 
 
@@ -79,6 +81,7 @@ class DevUserCreate(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     password: str = Field(min_length=8, max_length=128)
     is_superadmin: bool = False
+    is_city_ops: bool = False
 
     @field_validator("email", mode="before")
     @classmethod
@@ -90,6 +93,7 @@ class DevUserUpdate(BaseModel):
     isActive: bool | None = None
     isApproved: bool | None = None
     is_superadmin: bool | None = None
+    is_city_ops: bool | None = None
     name: str | None = Field(default=None, max_length=255)
     email: EmailStr | None = None
 
@@ -138,6 +142,8 @@ def create_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_dev),
 ):
+    if body.is_superadmin and body.is_city_ops:
+        raise HTTPException(status_code=422, detail="Choose either City Ops or Superadmin")
     if get_user_by_email(db, body.email):
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -148,6 +154,7 @@ def create_user(
         is_active=True,
         is_approved=True,
         is_superadmin=body.is_superadmin,
+        is_city_ops=body.is_city_ops,
         is_dev=False,
     )
     db.add(user)
@@ -172,6 +179,8 @@ def update_user(
     if not changes:
         return _serialize(target)
 
+    if changes.get("is_city_ops", target.is_city_ops) and (changes.get("is_superadmin", target.is_superadmin) or target.is_dev):
+        raise HTTPException(status_code=422, detail="City Ops cannot also be Superadmin or Dev")
     deactivating = changes.get("isActive") is False
     previous_email = target.email
 
@@ -196,6 +205,8 @@ def update_user(
         target.is_approved = changes["isApproved"]
     if "is_superadmin" in changes:
         target.is_superadmin = changes["is_superadmin"]
+    if "is_city_ops" in changes:
+        target.is_city_ops = changes["is_city_ops"]
     if "name" in changes:
         target.name = changes["name"].strip() if changes["name"] else None
     if renaming_login:
@@ -599,3 +610,94 @@ def get_audit_log(
         }
         for entry in entries
     ]
+
+
+class CityOpsMapping(BaseModel):
+    supervisor_ids: list[int] = Field(max_length=500)
+
+
+@router.get("/users/{user_id}/supervisors")
+def get_city_ops_supervisors(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_dev)):
+    _get_target(db, user_id)
+    return {"supervisor_ids": [row.supervisor_id for row in db.query(CityOpsSupervisor).filter_by(city_ops_id=user_id)]}
+
+
+@router.put("/users/{user_id}/supervisors")
+def set_city_ops_supervisors(user_id: int, body: CityOpsMapping, db: Session = Depends(get_db), current_user: User = Depends(require_dev)):
+    target = _get_target(db, user_id)
+    if not target.is_city_ops:
+        raise HTTPException(status_code=422, detail="Select a City Ops account")
+    ids = set(body.supervisor_ids)
+    supervisors = db.query(User).filter(User.id.in_(ids)).all()
+    if len(supervisors) != len(ids) or any(u.is_superadmin or u.is_dev or u.is_city_ops or not u.is_active or not u.is_approved for u in supervisors):
+        raise HTTPException(status_code=422, detail="Select active, approved supervisors only")
+    db.query(CityOpsSupervisor).filter_by(city_ops_id=user_id).delete()
+    db.add_all(CityOpsSupervisor(city_ops_id=user_id, supervisor_id=id) for id in ids)
+    log_dev_action(db, current_user, "map_city_ops", target.email, str(sorted(ids)))
+    db.commit()
+    return {"supervisor_ids": sorted(ids)}
+
+
+class AccountRemoval(BaseModel):
+    confirmation: str = Field(min_length=1, max_length=255)
+    reason: str = Field(min_length=3, max_length=500)
+
+
+@router.delete("/accounts/{subject_type}/{subject_id}")
+def remove_account(subject_type: Literal["admin", "ip"], subject_id: int, body: AccountRemoval,
+                   db: Session = Depends(get_db), current_user: User = Depends(require_dev)):
+    """Remove an account and owned records, retaining jobs and an audit trail."""
+    from sqlalchemy import delete, update, or_
+    from app.database import Base
+    from app.model.refresh_token import RefreshToken
+    from app.model.media_document import MediaDocument
+    from app.model.roster import JobRosterEntry, SupervisorRosterEntry
+    from app.model.sunday_work_request import SundayWorkRequest
+    from app.model.ip import IPAdminAssignment, IPFinancial
+    from app.model.otp_session import OTPSession
+    from app.model.user import CityOpsSupervisor
+    from sqlalchemy.exc import IntegrityError
+
+    model = User if subject_type == "admin" else ip
+    target = db.query(model).filter(model.id == subject_id).with_for_update().first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Account not found")
+    label = target.email if subject_type == "admin" else target.phone_number
+    if body.confirmation != label:
+        raise HTTPException(status_code=422, detail="Type the account's email or phone exactly to confirm")
+    if not body.reason.strip():
+        raise HTTPException(status_code=422, detail="A removal reason is required")
+    if subject_type == "admin" and (target.id == current_user.id or target.is_dev):
+        raise HTTPException(status_code=409, detail="Dev accounts cannot be removed")
+    try:
+        if subject_type == "ip":
+            # Clear attendance before roster rows, since attendance references its visit.
+            db.execute(delete(DailyAttendance).where(or_(DailyAttendance.ip_user_id == subject_id, DailyAttendance.phone == label)))
+            db.execute(delete(JobRosterEntry).where(JobRosterEntry.ip_user_id == subject_id))
+            db.execute(delete(SundayWorkRequest).where(SundayWorkRequest.ip_user_id == subject_id))
+            db.execute(delete(IPAdminAssignment).where(IPAdminAssignment.ip_id == subject_id))
+            db.execute(delete(IPFinancial).where(IPFinancial.user_id == subject_id))
+            db.execute(delete(OTPSession).where(OTPSession.ip_user_id == subject_id))
+            db.execute(delete(MediaDocument).where(MediaDocument.owner_type == "ip_user", MediaDocument.owner_id == subject_id))
+        else:
+            db.execute(delete(AdminAttendance).where(AdminAttendance.admin_id == subject_id))
+            db.execute(delete(SupervisorRosterEntry).where(SupervisorRosterEntry.supervisor_id == subject_id))
+            db.execute(delete(SundayWorkRequest).where(SundayWorkRequest.admin_id == subject_id))
+            db.execute(delete(IPAdminAssignment).where(IPAdminAssignment.admin_id == subject_id))
+            db.execute(delete(CityOpsSupervisor).where(or_(CityOpsSupervisor.city_ops_id == subject_id, CityOpsSupervisor.supervisor_id == subject_id)))
+        # Historical jobs/documents stay; nullable account references become unassigned.
+        target_table = model.__table__
+        for table in Base.metadata.sorted_tables:
+            for column in table.columns:
+                if column.nullable and any(fk.column.table is target_table for fk in column.foreign_keys):
+                    db.execute(update(table).where(column == subject_id).values({column.name: None}))
+        subjects = [label] if subject_type == "admin" else [str(subject_id), label]
+        db.execute(delete(RefreshToken).where(RefreshToken.subject.in_(subjects)))
+        log_dev_action(db, current_user, "remove_account", label,
+                       json.dumps({"subject_type": subject_type, "subject_id": subject_id, "reason": body.reason.strip()}))
+        db.execute(delete(model).where(model.id == subject_id))
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Account still has linked records that must be reassigned before removal") from exc
+    return {"message": "Account removed"}
