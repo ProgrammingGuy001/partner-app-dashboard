@@ -202,3 +202,49 @@ def test_job_assignment_uses_date_and_slot_instead_of_global_ip_status():
             excluding_job_id=jobs[1].id,
         )
         assert worker.is_assigned is False
+
+
+def test_job_without_delivery_date_stays_rostered_on_a_rolling_window():
+    from datetime import timedelta
+    from app.crud.job import ROSTER_HORIZON_DAYS, extend_open_job_rosters
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        supervisor = User(email="s@example.com", is_active=True, is_approved=True)
+        worker = ip(phone_number="9000000002", first_name="Ravi", is_id_verified=True)
+        db.add_all([supervisor, worker])
+        db.flush()
+        job = Job(
+            admin_assigned=supervisor.id,
+            assigned_ip_id=worker.id,
+            job_type="installation",
+            status="created",
+            start_date=date(2026, 8, 25),
+        )
+        db.add_all([
+            job,
+            RosterSlotSetting(slot_number=1, start_time=time(10), end_time=time(14)),
+        ])
+        db.flush()
+
+        def dates():
+            return sorted(e.work_date for e in db.query(JobRosterEntry).filter_by(job_id=job.id))
+
+        day1 = datetime(2026, 8, 24, 9, tzinfo=ATTENDANCE_TIMEZONE)
+        with patch("app.crud.job.now_ist", return_value=day1):
+            sync_job_roster_defaults(db, job, supervisor.id)
+        horizon = day1.date() + timedelta(days=ROSTER_HORIZON_DAYS)
+        assert dates()[0] == date(2026, 8, 25) and dates()[-1] == horizon
+
+        # The nightly run pushes the window one day further.
+        with patch("app.crud.job.now_ist", return_value=day1 + timedelta(days=1)):
+            extend_open_job_rosters(db)
+        assert dates()[-1] == horizon + timedelta(days=1)
+
+        # A paused job is not extended.
+        job.status = "paused"
+        db.commit()
+        with patch("app.crud.job.now_ist", return_value=day1 + timedelta(days=2)):
+            extend_open_job_rosters(db)
+        assert dates()[-1] == horizon + timedelta(days=1)

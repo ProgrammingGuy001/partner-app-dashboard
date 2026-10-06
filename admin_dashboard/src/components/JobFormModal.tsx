@@ -111,7 +111,6 @@ const jobSchema = z
     external_ip_name: z.string().optional(),
     external_ip_phone: z.string().optional(),
     start_date: z.string().min(1, "Start Date is required"),
-    delivery_date: z.string().min(1, "Delivery Date is required"),
     drawing_document_link: z.string().optional(),
     slot_start: z.string().optional(),
     slot_end: z.string().optional(),
@@ -158,14 +157,6 @@ const jobSchema = z
         code: z.ZodIssueCode.custom,
         message: "Slot end must be after slot start",
         path: ["slot_end"],
-      });
-    }
-    if (!values.start_date || !values.delivery_date) return;
-    if (new Date(values.delivery_date) < new Date(values.start_date)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Delivery date must be on or after start date",
-        path: ["delivery_date"],
       });
     }
     if (
@@ -271,7 +262,6 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
       external_ip_name: "",
       external_ip_phone: "",
       start_date: "",
-      delivery_date: "",
       drawing_document_link: "",
       slot_start: "",
       slot_end: "",
@@ -372,7 +362,6 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
         external_ip_name: "",
         external_ip_phone: "",
         start_date: job.start_date || "",
-        delivery_date: job.delivery_date || "",
         drawing_document_link: job.drawing_document_link || "",
         // The API sends HH:MM:SS; <input type="time"> wants HH:MM.
         slot_start: job.slot_start?.slice(0, 5) || "",
@@ -430,13 +419,21 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
   const [loadedLeadId, setLoadedLeadId] = useState<number>();
   const [leadLoading, setLeadLoading] = useState(false);
   const [leadError, setLeadError] = useState("");
-  const handleLeadLookup = async () => {
-    const id = Number(leadLookup);
-    if (!Number.isSafeInteger(id) || id <= 0) return;
+  const [leadMatches, setLeadMatches] = useState<{ id: number; name: string; contact_name: string | false }[]>([]);
+  const handleLeadLookup = async (leadId?: number) => {
+    const term = leadLookup.trim();
+    const id = leadId ?? (/^\d+$/.test(term) ? Number(term) : NaN);
     setLeadLoading(true);
     setLeadError("");
     setLoadedLeadId(undefined);
+    setLeadMatches([]);
     try {
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        const matches = await jobAPI.searchCrmLeads(term);
+        if (!matches.length) setLeadError("No CRM lead matches that name");
+        setLeadMatches(matches);
+        return;
+      }
       const result = await jobAPI.lookupCrmLead(id);
       applySalesOrder("", result);
       setSoResult(null);
@@ -588,7 +585,6 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
           ? parseInt(data.assignee.slice(6), 10)
           : undefined,
         start_date: data.start_date,
-        delivery_date: data.delivery_date,
         latitude: data.latitude ?? undefined,
         longitude: data.longitude ?? undefined,
         geofence_radius: data.geofence_radius ?? undefined,
@@ -664,13 +660,25 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
             </div>
 
             {!job && <div className="space-y-2 rounded-lg border p-4">
-              <Label htmlFor="crm-lead-id">Odoo CRM lead ID</Label>
+              <Label htmlFor="crm-lead-id">Odoo CRM lead ID or name</Label>
               <div className="flex gap-2">
-                <Input id="crm-lead-id" type="number" min="1" step="1" value={leadLookup}
-                  onChange={e => { setLeadLookup(e.target.value); setLoadedLeadId(undefined); }} />
-                <Button type="button" variant="outline" disabled={leadLoading || !leadLookup}
-                  onClick={handleLeadLookup}>{leadLoading ? "Loading…" : "Load lead"}</Button>
+                <Input id="crm-lead-id" placeholder="e.g. 1234 or customer name" value={leadLookup}
+                  onChange={e => { setLeadLookup(e.target.value); setLoadedLeadId(undefined); setLeadMatches([]); }}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); if (leadLookup.trim().length >= 2 || /^\d+$/.test(leadLookup.trim())) handleLeadLookup(); } }} />
+                <Button type="button" variant="outline"
+                  disabled={leadLoading || !(leadLookup.trim().length >= 2 || /^\d+$/.test(leadLookup.trim()))}
+                  onClick={() => handleLeadLookup()}>{leadLoading ? "Loading…" : "Find lead"}</Button>
               </div>
+              {leadMatches.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  {leadMatches.map(lead => (
+                    <Button key={lead.id} type="button" variant="ghost" className="justify-start"
+                      onClick={() => handleLeadLookup(lead.id)}>
+                      #{lead.id} · {lead.name}{lead.contact_name ? ` — ${lead.contact_name}` : ""}
+                    </Button>
+                  ))}
+                </div>
+              )}
               {loadedLeadId && <p role="status" className="text-sm text-primary">Lead #{loadedLeadId} loaded. Complete the job details below.</p>}
               {leadError && <p role="alert" className="text-sm text-destructive">{leadError}</p>}
             </div>}
@@ -1383,21 +1391,6 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                   )}
                 </div>
               )}
-
-              <div className="space-y-2">
-                <Label htmlFor="delivery_date">Delivery Date *</Label>
-                <Input
-                  id="delivery_date"
-                  type="date"
-                  {...register("delivery_date")}
-                  aria-invalid={!!errors.delivery_date}
-                />
-                {errors.delivery_date && (
-                  <p className="text-xs text-destructive">
-                    {errors.delivery_date.message}
-                  </p>
-                )}
-              </div>
 
               <div className="space-y-2">
                 <Label htmlFor="start_date">Start Date *</Label>

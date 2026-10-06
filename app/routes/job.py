@@ -148,6 +148,14 @@ def _attach_generated_completion_document(
     return {"url": file_url, "filename": document.filename}
 
 
+@router.get("/search-leads", response_model=List[dict])
+def search_crm_leads(
+    q: Annotated[str, Query(min_length=2, max_length=100)],
+    current_user: models.User = Depends(get_current_user),
+):
+    return OdooService.search_crm_leads(q)
+
+
 @router.get("/lookup-lead/{lead_id}")
 def lookup_crm_lead(
     lead_id: Annotated[int, Path(gt=0)],

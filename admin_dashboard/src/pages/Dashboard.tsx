@@ -97,7 +97,7 @@ const Dashboard: React.FC = () => {
     return [...jobs]
       .sort((a, b) => {
         if (a.id && b.id) return b.id - a.id;
-        return new Date(b.delivery_date).getTime() - new Date(a.delivery_date).getTime();
+        return new Date(b.delivery_date ?? 0).getTime() - new Date(a.delivery_date ?? 0).getTime();
       })
       .slice(0, 5);
   }, [jobsData]);

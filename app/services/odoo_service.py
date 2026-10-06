@@ -90,6 +90,15 @@ class OdooService:
             "pincode": int(lead["zip"]) if str(lead.get("zip", "")).isdigit() else None,
         }
 
+    @classmethod
+    def search_crm_leads(cls, search: str, limit: int = 20) -> List[Dict[str, Any]]:
+        term = search.strip()
+        if len(term) < 2:
+            return []
+        return cls._execute_kw("crm.lead", "search_read", [[
+            "|", "|", ("name", "ilike", term), ("contact_name", "ilike", term), ("partner_name", "ilike", term),
+        ]], {"fields": ["id", "name", "contact_name"], "limit": limit, "order": "id desc"})
+
     # Odoo connection settings from environment
     URL = settings.ODOO_URL
     DB = settings.ODOO_DB

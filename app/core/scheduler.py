@@ -3,6 +3,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from app.services.attendance_autoclose import run_auto_close
 from app.services.visit_notifications import run_visit_notifications
+from app.database import SessionLocal
 from app.utils.attendance_policy import ATTENDANCE_TIMEZONE
 
 logger = logging.getLogger(__name__)
@@ -27,5 +28,26 @@ scheduler.add_job(
     CronTrigger(minute='*/5', timezone=ATTENDANCE_TIMEZONE),
     id='visit_notifications',
     name='Customer visit notices and hour-before reminders',
+    replace_existing=True
+)
+
+
+def run_extend_open_job_rosters() -> None:
+    from app.crud.job import extend_open_job_rosters
+
+    try:
+        with SessionLocal() as db:
+            extend_open_job_rosters(db)
+    except Exception:
+        logger.exception("Roster extension job failed")
+
+
+# Jobs without a delivery date stay rostered until paused or completed: push the
+# rolling window forward a day each night.
+scheduler.add_job(
+    run_extend_open_job_rosters,
+    CronTrigger(hour=0, minute=15, timezone=ATTENDANCE_TIMEZONE),
+    id='extend_open_job_rosters',
+    name='Extend roster for jobs without a delivery date',
     replace_existing=True
 )

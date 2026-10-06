@@ -429,16 +429,32 @@ def sync_job_roster_defaults(
     for entry in old_defaults:
         db.delete(entry)
     db.flush()
+    fill_job_roster_defaults(db, job, created_by_admin_id, notification_state)
 
-    active = job.status in {"created", "in_progress", "paused"}
+
+# Open-ended jobs (no delivery date) are rostered this far ahead; the daily
+# extend_open_job_rosters run keeps the window rolling until the job is paused or completed.
+ROSTER_HORIZON_DAYS = 42
+
+
+def fill_job_roster_defaults(
+    db: Session,
+    job: Job,
+    created_by_admin_id: int | None = None,
+    notification_state: dict | None = None,
+    skip_conflicts: bool = False,
+) -> None:
+    """Add the job's missing default roster rows from today to its end; never deletes."""
+    today = now_ist().date()
+    notification_state = notification_state or {}
     if (
-        not active
+        job.status not in {"created", "in_progress"}
         or not job.assigned_ip_id
         or not job.start_date
-        or not job.delivery_date
     ):
         return
-    if job.delivery_date < job.start_date:
+    end = job.delivery_date or today + timedelta(days=ROSTER_HORIZON_DAYS)
+    if job.delivery_date and end < job.start_date:
         raise HTTPException(
             status_code=422, detail="Delivery date must be on or after start date"
         )
@@ -474,7 +490,7 @@ def sync_job_roster_defaults(
     else:
         selected_slots = slots[:1]
     start = max(today, job.start_date)
-    if job.delivery_date < start:
+    if end < start:
         return
     existing = (
         db.query(JobRosterEntry)
@@ -483,7 +499,7 @@ def sync_job_roster_defaults(
                 JobRosterEntry.job_id == job.id,
                 JobRosterEntry.ip_user_id == job.assigned_ip_id,
             ),
-            JobRosterEntry.work_date.between(start, job.delivery_date),
+            JobRosterEntry.work_date.between(start, end),
         )
         .all()
     )
@@ -502,13 +518,15 @@ def sync_job_roster_defaults(
         raise HTTPException(status_code=409, detail="Assign a supervisor before an IP")
 
     work_date = start
-    while work_date <= job.delivery_date:
+    while work_date <= end:
         for slot in selected_slots:
             slot_start, slot_end = roster_entry_window(job, slot)
             key = (work_date, slot.slot_number)
             if key in job_overrides:
                 continue
             conflict = ip_conflicts.get(key)
+            if conflict and skip_conflicts:
+                continue
             if conflict:
                 raise HTTPException(
                     status_code=409,
@@ -997,6 +1015,8 @@ def start_job(
                 commit=False,
             )
         db_job.status = "in_progress"
+        if prev_status == "paused":
+            fill_job_roster_defaults(db, db_job, admin_id, skip_conflicts=True)
         db.add(
             JobStatusLog(
                 job_id=job_id,
@@ -1047,6 +1067,11 @@ def pause_job(
             )
 
         db_job.status = "paused"
+        # Paused jobs stop holding the roster; today's rows stay (attendance may exist).
+        db.query(JobRosterEntry).filter(
+            JobRosterEntry.job_id == job_id,
+            JobRosterEntry.work_date > now_ist().date(),
+        ).delete(synchronize_session=False)
         db.add(
             JobStatusLog(
                 job_id=job_id,
@@ -1450,3 +1475,19 @@ def get_job_checklist_items_with_status(db: Session, job_id: int, checklist_id: 
         raise HTTPException(
             status_code=500, detail="Could not load the checklist items."
         ) from e
+
+
+def extend_open_job_rosters(db: Session) -> None:
+    """Roll open-ended jobs' default roster forward; a slot another job holds is skipped."""
+    jobs = db.query(Job).filter(
+        Job.delivery_date.is_(None),
+        Job.status.in_(["created", "in_progress"]),
+        Job.assigned_ip_id.isnot(None),
+    ).all()
+    for job in jobs:
+        try:
+            fill_job_roster_defaults(db, job, skip_conflicts=True)
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("Could not extend roster for job %s", job.id)

@@ -79,7 +79,9 @@ def get_payout_analytics(
     try:
         start_date, end_date = get_date_range(period, year, month, quarter, week)
 
-        base_filter = [Job.delivery_date >= start_date, Job.delivery_date <= end_date]
+        # Delivery dates are no longer collected; bucket jobs by when they start.
+        job_date = func.coalesce(Job.start_date, func.date(Job.created_at))
+        base_filter = [job_date >= start_date, job_date <= end_date]
         if admin_ids is not None:
             base_filter.append(Job.admin_assigned.in_(admin_ids))
 

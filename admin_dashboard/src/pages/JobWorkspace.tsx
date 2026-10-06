@@ -107,7 +107,7 @@ export default function JobWorkspace() {
           <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground">
             <span className="inline-flex items-center gap-1.5"><MapPin className="size-4" />{job.city || "Location pending"}</span>
             <span className="inline-flex items-center gap-1.5"><UserRound className="size-4" />{job.assigned_ip ? `${job.assigned_ip.first_name} ${job.assigned_ip.last_name}`.trim() : job.assigned_ip_name || "Partner not assigned"}</span>
-            <span className="inline-flex items-center gap-1.5"><CalendarDays className="size-4" />{job.start_date || "Start date pending"} → {job.delivery_date}</span>
+            <span className="inline-flex items-center gap-1.5"><CalendarDays className="size-4" />{job.start_date || "Start date pending"}{job.delivery_date && ` → ${job.delivery_date}`}</span>
           </div>
           {job.drawing_document_link ? (
             <Button asChild variant="outline" className="mt-5 w-fit">

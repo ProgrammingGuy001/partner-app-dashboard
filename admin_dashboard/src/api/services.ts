@@ -115,7 +115,7 @@ export interface Job {
   assigned_ip?: AssignedIPSummary;
   is_ip_available?: boolean;
   start_date?: string;
-  delivery_date: string;
+  delivery_date?: string | null;
   checklist_ids?: number[];
   job_checklists?: { checklist_id: number }[];
   // Read-only: derived server-side from latitude/longitude. Never send this.
@@ -606,6 +606,8 @@ export const authAPI = {
 
 // Job APIs with pagination support
 export const jobAPI = {
+  searchCrmLeads: (q: string): Promise<{ id: number; name: string; contact_name: string | false }[]> =>
+    axiosInstance.get('/jobs/search-leads', { params: { q } }).then(res => handleResponse(res)),
   lookupCrmLead: (id: number): Promise<SOLookupResult & { crm_lead_id: number }> =>
     axiosInstance.get(`/jobs/lookup-lead/${id}`).then(res => handleResponse(res)),
   getAll: async (params?: {

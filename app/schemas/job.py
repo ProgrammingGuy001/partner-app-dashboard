@@ -45,7 +45,7 @@ class JobBase(BaseModel):
     customer_id: Optional[int] = None
     job_rate_id: Optional[int] = None
     start_date: Optional[date] = None
-    delivery_date: date
+    delivery_date: Optional[date] = None
     latitude: Optional[float] = Field(default=None, ge=-90, le=90)
     longitude: Optional[float] = Field(default=None, ge=-180, le=180)
     geofence_radius: Optional[int] = Field(default=None, ge=10, le=5000)

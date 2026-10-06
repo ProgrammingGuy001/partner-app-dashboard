@@ -21,8 +21,6 @@ import { spacing, typography } from '../../theme/designSystem';
 
 const SiteRequisiteScreen = ({ navigation, route }) => {
   const [salesOrder, setSalesOrder] = useState(route.params?.salesOrder || '');
-  const [cabinetPosition, setCabinetPosition] = useState('');
-  const [allCabinets, setAllCabinets] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -99,10 +97,10 @@ const SiteRequisiteScreen = ({ navigation, route }) => {
 
   const handleFetchBOM = () => {
     const normalizedSalesOrder = salesOrder.trim();
-    const resolvedCabinetPosition = allCabinets ? 'ALL' : cabinetPosition.trim();
+    const resolvedCabinetPosition = 'ALL';
 
-    if (!normalizedSalesOrder || !resolvedCabinetPosition) {
-      setError('Sales order and cabinet position are required');
+    if (!normalizedSalesOrder) {
+      setError('Sales order is required');
       return;
     }
 
@@ -132,7 +130,7 @@ const SiteRequisiteScreen = ({ navigation, route }) => {
   };
 
   const contextMatches = loadedSalesOrder === salesOrder.trim()
-    && loadedCabinetPosition === (allCabinets ? 'ALL' : cabinetPosition.trim());
+    && loadedCabinetPosition === 'ALL';
 
   const filteredBomData = React.useMemo(() => {
     if (!contextMatches) return [];
@@ -198,7 +196,7 @@ const SiteRequisiteScreen = ({ navigation, route }) => {
           <View className="mb-4">
             <Text className="text-lg font-extrabold text-foreground">Select order</Text>
             <Text style={typography.caption} className="mt-1 text-muted-foreground">
-              Choose the sales order and cabinet scope.
+              Choose the sales order. All cabinets are loaded.
             </Text>
           </View>
 
@@ -215,35 +213,6 @@ const SiteRequisiteScreen = ({ navigation, route }) => {
               {fieldErrors.sales_order ? <Text className="text-xs text-destructive">{fieldErrors.sales_order}</Text> : null}
             </View>
 
-            <View className="gap-2">
-              <View className="flex-row items-center justify-between gap-3">
-                <Text className="text-xs font-bold text-muted-foreground uppercase">Cabinet Position</Text>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onPress={() => setAllCabinets((prev) => !prev)}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: allCabinets }}
-                  className={allCabinets ? 'border-primary bg-primary-light' : 'border-border bg-background'}
-                >
-                  <Ionicons
-                    name={allCabinets ? 'checkbox' : 'square-outline'}
-                    size={16}
-                    color={colors.primary}
-                  />
-                  <Text className={`text-xs font-bold ${allCabinets ? 'text-primary' : 'text-muted-foreground'}`}>All cabinets</Text>
-                </Button>
-              </View>
-              <Input
-                value={allCabinets ? 'ALL' : cabinetPosition}
-                onChangeText={setCabinetPosition}
-                editable={!allCabinets}
-                placeholder="Enter position"
-                accessibilityLabel="Cabinet position"
-                className="h-12 rounded-xl bg-background border border-border px-4 text-base font-semibold text-foreground"
-              />
-              {fieldErrors.cabinet_position ? <Text className="text-xs text-destructive">{fieldErrors.cabinet_position}</Text> : null}
-            </View>
           </View>
 
           {error ? (
@@ -324,7 +293,7 @@ const SiteRequisiteScreen = ({ navigation, route }) => {
             </Card>
           </View>
         ) : searched && contextMatches && !loading && !error ? (
-          <Card><EmptyState icon="cube-outline" title="No materials found" subtitle="Try another cabinet position or load all cabinets." /></Card>
+          <Card><EmptyState icon="cube-outline" title="No materials found" subtitle="Check the sales order number and try again." /></Card>
         ) : loading ? (
           <Card className="gap-3">
             <SkeletonBlock height={24} width="50%" />
