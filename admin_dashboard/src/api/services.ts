@@ -167,6 +167,7 @@ export interface RosterJob {
   slot_end: string | null;
   assigned_ip_id: number | null;
   assigned_ip_name: string | null;
+  supervisor_name: string | null;
 }
 
 export interface RosterIP {

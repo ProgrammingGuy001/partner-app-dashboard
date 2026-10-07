@@ -85,7 +85,6 @@ def run_migrations(db: Session, *, verbose: bool = False) -> None:
         _add_admin_attendance_geofence_columns,
         _add_job_rate_location_description_columns,
         _drop_legacy_job_columns,
-        _clear_job_delivery_dates,
         _drop_roster_job_ip_date_unique,
         _enforce_business_invariants,
     )
@@ -211,27 +210,6 @@ def _drop_legacy_job_columns(db: Session) -> None:
         except Exception as exc:
             db.rollback()
             logger.error("Migration failed dropping legacy job columns: %s", exc)
-
-
-def _clear_job_delivery_dates(db: Session) -> None:
-    """One-off: jobs no longer carry a delivery date, so existing ones are wiped.
-
-    The backup table doubles as the "already ran" marker, so later jobs that get a
-    delivery date through the API are left alone.
-    """
-    if db.execute(text("SELECT to_regclass('jobs_delivery_date_backup')")).scalar():
-        return
-    try:
-        db.execute(text(
-            "CREATE TABLE jobs_delivery_date_backup AS "
-            "SELECT id, delivery_date FROM jobs WHERE delivery_date IS NOT NULL"
-        ))
-        db.execute(text("UPDATE jobs SET delivery_date = NULL WHERE delivery_date IS NOT NULL"))
-        db.commit()
-        logger.info("Migration: cleared jobs.delivery_date (backup in jobs_delivery_date_backup)")
-    except Exception as exc:
-        db.rollback()
-        logger.error("Migration failed clearing job delivery dates: %s", exc)
 
 
 def _create_dev_audit_log_table(db: Session) -> None:

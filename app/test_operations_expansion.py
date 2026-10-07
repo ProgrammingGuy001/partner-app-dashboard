@@ -134,14 +134,15 @@ def test_city_scope_and_all_roster_excludes_blank_jobs():
             current_user=city,
             db=db,
         )
-        assert [j["id"] for j in result["jobs"]] == [owned.id]
+        # Open jobs without an IP roster still show, so they can be scheduled.
+        assert sorted(j["id"] for j in result["jobs"]) == [owned.id, blank.id]
         superadmin = User(email="super@test.com", is_superadmin=True, is_active=True, is_approved=True)
         db.add(superadmin)
         db.commit()
         for manager in (dev, superadmin):
             result = get_admin_roster(admin_id=None, date_from=now_ist().date(),
                                       date_to=now_ist().date(), current_user=manager, db=db)
-            assert [j["id"] for j in result["jobs"]] == [owned.id]
+            assert sorted(j["id"] for j in result["jobs"]) == sorted([owned.id, blank.id, outside.id])
         with pytest.raises(HTTPException):
             get_admin_roster(
                 admin_id=other.id,

@@ -362,6 +362,7 @@ export default function Roster() {
                         <Link to={`/dashboard/jobs/${job.id}`} className="line-clamp-2 font-medium text-primary underline-offset-4 hover:underline">{job.name}</Link>
                         <p className="mt-1 text-xs text-muted-foreground">{job.type || "Unspecified type"}</p>
                         <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{job.assigned_ip_name ? `IP: ${job.assigned_ip_name}` : "IP not assigned"}</p>
+                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{job.supervisor_name ? `Supervisor: ${job.supervisor_name}` : "Supervisor not assigned"}</p>
                         <Badge variant="outline" className="mt-3 text-[10px]">{job.status.replaceAll("_", " ")}</Badge>
                       </td>
                       {days.map((day) => (

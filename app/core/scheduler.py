@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from app.services.attendance_autoclose import run_auto_close
@@ -48,6 +49,8 @@ scheduler.add_job(
     run_extend_open_job_rosters,
     CronTrigger(hour=0, minute=15, timezone=ATTENDANCE_TIMEZONE),
     id='extend_open_job_rosters',
+    # Also once at boot, so jobs opened up by a deploy are rostered without waiting a night.
+    next_run_time=datetime.now(ATTENDANCE_TIMEZONE),
     name='Extend roster for jobs without a delivery date',
     replace_existing=True
 )

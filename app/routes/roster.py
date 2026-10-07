@@ -117,6 +117,7 @@ def _job_payload(job: Job) -> dict:
         )
         if job.assigned_ip
         else None,
+        "supervisor_name": (job.user.name or job.user.email) if job.user else None,
     }
 
 
@@ -268,7 +269,9 @@ def get_admin_roster(
 
     jobs_query = (
         db.query(Job)
-        .options(joinedload(Job.customer), joinedload(Job.assigned_ip))
+        .options(
+            joinedload(Job.customer), joinedload(Job.assigned_ip), joinedload(Job.user)
+        )
     )
     if allowed_ids is not None:
         jobs_query = jobs_query.filter(Job.admin_assigned.in_(allowed_ids))
@@ -298,8 +301,10 @@ def get_admin_roster(
         for job in jobs
         if job.id in scheduled_job_ids
         or (
-            not is_manager(current_user) and
-            (job.start_date is None or job.start_date <= end)
+            # Open jobs show for everyone, IP or not; delivery dates are mostly gone,
+            # so the status check is what keeps finished jobs off the grid.
+            job.status in {"created", "in_progress", "paused"}
+            and (job.start_date is None or job.start_date <= end)
             and (job.delivery_date is None or job.delivery_date >= start)
         )
     ]
